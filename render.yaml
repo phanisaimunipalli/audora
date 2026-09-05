@@ -1,6 +1,12 @@
+# The live web service (audora-workflow) was created outside this blueprint and
+# serves the app at audora-workflow.onrender.com. It is deliberately NOT declared
+# here: a blueprint that named it would reconfigure it to rootDir: workflow and
+# take the public URL down.
+#
+# This blueprint declares only the reconstruction pipeline, under its own name.
 services:
   - type: workflow
-    name: audora-workflow
+    name: audora-pipeline
     language: node
     region: oregon
     rootDir: workflow

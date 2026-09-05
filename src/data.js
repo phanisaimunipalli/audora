@@ -42,3 +42,37 @@ export const buyLink = (name) =>
   'https://www.google.com/search?tbm=shop&q=' + encodeURIComponent(name)
 
 export const cm = (m) => Math.round(m * 100)
+
+// Curated staging sets. Fewer, better choices beat a wall of fifteen items:
+// each set is a plausible room, laid out around the origin in metres.
+export const SETS = [
+  { id: 'living', name: 'Living room', pieces: [
+      { id: 'rug',    x: 0.0,  z: -2.0, rot: 0 },
+      { id: 'sofa3',  x: 0.0,  z: -3.0, rot: 0 },
+      { id: 'coffee', x: 0.0,  z: -2.0, rot: 0 },
+      { id: 'tvunit', x: 0.0,  z: -0.7, rot: 0 },
+  ]},
+  { id: 'bedroom', name: 'Bedroom', pieces: [
+      { id: 'bedq',     x: 0.0,  z: -2.6, rot: 0 },
+      { id: 'night',    x: -1.4, z: -3.2, rot: 0 },
+      { id: 'night',    x: 1.4,  z: -3.2, rot: 0 },
+      { id: 'wardrobe', x: 2.2,  z: -1.2, rot: 1 },
+  ]},
+  { id: 'dining', name: 'Dining', pieces: [
+      { id: 'dining', x: 0.0,  z: -2.4, rot: 0 },
+      { id: 'chair',  x: -0.5, z: -1.7, rot: 0 },
+      { id: 'chair',  x: 0.5,  z: -1.7, rot: 0 },
+      { id: 'chair',  x: -0.5, z: -3.1, rot: 2 },
+      { id: 'chair',  x: 0.5,  z: -3.1, rot: 2 },
+  ]},
+  { id: 'workspace', name: 'Workspace', pieces: [
+      { id: 'desk',      x: 0.0,  z: -2.6, rot: 0 },
+      { id: 'armchair',  x: 0.0,  z: -1.8, rot: 2 },
+      { id: 'shelf',     x: 1.8,  z: -2.6, rot: 1 },
+  ]},
+]
+
+// The short list you can add one at a time. Deliberately six, not fifteen.
+export const SINGLES = ['sofa3', 'armchair', 'coffee', 'bedq', 'desk', 'rug']
+
+export const byId = (id) => CATALOG.find((c) => c.id === id)

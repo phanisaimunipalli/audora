@@ -68,6 +68,11 @@ function marbleDevApi() {
             const r = await fetch(`${MARBLE}/operations/${id}`, { headers: { 'WLT-Api-Key': key } })
             return send(r.status, await r.json())
           }
+          if (req.url.startsWith('/api/world?') || req.url.startsWith('/api/world&')) {
+            const id = new URL(req.url, 'http://x').searchParams.get('id')
+            const r = await fetch(`${MARBLE}/worlds/${id}`, { headers: { 'WLT-Api-Key': key } })
+            return send(r.status, await r.json())
+          }
           if (req.url.startsWith('/api/worlds')) {
             const r = await fetch(`${MARBLE}/worlds:list`, {
               method: 'POST',

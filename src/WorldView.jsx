@@ -117,8 +117,8 @@ export default function WorldView({
           <Suspense fallback={null}>
             <Collider
               url={world.collider}
-              scale={metric ? world.metricScaleFactor : 1}
-              offset={metric ? world.groundPlaneOffset : 0}
+              scale={metric ? (world.metricScaleFactor || 1) : 1}
+              offset={metric ? (world.groundPlaneOffset || 0) : 0}
             />
           </Suspense>
         )}

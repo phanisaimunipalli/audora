@@ -57,6 +57,10 @@ async function api(req, res, url) {
       const r = await fetch(`${MARBLE}/operations/${url.searchParams.get('id')}`, { headers: marbleHeaders() })
       return send(r.status, await r.json())
     }
+    if (url.pathname === '/api/world') {
+      const r = await fetch(`${MARBLE}/worlds/${url.searchParams.get('id')}`, { headers: marbleHeaders() })
+      return send(r.status, await r.json())
+    }
     if (url.pathname === '/api/worlds') {
       const r = await fetch(`${MARBLE}/worlds:list`, { method: 'POST', headers: marbleHeaders(), body: '{}' })
       return send(r.status, await r.json())

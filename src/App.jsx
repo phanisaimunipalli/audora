@@ -45,7 +45,7 @@ const worldFrom = (resp) => {
     caption: a.caption,
     thumbnail: a.thumbnail_url,
     model: resp.model,
-    metricScaleFactor: a.splats?.semantics_metadata?.metric_scale_factor ?? 1,
+    metricScaleFactor: a.splats?.semantics_metadata?.metric_scale_factor ?? null,
     groundPlaneOffset: a.splats?.semantics_metadata?.ground_plane_offset ?? 1.3,
   }
 }
@@ -128,8 +128,23 @@ export default function App() {
       if (op?.metadata?.progress?.description) setStatus(op.metadata.progress.description)
       if (op.error) throw new Error(JSON.stringify(op.error))
       if (op.done) {
+        let w = worldFrom(op.response)
+        // Draft completions come back before the panorama is attached. It lands
+        // on the world record a few seconds later, so wait for it rather than
+        // opening the viewer onto nothing.
+        if (!w.pano && w.worldId) {
+          setStatus('Finishing the panorama')
+          for (let i = 0; i < 24 && !w.pano; i++) {
+            await new Promise((r) => setTimeout(r, 2500))
+            try {
+              const rec = await fetch(`/api/world?id=${w.worldId}`).then((r) => r.json())
+              if (rec?.assets?.imagery?.pano_url) w = { ...worldFrom(rec), worldId: w.worldId }
+            } catch { /* keep waiting */ }
+          }
+        }
         clearInterval(timer.current)
-        return { world: worldFrom(op.response), cost: op.cost?.total_credits ?? null }
+        if (!w.pano) throw new Error('the world generated but no panorama was returned')
+        return { world: w, cost: op.cost?.total_credits ?? null }
       }
     }
   }, [])
@@ -199,7 +214,7 @@ export default function App() {
             {tier === 'full' ? 'Full quality' : 'Draft'}
             {!upgrading && elapsed > 0 && <> · {mmss(elapsed)}</>}
             {cost != null && <> · {cost} cr</>}
-            {world.metricScaleFactor != null && <> · scale ×{Number(world.metricScaleFactor).toFixed(3)}</>}
+            {world.metricScaleFactor ? <> · scale ×{Number(world.metricScaleFactor).toFixed(3)}</> : null}
           </span>
           <div className="right">
             <button className={staging ? 'on' : ''} onClick={() => setStaging(v => !v)}>Furniture</button>

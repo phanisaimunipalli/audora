@@ -1,6 +1,6 @@
 # Audora
 
-**See it before you fill it.**
+**Live it before buying or selling.**
 
 Audora turns an empty room into a walkable, true to scale 3D space and stages it
 with furniture that actually fits. Built for sellers and listing agents who need

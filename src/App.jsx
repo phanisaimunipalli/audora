@@ -265,8 +265,8 @@ export default function App() {
     <div className="up">
       <div className="up-inner">
         <div className="brand big">AUDORA</div>
-        <h1>Upload photos of your room.</h1>
-        <p className="sub">Get back a real 3D world you can look around and stage.</p>
+        <h1>Live it before buying or selling.</h1>
+        <p className="sub">Upload photos of a room and get back a real 3D world you can walk through and stage with furniture at true dimensions.</p>
 
         {phase === 'working' ? (
           <div className="progress">

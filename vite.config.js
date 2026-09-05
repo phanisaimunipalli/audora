@@ -36,18 +36,29 @@ function marbleDevApi() {
         if (!key) return send(500, { error: 'WORLDLABS_API_KEY missing from .env.local' })
         try {
           if (req.url.startsWith('/api/generate') && req.method === 'POST') {
-            const { image_base64, model, text_prompt } = JSON.parse(await readBody(req))
+            const { images, model, text_prompt } = JSON.parse(await readBody(req))
+            const list = (images || []).filter(Boolean)
+            if (!list.length) return send(400, { error: 'no images supplied' })
+            // One photo uses `image`; several use `multi-image` so Marble gets
+            // more angles to reconstruct from.
+            const world_prompt = list.length === 1
+              ? {
+                  type: 'image',
+                  image_prompt: { source: 'data_base64', data_base64: list[0] },
+                  ...(text_prompt ? { text_prompt } : {}),
+                }
+              : {
+                  type: 'multi-image',
+                  multi_image_prompt: list.map((b64) => ({ source: 'data_base64', data_base64: b64 })),
+                  ...(text_prompt ? { text_prompt } : {}),
+                }
             const r = await fetch(`${MARBLE}/worlds:generate`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'WLT-Api-Key': key },
               body: JSON.stringify({
                 display_name: 'Audora room',
                 model: model || 'marble-1.0-draft',
-                world_prompt: {
-                  type: 'image',
-                  image_prompt: { source: 'data_base64', data_base64: image_base64 },
-                  ...(text_prompt ? { text_prompt } : {}),
-                },
+                world_prompt,
               }),
             })
             return send(r.status, await r.json())

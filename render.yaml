@@ -1,0 +1,11 @@
+services:
+  - type: workflow
+    name: audora-workflow
+    language: node
+    region: oregon
+    rootDir: workflow
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: WORLDLABS_API_KEY
+        sync: false

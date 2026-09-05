@@ -23,7 +23,7 @@
  * no side effect at all.
  */
 
-import { task, TaskContext } from '@renderinc/sdk'
+import { task, TaskContext } from '@renderinc/sdk/workflows'
 
 const MARBLE = 'https://api.worldlabs.ai/marble/v1'
 const KEY = process.env.WORLDLABS_API_KEY ?? ''
@@ -64,7 +64,7 @@ async function findExisting(key: string) {
  * second generation is charged.
  */
 export const submitGeneration = task(
-  { name: 'submitGeneration', retry: { maxAttempts: 4, initialDelaySeconds: 2, backoffMultiplier: 2 } },
+  { name: 'submitGeneration', retry: { maxRetries: 4, waitDurationMs: 2000, backoffScaling: 2 } },
   async (ctx: TaskContext, input: BuildInput) => {
     const model = input.model ?? 'marble-1.0-draft'
     const key = idemKey(input.roomId, model)
@@ -102,7 +102,7 @@ export const submitGeneration = task(
  * exactly why submission lives in its own task.
  */
 export const awaitGeneration = task(
-  { name: 'awaitGeneration', retry: { maxAttempts: 5, initialDelaySeconds: 5, backoffMultiplier: 1.6 } },
+  { name: 'awaitGeneration', retry: { maxRetries: 5, waitDurationMs: 5000, backoffScaling: 1.6 } },
   async (ctx: TaskContext, args: { operationId: string; failAt?: 'poll' | null }) => {
     // Controlled failure for the demo. Throws on the first attempt only, so
     // the retry visibly recovers against the same in-flight operation.
@@ -127,7 +127,7 @@ export const awaitGeneration = task(
 
 /** Read a finished world straight from Marble when submission was reused. */
 export const fetchWorld = task(
-  { name: 'fetchWorld', retry: { maxAttempts: 4, initialDelaySeconds: 2, backoffMultiplier: 2 } },
+  { name: 'fetchWorld', retry: { maxRetries: 4, waitDurationMs: 2000, backoffScaling: 2 } },
   async (ctx: TaskContext, args: { worldId: string }) => {
     return { response: await marble(`/worlds/${args.worldId}`), cost: null }
   }

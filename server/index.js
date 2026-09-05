@@ -12,6 +12,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DIST = path.join(__dirname, '..', 'dist')
 const MARBLE = 'https://api.worldlabs.ai/marble/v1'
 const KEY = process.env.WORLDLABS_API_KEY || ''
+// When these are set, generation runs through the Render Workflow instead of
+// calling Marble inline. Unset, the app behaves exactly as it does today.
+const RENDER_KEY = process.env.RENDER_API_KEY || ''
+const RENDER_TASK = process.env.RENDER_WORKFLOW_TASK || 'audora-pipeline/buildWorld'
+const useWorkflow = () => Boolean(RENDER_KEY)
 const PORT = process.env.PORT || 10000
 
 const TYPES = {
@@ -53,6 +58,37 @@ async function api(req, res, url) {
       })
       return send(r.status, await r.json())
     }
+    // Render Workflows path -------------------------------------------------
+    if (url.pathname === '/api/workflow/start' && req.method === 'POST') {
+      if (!useWorkflow()) return send(503, { error: 'workflow not configured' })
+      const { images, model, roomId, failAt } = JSON.parse(await readBody(req))
+      const r = await fetch('https://api.render.com/v1/tasks', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${RENDER_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task: RENDER_TASK,
+          input: [{
+            roomId: roomId || `room-${Date.now()}`,
+            images: (images || []).filter(Boolean),
+            model: model || 'marble-1.0-draft',
+            failAt: failAt || null,
+          }],
+        }),
+      })
+      return send(r.status, await r.json())
+    }
+    if (url.pathname === '/api/workflow/status') {
+      if (!useWorkflow()) return send(503, { error: 'workflow not configured' })
+      const id = url.searchParams.get('id')
+      const r = await fetch(`https://api.render.com/v1/tasks/${id}`, {
+        headers: { 'Authorization': `Bearer ${RENDER_KEY}`, 'Accept': 'application/json' },
+      })
+      return send(r.status, await r.json())
+    }
+    if (url.pathname === '/api/workflow/enabled') {
+      return send(200, { enabled: useWorkflow(), task: useWorkflow() ? RENDER_TASK : null })
+    }
+    // -------------------------------------------------------------------------
     if (url.pathname === '/api/status') {
       const r = await fetch(`${MARBLE}/operations/${url.searchParams.get('id')}`, { headers: marbleHeaders() })
       return send(r.status, await r.json())
@@ -69,7 +105,7 @@ async function api(req, res, url) {
       const r = await fetch(`${MARBLE}/credits`, { headers: marbleHeaders() })
       return send(r.status, await r.json())
     }
-    if (url.pathname === '/api/health') return send(200, { ok: true, keyConfigured: Boolean(KEY) })
+    if (url.pathname === '/api/health') return send(200, { ok: true, keyConfigured: Boolean(KEY), workflow: useWorkflow() })
     return send(404, { error: 'not found' })
   } catch (e) {
     return send(500, { error: String(e?.message || e) })

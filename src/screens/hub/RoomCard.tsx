@@ -9,6 +9,7 @@ import { STYLE_LABELS } from '@/engine/autostage';
 import { fitReport } from '@/engine/fit';
 import { bestWorld, toast, useAudora } from '@/state/store';
 import { activeProvider, regenerateRoom } from '@/state/jobs';
+import { needsFull } from '@/state/publish';
 import type { Job, Room, Tier, Tour } from '@/state/types';
 import { TIER_INFO } from '@/services/mockWorld';
 import { aiAutoStage } from '@/services/ai';
@@ -20,6 +21,7 @@ import { Icon } from '@/components/icons';
 import { ROOM_TYPES, ROOM_TYPE_LABELS } from '@/screens/create/types';
 import { FloorPlanSvg } from './FloorPlanSvg';
 import { isActiveJob, modelName, providerName } from './jobMeta';
+import { ShadowedFullNote, TierChip } from './TierChip';
 
 export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; job?: Job; onView: (roomId: string) => void }) {
   const updateRoom = useAudora((s) => s.updateRoom);
@@ -39,6 +41,7 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
   const real = world?.provider === 'marble' && (!!world.panoUrl || !!world.spzUrl || !!world.colliderUrl);
   const busy = !!job && isActiveJob(job);
   const provider = providers.marble && !preferMock ? 'marble' : activeProvider();
+  const canUpgrade = needsFull(room, provider);
   const canLive = provider === 'marble' && !!room.photo;
   const costLabel = (tier: Tier) => (canLive ? `~${TIER_INFO[tier].credits} credits · ${fmtUsd(TIER_INFO[tier].usd)} · ${modelName('marble', tier, providers)}` : `simulated · free · ${modelName('mock', tier)}`);
   const regenBody = (tier: Tier) => (canLive ? `${providerName('marble')} · ${costLabel(tier)}` : `${providerName('mock')} · free · ${modelName('mock', tier)}`);
@@ -91,11 +94,8 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
             <Chip mono tone={room.status === 'ready' ? 'ok' : room.status === 'failed' ? 'danger' : room.status === 'generating' ? 'accent' : 'warn'} className="!text-[10px] uppercase">
               {room.status}
             </Chip>
-            {world ? (
-              <Chip mono className="!text-[10px]">
-                {world.tier} · {providerName(world.provider)}
-              </Chip>
-            ) : null}
+            {/* The tier the buyer is actually getting: "full · marble-1.1 · 1,580 credits". */}
+            <TierChip room={room} generating={busy} />
             {/* Provenance lives here, never in the room name: the name is buyer-facing copy. */}
             {room.note ? (
               <Chip mono tone="accent" className="!text-[10px]">
@@ -168,10 +168,23 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
               <Button size="sm" variant="secondary" disabled={busy} onClick={() => regen('draft')}>
                 <Icon.Rotate size={14} /> Regenerate draft <span className="mono text-ink-3">· {costLabel('draft')}</span>
               </Button>
-              <Button size="sm" variant="secondary" disabled={busy || !!room.full} onClick={() => regen('full')}>
-                <Icon.Zap size={14} /> {room.full ? 'Full world attached' : 'Upgrade to full'} <span className="mono text-ink-3">· {costLabel('full')}</span>
+              {/* A free simulated rehearsal must not consume the room's one upgrade: with the live
+                  provider selected, a room carrying a mock full can still be sent to marble-1.1. */}
+              <Button size="sm" variant="secondary" disabled={busy || !canUpgrade} onClick={() => regen('full')}>
+                <Icon.Zap size={14} />{' '}
+                {busy && job?.tier === 'full'
+                  ? 'Upgrading to full quality'
+                  : canUpgrade
+                    ? room.full
+                      ? 'Replace the simulated full with a real one'
+                      : 'Upgrade to full quality'
+                    : room.full?.provider === 'mock'
+                      ? 'Simulated full attached'
+                      : 'Full world attached'}{' '}
+                <span className="mono text-ink-3">· {costLabel('full')}</span>
               </Button>
             </div>
+            <ShadowedFullNote room={room} />
             {world ? (
               <div className="mono text-[11px] text-ink-3" title={`${world.model} · ${world.worldId}`}>
                 Current: {world.tier} · {world.provider === 'mock' ? 'simulated' : providerName('marble')}

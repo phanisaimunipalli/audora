@@ -72,8 +72,8 @@ export function isMoving(i: WalkIntent): boolean {
 
 /**
  * The walkable floor of a real reconstruction, read off its collider mesh (see `walkMask.ts`).
- * The room rectangle is the collider's *bounding box* and so overstates the photographed room by
- * 15–20%; where a mask is available it is the truth about where the walls are.
+ * The room rectangle is a rectangle drawn around the room; where a mask is available it is the
+ * truth about where the walls actually are.
  */
 export interface WalkBounds {
   blocked(x: number, z: number): boolean;
@@ -113,6 +113,11 @@ export function blocked(x: number, z: number, room: RoomGeometry, pieces: Placed
  * and nothing checked the way there. Marching out from the walker and stopping at the last free
  * point keeps every glide inside the room the photograph shows. Returns null when even the first
  * step is blocked.
+ *
+ * **Every point this returns is reached by an unblocked walk from (fx,fz)** — there is no branch
+ * that hands back the target because it happens to be free. Teleporting to a "free" point across a
+ * photographed wall is exactly how a buyer ended up standing inside the masonry of the opposite
+ * corner, unable to walk out.
  */
 export function standable(
   x: number,
@@ -131,24 +136,62 @@ export function standable(
   if (len < 1e-3) return blocked(cx, cz, room, pieces, mask) ? null : { x: cx, z: cz };
   const ux = dx / len;
   const uz = dz / len;
+  const step = 0.08;
   if (blocked(fx, fz, room, pieces, mask)) {
     // The walker is standing somewhere they should not be (a mask arrived under their feet):
-    // the nearest free point on the way to the target is the way out.
-    for (let s = 0.1; s <= len; s += 0.1) {
+    // the nearest free point on the way to the target is the way out. If the whole line is walled
+    // in, say so — the caller falls back to a point it knows is inside (the capture point).
+    for (let s = step; s <= len; s += step) {
       const px = fx + ux * s;
       const pz = fz + uz * s;
       if (!blocked(px, pz, room, pieces, mask)) return { x: px, z: pz };
     }
-    return blocked(cx, cz, room, pieces, mask) ? null : { x: cx, z: cz };
+    return null;
   }
   let best = { x: fx, z: fz };
-  for (let s = 0.1; s <= len; s += 0.1) {
+  for (let s = step; s <= len; s += step) {
     const px = fx + ux * s;
     const pz = fz + uz * s;
     if (blocked(px, pz, room, pieces, mask)) return best;
     best = { x: px, z: pz };
   }
   return blocked(cx, cz, room, pieces, mask) ? best : { x: cx, z: cz };
+}
+
+/**
+ * The nearest place the walker can actually stand to (x,z) — a ring search outward, preferring the
+ * side the room's inside is on when `toward` is given.
+ *
+ * The spawn is computed from the room *rectangle*, and on a real reconstruction the walk mask is a
+ * few centimetres tighter than that rectangle, so the capture point itself can come out "blocked".
+ * Spawning there left the buyer standing in a wall with WASD refusing every direction, which is why
+ * this exists: whatever the caller asks for, the walker starts somewhere they can walk out of.
+ */
+export function nearestFree(
+  x: number,
+  z: number,
+  room: RoomGeometry,
+  pieces: PlacedPiece[],
+  mask?: WalkBounds | null,
+  toward?: { x: number; z: number } | null,
+  maxRadius = 2.5,
+): { x: number; z: number } | null {
+  if (!blocked(x, z, room, pieces, mask)) return { x, z };
+  // Straight at the point we know is inside first: it is the shortest honest way back in.
+  if (toward) {
+    const out = standable(toward.x, toward.z, x, z, room, pieces, mask);
+    if (out) return out;
+  }
+  for (let r = 0.12; r <= maxRadius; r += 0.12) {
+    const steps = Math.max(8, Math.round((2 * Math.PI * r) / 0.12));
+    for (let i = 0; i < steps; i++) {
+      const a = (i / steps) * Math.PI * 2;
+      const px = x + Math.cos(a) * r;
+      const pz = z + Math.sin(a) * r;
+      if (!blocked(px, pz, room, pieces, mask)) return { x: px, z: pz };
+    }
+  }
+  return toward && !blocked(toward.x, toward.z, room, pieces, mask) ? { x: toward.x, z: toward.z } : null;
 }
 
 /**
@@ -182,6 +225,18 @@ export function integrate(
   const z0 = st.z;
   const nx = st.x + st.vx * dt;
   const nz = st.z + st.vz * dt;
+  /* Already standing somewhere illegal — a mask that landed under the walker's feet, a glide that
+     ended badly, furniture dropped around them. Collision would then refuse *every* direction and
+     the buyer would be frozen with no way out but a mode switch. While stuck, movement is allowed
+     anywhere inside the room rectangle (never out of the room altogether); the ordinary rules come
+     back the moment they step onto free floor. */
+  if (blocked(st.x, st.z, room, pieces, mask)) {
+    const lx = room.width / 2 - WALK_RADIUS;
+    const lz = room.depth / 2 - WALK_RADIUS;
+    st.x = clamp(nx, -lx, lx);
+    st.z = clamp(nz, -lz, lz);
+    return st.x !== x0 || st.z !== z0;
+  }
   if (!blocked(nx, st.z, room, pieces, mask)) st.x = nx;
   else st.vx = 0;
   if (!blocked(st.x, nz, room, pieces, mask)) st.z = nz;

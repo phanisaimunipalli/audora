@@ -14,6 +14,7 @@ import { TourInsights } from '@/screens/TourInsights';
 import { HubHeader } from '@/screens/hub/HubHeader';
 import { GeneratingView } from '@/screens/hub/GeneratingView';
 import { RoomCard } from '@/screens/hub/RoomCard';
+import { UpgradeBanner } from '@/screens/hub/UpgradeBanner';
 import { latestJobFor, tourStatus } from '@/screens/hub/jobMeta';
 
 type Tab = 'tour' | 'stage' | 'publish' | 'insights';
@@ -64,7 +65,9 @@ export default function TourHub() {
   }
 
   const status = tourStatus(tour, rooms, jobs);
-  const generating = status.kind === 'generating';
+  // An upgrade is not a generation: every room is already walkable, so the hub keeps its tabs and
+  // only shows the "upgrading to full quality" banner.
+  const generating = status.kind === 'generating' && !status.upgrading;
   const selected = rooms.find((r) => r.id === roomParam) ?? rooms.find((r) => r.status === 'ready') ?? rooms[0];
   const pendingCount = rooms.filter((r) => r.status === 'pending').length;
 
@@ -101,6 +104,7 @@ export default function TourHub() {
               </div>
             </Callout>
           ) : null}
+          {status.upgrades.length ? <UpgradeBanner jobs={status.upgrades} rooms={rooms} compact /> : null}
           {pendingCount > 0 && !generating ? (
             <Callout tone="warn" title={`${pendingCount} room${pendingCount === 1 ? '' : 's'} not generated yet`}>
               <Button

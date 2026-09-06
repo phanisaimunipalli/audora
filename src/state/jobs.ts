@@ -6,7 +6,7 @@
 import { useEffect } from 'react';
 import { mockWorld } from '@/services/mockWorld';
 import {
-  fetchColliderBounds,
+  fetchColliderGeometry,
   fetchWorld,
   panoUrlOf,
   pollOperation,
@@ -20,7 +20,8 @@ import {
 import { chime, sendNotification, setTitleBadge } from '@/lib/notify';
 import { uid } from '@/lib/ids';
 import { toast, useAudora } from './store';
-import type { Job, JobStep, Tier } from './types';
+import { FULL_READY_TITLE, hasPendingJob, needsFull, pickWorld, tierCost, upgradeTargets, type TierCost } from './publish';
+import type { Job, JobStep, Provider, Room, Tier } from './types';
 
 export const JOB_STEPS: JobStep[] = [
   { label: 'Reading the photo', at: 0 },
@@ -81,6 +82,17 @@ export function isRunnerTab(): boolean {
   }
 }
 
+/**
+ * A failed job only fails the *room* when the room has nothing to show. A full-quality upgrade that
+ * fails leaves the draft standing: the buyer keeps walking it, and only the job carries the error.
+ */
+function failRoom(roomId: string) {
+  const s = useAudora.getState();
+  const room = s.rooms[roomId];
+  if (!room || room.draft || room.full) return;
+  s.updateRoom(roomId, { status: 'failed' });
+}
+
 async function startJob(job: Job) {
   const { updateJob, rooms } = useAudora.getState();
   const room = rooms[job.roomId];
@@ -92,9 +104,18 @@ async function startJob(job: Job) {
       const { operationId, worldId } = await startGeneration(room, job.tier);
       updateJob(job.id, { status: 'running', operationId, worldId, progress: 2, step: stepFor(2), lastPollAt: 0 });
     } catch (e: any) {
-      updateJob(job.id, { status: 'failed', error: e?.message || 'Could not start generation', finishedAt: Date.now() });
-      useAudora.getState().updateRoom(job.roomId, { status: 'failed' });
-      toast({ kind: 'error', title: `${room.name}: generation failed`, body: e?.message });
+      const message: string = e?.message || 'Could not start generation';
+      updateJob(job.id, { status: 'failed', error: message, finishedAt: Date.now() });
+      failRoom(job.roomId);
+      // The dev server's credit guard answers 429 with a sentence that explains itself; show it as
+      // written rather than burying it under a generic failure.
+      const guarded = /credit guard/i.test(message);
+      toast({
+        kind: guarded ? 'warn' : 'error',
+        title: guarded ? 'Credit guard: generation blocked' : `${room.name}: generation failed`,
+        body: guarded ? message : e?.message,
+        action: guarded ? { label: 'Settings', to: '/settings' } : undefined,
+      });
     }
   } else {
     updateJob(job.id, { status: 'running', startedAt: Date.now(), progress: 1, step: stepFor(1) });
@@ -106,21 +127,48 @@ function finishJob(job: Job, worldBuilder: () => ReturnType<typeof mockWorld>) {
   const room = s.rooms[job.roomId];
   const tour = s.tours[job.tourId];
   if (!room) return;
+  // Read before attaching: a full job on a room that already has a draft is an upgrade, and the
+  // whole story the user is told about it ("upgrading", "full quality is ready") hangs off that.
+  const isUpgradeJob = job.tier === 'full' && (job.upgrade || Boolean(room.draft));
   const world = worldBuilder();
   s.attachWorld(job.roomId, world);
   s.updateJob(job.id, { status: 'done', progress: 100, step: 'Ready', finishedAt: Date.now(), worldId: world.worldId });
 
   // Is the whole tour done?
   const after = useAudora.getState();
+  /* "Full quality is ready — buyers get the best world every room has" is only true if the world
+     that just landed is the world the buyer gets. A *simulated* full never displaces a real Marble
+     capture (pickWorld), so a free rehearsal on the real corner room finishes with the buyer still
+     walking the draft — and saying otherwise, in the toast, the browser notification and the tray,
+     was the app contradicting its own publish panel one screen down. */
+  const roomAfter = after.rooms[job.roomId];
+  const delivered = !roomAfter || pickWorld(roomAfter.draft, roomAfter.full) === (world.tier === 'full' ? roomAfter.full : roomAfter.draft);
+  const upgraded = isUpgradeJob && delivered;
+  const shadowed = isUpgradeJob && !delivered;
   const remaining = Object.values(after.jobs).filter((j) => j.tourId === job.tourId && (j.status === 'queued' || j.status === 'running'));
   const tourTitle = tour?.title || 'Your tour';
   const to = `/tours/${job.tourId}`;
+  const shadowBody = `A simulated full world is attached, but ${room.name} keeps its real Marble capture — that is the better world, so that is what buyers walk.`;
   if (remaining.length === 0) {
-    toast({ kind: 'success', title: `${tourTitle} is ready to walk`, body: 'Every room has finished generating.', action: { label: 'Open tour', to } });
-    if (tour?.notify.browser) sendNotification('Audora: your tour is ready', `${tourTitle} finished generating. Tap to walk it.`, () => (window.location.hash = ''), );
-    if (after.settings.sound) chime();
+    const title = shadowed ? `${room.name}: simulated full attached` : upgraded ? FULL_READY_TITLE : `${tourTitle} is ready to walk`;
+    const body = shadowed ? shadowBody : upgraded ? `${room.name} is full quality now. Buyers get the best world every room has.` : 'Every room has finished generating.';
+    toast({ kind: shadowed ? 'info' : 'success', title, body, action: { label: 'Open tour', to } });
+    if (tour?.notify.browser && !shadowed) {
+      sendNotification(
+        upgraded ? `Audora: ${FULL_READY_TITLE.toLowerCase()}` : 'Audora: your tour is ready',
+        upgraded ? `${tourTitle} — ${room.name} finished its full-quality reconstruction.` : `${tourTitle} finished generating. Tap to walk it.`,
+        () => (window.location.hash = ''),
+      );
+    }
+    if (after.settings.sound && !shadowed) chime();
   } else {
-    toast({ kind: 'info', title: `${room.name} is ready`, body: `${remaining.length} room${remaining.length === 1 ? '' : 's'} still generating.`, action: { label: 'Peek', to } });
+    const still = `${remaining.length} room${remaining.length === 1 ? '' : 's'} still ${isUpgradeJob ? 'upgrading' : 'generating'}.`;
+    toast({
+      kind: upgraded ? 'success' : 'info',
+      title: shadowed ? `${room.name}: simulated full attached` : upgraded ? `${room.name}: ${FULL_READY_TITLE.toLowerCase()}` : `${room.name} is ready`,
+      body: shadowed ? `${shadowBody} ${still}` : still,
+      action: { label: 'Peek', to },
+    });
   }
   setTitleBadge(Object.values(after.jobs).filter((j) => j.status === 'done' && !j.seen).length);
 }
@@ -147,7 +195,7 @@ async function finaliseMarbleJob(job: Job, op: MarbleOperation, elapsed: number)
   }
   if (!world) {
     s().updateJob(job.id, { status: 'failed', error: 'Finished without a world', finishedAt: Date.now() });
-    s().updateRoom(job.roomId, { status: 'failed' });
+    failRoom(job.roomId);
     return;
   }
   // Draft panoramas land a few seconds after the operation completes.
@@ -161,11 +209,14 @@ async function finaliseMarbleJob(job: Job, op: MarbleOperation, elapsed: number)
   let bounds: WorldBounds | undefined;
   const colliderUrl = world.assets?.mesh?.collider_mesh_url;
   if (colliderUrl) {
-    s().updateJob(job.id, { step: 'Measuring the room', detail: 'Reading the collider mesh', progress: 99 });
+    s().updateJob(job.id, { step: 'Measuring the room', detail: 'Finding the walls in the collider mesh', progress: 99 });
     try {
-      bounds = await fetchColliderBounds(colliderUrl);
+      // Not just the bounding box: `fetchColliderGeometry` reads the vertices and measures the room
+      // to its walls, so the numbers the buyer reads are not inflated by what the model saw through
+      // the windows (see `fitWallRect` in services/marble).
+      bounds = await fetchColliderGeometry(colliderUrl);
     } catch (e) {
-      console.warn('[audora] collider bounds unavailable, keeping photo estimate', e);
+      console.warn('[audora] collider geometry unavailable, keeping photo estimate', e);
     }
   }
   const room = s().rooms[job.roomId];
@@ -217,7 +268,7 @@ async function tick() {
           if (op.done) {
             if (op.error) {
               s.updateJob(job.id, { status: 'failed', error: op.error.message || op.error.code || 'Generation failed', finishedAt: now });
-              s.updateRoom(job.roomId, { status: 'failed' });
+              failRoom(job.roomId);
               toast({ kind: 'error', title: `${room.name}: generation failed`, body: op.error.message });
               continue;
             }
@@ -228,7 +279,7 @@ async function tick() {
             void finaliseMarbleJob(job, op, elapsed)
               .catch((e: any) => {
                 useAudora.getState().updateJob(job.id, { status: 'failed', error: e?.message || 'Could not collect the finished world', finishedAt: Date.now() });
-                useAudora.getState().updateRoom(job.roomId, { status: 'failed' });
+                failRoom(job.roomId);
               })
               .finally(() => finalising.delete(job.id));
           } else {
@@ -245,7 +296,7 @@ async function tick() {
           const stale = now - job.startedAt > job.etaSeconds * 3000;
           if (stale) {
             s.updateJob(job.id, { status: 'failed', error: e?.message || 'Lost contact with the generation service', finishedAt: now });
-            s.updateRoom(job.roomId, { status: 'failed' });
+            failRoom(job.roomId);
           }
         }
       }
@@ -277,6 +328,24 @@ export function activeProvider(): 'marble' | 'mock' {
   return s.providers.marble && !s.settings.preferMock ? 'marble' : 'mock';
 }
 
+/** How long a job of this tier takes on this provider: the measured Marble figure, or the mock's. */
+export function etaFor(tier: Tier, provider: Provider = activeProvider()): number {
+  const s = useAudora.getState().settings;
+  return provider === 'marble' ? REAL_ETA[tier] : tier === 'draft' ? s.mockDraftSeconds : s.mockFullSeconds;
+}
+
+/** Enqueue one job, tagging it as an upgrade when the room already has a world to fall back on. */
+function queueJob(room: Room, tier: Tier, provider: Provider): Job {
+  return useAudora.getState().enqueueJob({
+    tourId: room.tourId,
+    roomId: room.id,
+    tier,
+    provider,
+    etaSeconds: etaFor(tier, provider),
+    upgrade: tier === 'full' && Boolean(room.draft || room.full),
+  });
+}
+
 /** Queue generation for every pending room in a tour. */
 export function generateTour(tourId: string, tier?: Tier) {
   const s = useAudora.getState();
@@ -284,18 +353,47 @@ export function generateTour(tourId: string, tier?: Tier) {
   if (!tour) return [];
   const t = tier ?? tour.quality;
   const provider = activeProvider();
-  const eta = provider === 'marble' ? REAL_ETA[t] : t === 'draft' ? s.settings.mockDraftSeconds : s.settings.mockFullSeconds;
+  const jobs = Object.values(s.jobs).filter((j) => j.tourId === tourId);
   return tour.roomIds
     .map((rid) => s.rooms[rid])
     .filter((r) => r && (r.status === 'pending' || r.status === 'failed' || (t === 'full' && !r.full)))
-    .map((room) => s.enqueueJob({ tourId, roomId: room.id, tier: t, provider, etaSeconds: eta }));
+    // Never queue a second job of the same tier for a room: two Marble generations, one world, double the credits.
+    .filter((r) => !hasPendingJob(jobs, r.id, t))
+    .map((room) => queueJob(room, t, provider));
 }
 
 export function regenerateRoom(roomId: string, tier: Tier) {
   const s = useAudora.getState();
   const room = s.rooms[roomId];
   if (!room) return undefined;
+  if (hasPendingJob(Object.values(s.jobs), roomId, tier)) return undefined; // already on its way
+  return queueJob(room, tier, activeProvider());
+}
+
+export interface UpgradeResult {
+  /** Jobs actually queued by this call. */
+  jobs: Job[];
+  /** Rooms that needed the upgrade and already had one on the way. */
+  skipped: Room[];
+  provider: Provider;
+  /** What the queued jobs will cost (zero on the simulated provider). */
+  cost: TierCost;
+}
+
+/**
+ * Take a whole tour to full quality: one `marble-1.1` job per room that only has a draft, skipping
+ * any room whose upgrade is already queued or running. This is what Publish calls — the buyer
+ * should walk the full reconstruction, and the draft stays on screen until it lands.
+ */
+export function upgradeTourToFull(tourId: string): UpgradeResult {
+  const s = useAudora.getState();
   const provider = activeProvider();
-  const eta = provider === 'marble' ? REAL_ETA[tier] : tier === 'draft' ? s.settings.mockDraftSeconds : s.settings.mockFullSeconds;
-  return s.enqueueJob({ tourId: room.tourId, roomId, tier, provider, etaSeconds: eta });
+  const tour = s.tours[tourId];
+  if (!tour) return { jobs: [], skipped: [], provider, cost: tierCost(0, 'full', provider) };
+  const rooms = tour.roomIds.map((rid) => s.rooms[rid]).filter(Boolean) as Room[];
+  const jobs = Object.values(s.jobs).filter((j) => j.tourId === tourId);
+  const targets = upgradeTargets(rooms, jobs, provider);
+  const skipped = rooms.filter((r) => needsFull(r, provider) && hasPendingJob(jobs, r.id, 'full'));
+  const queued = targets.map((room) => queueJob(room, 'full', provider));
+  return { jobs: queued, skipped, provider, cost: tierCost(queued.length, 'full', provider) };
 }

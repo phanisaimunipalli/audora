@@ -153,11 +153,9 @@ supersede the guesses earlier in this section.
   full-quality one (which is why the reference build needed its floor slider to make furniture stand
   on the photograph). Order of preference: `floorY`, then `ground_plane_offset`, then `minY`.
   `Room.floorOffset` remains as the manual nudge on top.
-- **Room extent is still the collider's bounding box** (`rawFromBounds`), which overstates the corner
-  room: the box is 7.83 × 7.33 raw units while the nearest wall in each direction sits at 6.4 × 6.6.
-  The room's own numbers are therefore ~15–20% generous. The fix is a wall-line estimator beside
-  `colliderFloorY` (nearest vertical surface per azimuth in the wall band); nothing about the
-  reconstruction's placement depends on it.
+- **Room extent is measured to the walls, not to the box** (see the next section). The bounding box
+  is 7.83 × 7.33 raw units of a room whose walls are 4.37 × 5.91; `bounds.walls` records the fit and
+  `bounds.method` says which of the two the room's numbers came from.
 - **Walking is bounded by the mesh, not by that box** (`src/three/walkMask.ts`, 2026-09-06). The
   collider's wall band (0.3–1.7 m above our floor) is rasterised into a 12 cm occupancy grid, grown
   by the walker's radius and flood-filled from the capture point; `WalkControls` takes it as `mask`
@@ -165,8 +163,10 @@ supersede the guesses earlier in this section.
   instead of sailing through the photographed wall. A mask whose flood escapes the grid, or that
   encloses less than 2 m², is discarded and the room rectangle is used, so the walker is never
   frozen. Measured on the demo corner room: 7.1 m² of standable floor, and the wall band turns out
-  to be a **diamond** in our axes — the room really is at ~45° to the capture direction, which is
-  exactly why its bounding box is 41% too big. `window.__audoraWalkMask` exposes it in dev.
+  to be a **diamond** in our axes — the room really was at ~45° to the capture direction, which is
+  exactly why its bounding box is 41% too big. (That turn is now folded into the frame, so the same
+  mask comes out as an 8.1 m² rectangle filling 96% of its own bounding box.)
+  `window.__audoraWalkMask` exposes it in dev.
 
 Photo view is one shared surface: the same mode switch, the same `WorldLayers` panel (geometry, real
 capture, floor height) and the same frame in the public viewer, the hub's Tour tab and the staging
@@ -178,3 +178,83 @@ all (it used to fade to `opacity 0.15`, which read as a hard-edged milky box *in
 photograph, because its walls are a different size from the real ones). `StagingLayer` carries its
 own invisible floor plane, so dragging and the ghost still work with the shell gone. The shell comes
 back the moment the capture is switched off or fails to load.
+
+### Room extent is measured to the walls, and the room's own yaw is in the frame (settled)
+
+`fetchColliderGeometry` fits the wall band with a rotation-aware rectangle (`bounds.walls` =
+`{minX, maxX, minZ, maxZ, rotation, score, openings}`, `bounds.method`). The demo corner room is
+**3.00 × 4.06 m**, within 1 % of the mesh's own wall planes, and it sits at **47°** to Marble's
+capture axes because the photographer faced a corner.
+
+That 47° is now part of the frame. `roomRect(bounds)` (services/marble) returns the room **in
+Audora's axes** — `{yaw, minX, maxX, minZ, maxZ}`, raw units, capture point at the origin — and it
+is the single rule `rawFromBounds`, `splatTransform` and the window finder all share:
+
+```
+p_world = P + s · Ry(yaw) · Rx(π) · p_raw        group: position P, rotation [0, π + yaw, 0], scale s
+```
+
+- `splatTransform` returns `yaw` beside `rotationY = π + yaw`; `marbleFrame` (three/splat/frame) is
+  now just a re-export of it, and `applyMarbleFrame` premultiplies the same yaw onto the SPZ's
+  `rotX(π)`. Panorama, splat and collider all hang off that one turn, so the view **from** the
+  capture point is unchanged — photo view looks identical before and after, because the camera
+  turns with the room (`PhotoRig initialYaw`, walk spawn yaw = `frame.yaw`).
+- The horizontal half of `Rx(π)` is `(x, z) → (x, −z)`, a reflection — because y flips too. So **raw
+  +x is our east**, not our west. Two offsets were mirrored by the old "180° turn" reading and are
+  fixed: the door now lands under the photographer (`-rect.minX` from the west end) and the room is
+  centred on the rectangle it was measured with.
+- Verified in the browser (headless Chrome + SwiftShader, /t/oak1247 → Corner room): the collider's
+  34,948 wall-band vertices land on x = ±1.5 and z = ±2.0 — the 3.00 × 4.06 m room, centred; the
+  walk mask is an 8.1 m² rectangle at 96% fill instead of a diamond; the camera spawns at the
+  capture point (0.92, 1.60, 1.15) facing yaw 43° and the first frame is the photograph (tall window
+  on the left wall, small window ahead, door to the right); and in the dollhouse the purple collider
+  wireframe runs parallel to the RoomShell's walls and hugs them.
+- Window detection is no longer suppressed: `openingsOf`, `wallAt` and `alongWall` work in Audora's
+  axes on a world azimuth, so an opening run names a real wall whatever the room's yaw. The demo
+  corner room still reports none — its window band never reaches 1.3× the fitted wall, because
+  Marble rebuilt the building outside close behind the glass — which is the honest answer; the
+  synthetic room in tests/collider.test.ts covers the path.
+
+Still open: `roomExtent`'s one-room gate (area ≤ 60 m², no side over 9 m) rejects the full-quality
+flat's genuine 77 m² open-plan measurement and falls back to the caller's estimate, so that room is
+placed and walked as an `aabb` with a 5.5 × 4.0 m rectangle inside a 52.5 m² mask.
+
+### Splat-first: what the buyer actually gets (integrator, 2026-09-06)
+
+The priority update above is implemented. A real Marble room now opens **walking inside the Gaussian
+splat**, and the three layers are stacked the way portrait mode stacks a photo:
+
+- **Progressive splats.** `three/splat/tiers.ts` knows a world's whole ladder — `RoomWorld.spzUrls`
+  carries every resolution Marble returned (`worldFromMarble`), with `KNOWN_SPZ_TIERS` as the bridge
+  for the two demo worlds already sitting in someone's localStorage. `deviceCeiling` caps what a
+  machine may load (150k on a small phone, 500k on a phone or a 4 GB / 2-core laptop, `full_res`
+  otherwise); `planLadder` fetches the smallest file first and then the best tier ≤ 500k;
+  `wantsUpgrade` allows `full_res` only when the previous tier landed in under 4 s *from request to
+  on screen*, so a slow GPU disqualifies itself as well as a slow line. `SplatWorld` fetches the
+  bytes (`loadSpz`, abortable, byte progress), cross-fades each tier over the last and disposes the
+  replaced mesh, and never reloads on a floor nudge. Measured on the corner room here: panorama at
+  ~1 s, 100k at ~3 s, 500k at ~6 s, `full_res` (2,276,736 splats, 23 MB) after that.
+- **The panorama is the splat's backdrop**, in the viewer *and* the staging editor: it loads
+  whenever the splat is wanted, stands behind it while it streams, fades out over 0.6 s once real
+  splats are up, and stays mounted because it is also the room's light (PMREM environment + a sun
+  estimated from it, `CaptureLight`). The buyer never sees a black frame.
+- **An upgrade is not a wait.** While a better tier streams the splat layer keeps reporting `ready`
+  with `upgrading` set, so the measured shell is never put back over a capture; the pill reads
+  "real capture · 498k splats · full res loading…". `AdaptiveDpr` drops the canvas to 1.0 while the
+  camera moves and restores it 320 ms after it stops.
+- **Walking** spawns at the capture point facing `frame.yaw` (the photograph), is bounded by the
+  walk mask, and falls back to `splat/colliderProbe` raycasts when a mesh does not enclose the
+  capture point. `TourViewer` resets its layer status on a world change as well as a room change, so
+  a full-quality world landing under an open viewer does not leave a stale "ready".
+- **Publish offers the full-quality upgrade** (`state/publish.ts` holds the rules; 1,580 credits /
+  $1.26 per full room against 230 / $0.18 per draft), arms before it spends, refuses duplicate jobs,
+  and `bestWorld` gives the buyer the best world a room has — except that a *simulated* full never
+  displaces a real capture. Tier chips (`hub/TierChip`) appear wherever a room is listed.
+
+Verified end to end in headless Chrome (SwiftShader; judge correctness, not fps) with "Prefer
+simulated reconstruction" ON: /t/oak1247 → Corner room walks the real capture with our bed, plant
+and nightstand on the photographed floor; the ruler measures 2.25 m ± 12 cm across it; Photo and
+Dollhouse switch cleanly; "Test my furniture" answers "Your sofa does not fit here. It overlaps the
+queen bed and the nightstand." with the anchor chip; the Furnished flat streams 100k → 500k and
+stands our plant on its floorboards with a contact shadow; the hub's Publish tab shows the disabled
+toggle, the free rehearsal and the per-room tiers.

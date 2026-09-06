@@ -26,10 +26,10 @@ describe('splatTransform', () => {
     expect(t.rotationY).toBeCloseTo(Math.PI, 6);
     // The capture point ends up exactly the collider's floor drop above our floor.
     expect(t.position[1]).toBeCloseTo(-DRAFT_BOUNDS.minY * mpu, 6);
-    // ...and the room centre lands on the origin once the group's 180° turn is applied.
+    // ...and the room centre lands on the origin once the frame's `(x, z) → (x, −z)` is applied.
     const cx = ((DRAFT_BOUNDS.minX + DRAFT_BOUNDS.maxX) / 2) * mpu;
     const cz = ((DRAFT_BOUNDS.minZ + DRAFT_BOUNDS.maxZ) / 2) * mpu;
-    expect(-cx + t.position[0]).toBeCloseTo(0, 6);
+    expect(cx + t.position[0]).toBeCloseTo(0, 6);
     expect(-cz + t.position[2]).toBeCloseTo(0, 6);
   });
 

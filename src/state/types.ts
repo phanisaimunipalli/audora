@@ -1,4 +1,4 @@
-import type { AnchorSpec, PlacedPiece, ProceduralKind, RawGeometry, RoomGeometry, RoomType } from '@/engine/types';
+import type { AnchorSpec, PlacedPiece, ProceduralKind, RawGeometry, RoomGeometry, RoomType, WallSide } from '@/engine/types';
 import type { StagingStyle } from '@/engine/autostage';
 
 export type Tier = 'draft' | 'full';
@@ -29,6 +29,55 @@ export interface PhotoAnalysis {
   usd?: number | null;
 }
 
+/** An opening found in the collider's wall band — a window, or a doorway into the next room. */
+export interface WorldWallOpening {
+  /** The wall of Audora's metric room it falls on. */
+  wall: WallSide;
+  /** Distance along that wall from its start (west end for north/south, north end for east/west). */
+  offset: number;
+  width: number;
+}
+
+/**
+ * The room's own walls, measured from the collider's wall band: raw units, relative to the capture
+ * point, each extent named after the provider axis it is closer to. Read it through `roomRect`
+ * (services/marble), which recovers `rotation` and hands back the room in Audora's own axes.
+ */
+export interface WorldWallRect {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  /** Yaw of the fitted rectangle relative to the provider's own axes, radians in [0, π/2). */
+  rotation: number;
+  /** Fraction of the wall band that lies on this rectangle — how much of a room the mesh really is. */
+  score?: number;
+  openings?: WorldWallOpening[];
+}
+
+/**
+ * Axis-aligned bounds of the collider mesh in the provider's raw frame (y up, camera at origin),
+ * plus what the mesh says about the room inside them.
+ *
+ * `floorY` / `ceilingY` are the mesh's own floor and ceiling planes (the densest horizontal slab in
+ * the bottom / top quarter); the floor is the plane the panorama's floor sits on, and what puts
+ * Audora's y = 0 there. `walls` is the room measured to its walls rather than to the box, which on
+ * a real capture also holds everything the model reconstructed through the windows; `method` says
+ * which of the two the room's numbers actually came from.
+ */
+export interface WorldBoundsRecord {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  minZ: number;
+  maxZ: number;
+  floorY?: number;
+  ceilingY?: number;
+  walls?: WorldWallRect;
+  method?: 'walls' | 'aabb';
+}
+
 export interface RoomWorld {
   provider: Provider;
   tier: Tier;
@@ -46,12 +95,14 @@ export interface RoomWorld {
   marbleUrl?: string;
   metricScaleFactor?: number | null;
   groundPlaneOffset?: number | null;
+  /** Every splat resolution Marble made of this world, keyed `100k` / `150k` / `500k` / `full_res`. */
+  spzUrls?: Record<string, string> | null;
   /**
-   * Axis-aligned bounds of the collider mesh in the provider's raw frame (y up, camera at origin).
-   * `floorY` is the mesh's own floor plane — see `fetchColliderBounds`; it is the plane the
-   * panorama's floor sits on, and what puts Audora's y = 0 there.
+   * What the collider mesh knows about the room, in the provider's raw units with the capture point
+   * at the origin. Measured by `fetchColliderGeometry` (services/marble), which is also where the
+   * conventions are written down.
    */
-  bounds?: { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number; floorY?: number };
+  bounds?: WorldBoundsRecord;
   credits?: number;
   usd?: number;
   seconds?: number;
@@ -149,6 +200,12 @@ export interface Job {
   operationId?: string;
   worldId?: string;
   error?: string;
+  /**
+   * This job improves a room that already has a world (a full-quality upgrade of a draft) rather
+   * than building its first one. The buyer keeps walking the draft while it runs, and the copy
+   * says "Upgrading to full quality" / "Full quality is ready" instead of "generating".
+   */
+  upgrade?: boolean;
   /** Set when the completion has been shown to the user (badge / notification). */
   seen: boolean;
 }

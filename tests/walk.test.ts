@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PlacedPiece, RoomGeometry } from '../src/engine/types';
-import { blocked, integrate, intentFrom, keyCode, standable, type WalkState } from '../src/three/walkMath';
+import { blocked, integrate, intentFrom, keyCode, nearestFree, standable, type WalkState } from '../src/three/walkMath';
 
 const room: RoomGeometry = {
   width: 5,
@@ -95,5 +95,45 @@ describe('blocked / standable', () => {
     const p = standable(0, -2.5, 0, 0, room, [sofa]);
     expect(p).not.toBeNull();
     expect(p!.z).toBeGreaterThan(-2.5 + 0.95 / 2);
+  });
+
+  /* A real capture is not a rectangle: the walk mask is the photographed room and the rectangle is
+     the box around it. Clicking the floor seen through a doorway used to land the buyer in the far
+     corner *inside* a wall, because a blocked start let the target through unchecked. */
+  describe('a glide never crosses a wall the mask knows about', () => {
+    // A 2 m wall down the middle of the room, with the walker standing against it.
+    const wall = { blocked: (x: number) => Math.abs(x) < 0.35 };
+
+    it('stops at the wall instead of jumping to the far side', () => {
+      const p = standable(2, 0, -1.5, 0, room, [], wall);
+      expect(p).not.toBeNull();
+      expect(p!.x).toBeLessThan(-0.35);
+    });
+
+    it('refuses the target when nothing on the way to it is free', () => {
+      // The only standable floor is off the line the glide would take.
+      const elsewhere = { blocked: (x: number, z: number) => !(x > 1 && z < -1) };
+      expect(standable(2, 2, -2, -2, room, [], elsewhere)).toBeNull();
+    });
+
+    it('walks a stuck walker out instead of freezing them', () => {
+      // Standing inside the mask's wall: every direction reads "blocked", so collision must yield
+      // or the buyer is frozen with no way out but a mode switch.
+      const st: WalkState = { x: 0, z: 0, vx: 0, vz: 0 };
+      const dt = 1 / 60;
+      for (let t = 0; t < 1.2; t += dt) integrate(st, intentFrom({ KeyS: true }), 0, dt, 1.5, room, [], wall);
+      expect(st.z).toBeGreaterThan(0.5);
+      // ...and normal collision comes back the moment they are on free floor again.
+      const outside: WalkState = { x: -1, z: 0, vx: 0, vz: 0 };
+      for (let t = 0; t < 3; t += dt) integrate(outside, intentFrom({ KeyD: true }), 0, dt, 1.5, room, [], wall);
+      expect(outside.x).toBeLessThan(-0.35);
+    });
+
+    it('finds the nearest place a walker can actually stand', () => {
+      const free = nearestFree(0, 0, room, [], wall, { x: -1.5, z: 0 });
+      expect(free).not.toBeNull();
+      expect(wall.blocked(free!.x)).toBe(false);
+      expect(nearestFree(-2, 0, room, [], wall)).toEqual({ x: -2, z: 0 });
+    });
   });
 });

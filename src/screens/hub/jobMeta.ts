@@ -1,6 +1,7 @@
 /** Small pure helpers for reading jobs, rooms and tours together. */
 import { EYE_HEIGHT_M } from '@/engine/anchor';
 import { TIER_INFO } from '@/services/mockWorld';
+import { upgradeJobs } from '@/state/publish';
 import type { Job, ProviderStatus, Room, RoomWorld, Tier, Tour } from '@/state/types';
 
 export const isActiveJob = (j: Job) => j.status === 'queued' || j.status === 'running';
@@ -57,20 +58,34 @@ export interface TourStatus {
   ready: number;
   total: number;
   progress: number;
+  /**
+   * Every job in flight is a full-quality upgrade of a room that already has a world. The tour is
+   * walkable the whole time, so the hub keeps its tabs instead of taking over with the progress view.
+   */
+  upgrading: boolean;
+  /** Those upgrade jobs, for the banner. */
+  upgrades: Job[];
 }
 
 export function tourStatus(tour: Tour, rooms: Room[], jobs: Job[]): TourStatus {
   const total = rooms.length;
   const ready = rooms.filter((r) => r.status === 'ready').length;
   const active = jobs.filter(isActiveJob);
-  if (!total) return { kind: 'empty', label: 'no rooms', ready, total, progress: 0 };
+  const upgrades = upgradeJobs(rooms, jobs);
+  const base = { ready, total, upgrading: false, upgrades };
+  if (!total) return { ...base, kind: 'empty', label: 'no rooms', progress: 0 };
   if (active.length || rooms.some((r) => r.status === 'generating')) {
+    const upgrading = upgrades.length === active.length && rooms.every((r) => r.status !== 'generating' && r.status !== 'pending');
+    if (upgrading) {
+      const progress = Math.round(upgrades.reduce((a, j) => a + j.progress, 0) / upgrades.length);
+      return { ...base, upgrading: true, kind: 'generating', label: `upgrading ${upgrades.length} to full`, progress };
+    }
     const latest = rooms.map((r) => latestJobFor(jobs, r.id));
     const sum = latest.reduce((acc, j, i) => acc + (rooms[i].status === 'ready' ? 100 : j ? (j.status === 'done' ? 100 : j.progress) : 0), 0);
-    return { kind: 'generating', label: `generating ${ready} of ${total}`, ready, total, progress: Math.round(sum / total) };
+    return { ...base, kind: 'generating', label: `generating ${ready} of ${total}`, progress: Math.round(sum / total) };
   }
-  if (rooms.some((r) => r.status === 'failed')) return { kind: 'failed', label: `${rooms.filter((r) => r.status === 'failed').length} failed`, ready, total, progress: Math.round((ready / total) * 100) };
-  if (ready < total) return { kind: 'pending', label: `${total - ready} not generated`, ready, total, progress: Math.round((ready / total) * 100) };
-  if (tour.published) return { kind: 'published', label: 'published', ready, total, progress: 100 };
-  return { kind: 'ready', label: 'ready', ready, total, progress: 100 };
+  if (rooms.some((r) => r.status === 'failed')) return { ...base, kind: 'failed', label: `${rooms.filter((r) => r.status === 'failed').length} failed`, progress: Math.round((ready / total) * 100) };
+  if (ready < total) return { ...base, kind: 'pending', label: `${total - ready} not generated`, progress: Math.round((ready / total) * 100) };
+  if (tour.published) return { ...base, kind: 'published', label: 'published', progress: 100 };
+  return { ...base, kind: 'ready', label: 'ready', progress: 100 };
 }

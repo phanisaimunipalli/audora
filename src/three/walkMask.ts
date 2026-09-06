@@ -1,10 +1,10 @@
 /**
  * The walkable floor of a *real* reconstruction, read off its collider mesh.
  *
- * Audora's room rectangle comes from `rawFromBounds`, i.e. the collider's axis-aligned bounding
- * box — which includes everything the camera saw through the windows and past the doorway, so it
- * overstates the corner room by 15–20% (ARCHITECTURE, "Merged and measured"). Walking that box
- * takes the buyer straight through the photographed wall into a black void.
+ * Audora's room rectangle is a rectangle — the room measured to its walls (`roomRect`) when the
+ * collider gave one, its bounding box when it did not. A real room is not a rectangle: it has a
+ * chimney breast, a bay, a doorway the model reconstructed the hall through. Walking the rectangle
+ * takes the buyer through the photographed wall into a black void; walking the mesh does not.
  *
  * So: rasterise the collider's wall band (waist height, where a person actually collides) into a
  * coarse occupancy grid, grow it by the walker's radius, and flood-fill the free cells from the

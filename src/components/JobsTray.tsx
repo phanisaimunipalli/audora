@@ -7,12 +7,13 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useActiveJobs, useAllJobs, useAudora, useUnseenDone } from '@/state/store';
 import type { Job } from '@/state/types';
+import { fullIsShadowed, upgradeLine } from '@/state/publish';
 import { setTitleBadge } from '@/lib/notify';
 import { clock, eta, timeAgo } from '@/lib/format';
 import { isActiveJob, jobElapsed, jobRemaining, providerName } from '@/screens/hub/jobMeta';
 import { useNow } from '@/screens/hub/useNow';
 import { Icon } from './icons';
-import { Progress, cx } from './ui';
+import { Chip, Progress, cx } from './ui';
 
 export function JobsTray() {
   const active = useActiveJobs();
@@ -96,18 +97,32 @@ export function JobsTray() {
                     <Link to={`/tours/${j.tourId}`} onClick={() => setOpen(false)} className="flex flex-col gap-1.5">
                       <div className="flex items-start justify-between gap-2">
                         <span className="min-w-0 text-sm text-ink">
-                          <span className="block truncate" title={n.room}>{n.room}</span>
+                          <span className="flex items-center gap-1.5">
+                            <span className="truncate" title={n.room}>{n.room}</span>
+                            {/* The tier is the money question, so it is a chip, not a footnote. */}
+                            <Chip mono tone={j.tier === 'full' ? 'ok' : 'neutral'} className="!text-[10px]">
+                              {j.tier}
+                            </Chip>
+                          </span>
                           <span className="block truncate text-xs text-ink-3" title={n.tour}>{n.tour}</span>
+                          {j.upgrade ? (
+                            <span
+                              className="block truncate text-xs text-accent-2"
+                              title={upgradeLine(jobElapsed(j, now), remaining, j.status === 'queued')}
+                            >
+                              Upgrading to full quality
+                            </span>
+                          ) : null}
                         </span>
                         <span className="mono shrink-0 text-xs text-ink-2">{clock(jobElapsed(j, now))}</span>
                       </div>
                       <Progress value={j.progress} />
-                      <div className="mono flex items-center justify-between text-[11px] text-ink-3">
+                      <div className="mono flex items-center justify-between gap-2 text-[11px] text-ink-3">
                         {/* The step is the long part and the only one worth eliding: "simulated" is
                             the line that says no credits are being spent, so it stays whole. */}
                         <span className="flex min-w-0 items-center gap-1">
                           <span className="truncate">{j.status === 'queued' ? 'queued' : j.step}</span>
-                          <span className="shrink-0 whitespace-nowrap">· {j.tier} · {providerName(j.provider).toLowerCase()}</span>
+                          <span className="shrink-0 whitespace-nowrap">· {providerName(j.provider).toLowerCase()}</span>
                         </span>
                         <span className="shrink-0">{j.status === 'queued' ? 'starting' : remaining > 0 ? `${eta(remaining)} left` : 'any moment'}</span>
                       </div>
@@ -142,7 +157,10 @@ export function JobsTray() {
                           <span className="block truncate text-[11px] text-ink-3">{n.tour}</span>
                         </span>
                         <span className="mono shrink-0 text-[11px] text-ink-3">
-                          {j.tier} · {j.status === 'done' ? clock(jobElapsed(j, j.finishedAt ?? now)) : 'failed'} · {timeAgo(j.finishedAt ?? j.createdAt, now)}
+                          {/* Only "full quality ready" when the buyer is actually getting it: a simulated full
+                              never displaces a real capture, and the tray must not claim otherwise. */}
+                          {j.status === 'done' && j.upgrade ? (fullIsShadowed(rooms[j.roomId]) ? 'simulated full attached' : 'full quality ready') : j.tier} ·{' '}
+                          {j.status === 'done' ? clock(jobElapsed(j, j.finishedAt ?? now)) : 'failed'} · {timeAgo(j.finishedAt ?? j.createdAt, now)}
                         </span>
                       </Link>
                     </li>

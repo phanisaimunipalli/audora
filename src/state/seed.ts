@@ -2,7 +2,7 @@
 import { anchorFromCeiling, anchorFromDoor, anchorFromMarble, anchorFromWall } from '@/engine/anchor';
 import { clampToRoom, placeAgainstWall } from '@/engine/geometry';
 import { catalogItem } from '@/engine/catalog';
-import { fetchColliderBounds, rawFromBounds, rawFromBoundsOr } from '@/services/marble';
+import { extentMethodOf, fetchColliderGeometry, rawFromBounds, roomExtent, wallsOf } from '@/services/marble';
 import { preparePhoto } from '@/lib/image';
 import { autoStage, makePiece } from '@/engine/autostage';
 import { mockRawGeometry, mockWorld } from '@/services/mockWorld';
@@ -23,6 +23,8 @@ export const REAL_MARBLE_WORLD = {
   marbleUrl: 'https://marble.worldlabs.ai/world/24be684c-177e-49c2-a920-51dcf51e4c8b',
   spzUrl: 'https://cdn.marble.worldlabs.ai/24be684c-177e-49c2-a920-51dcf51e4c8b/fbabd791-dc74-4373-8d95-a08926570c67_sand_500k.spz',
   spzUrl100k: 'https://cdn.marble.worldlabs.ai/24be684c-177e-49c2-a920-51dcf51e4c8b/82555d93-9c51-4722-91b3-30434886e586_sand_100k.spz',
+  /** 2,276,736 splats, 23 MB — only ever loaded on a machine that has earned it (`splat/tiers`). */
+  spzUrlFull: 'https://cdn.marble.worldlabs.ai/24be684c-177e-49c2-a920-51dcf51e4c8b/8708139e-2578-4e82-baa7-294efcd6f2f3_sand.spz',
   colliderUrl: 'https://cdn.marble.worldlabs.ai/24be684c-177e-49c2-a920-51dcf51e4c8b/16d54ea7.glb',
   thumbnailUrl: 'https://cdn.marble.worldlabs.ai/24be684c-177e-49c2-a920-51dcf51e4c8b/919afb4a-3341-4269-8eec-fa9dec7f580b_sand_mpi/thumbnail.webp',
   /** Equirectangular panorama, 2304×1152. The photo view renders this. */
@@ -30,11 +32,32 @@ export const REAL_MARBLE_WORLD = {
   caption:
     'An empty residential room with dark wood plank flooring, white baseboards and light neutral walls. A tall window on the left wall and a smaller one on the adjacent wall look onto a brick building; sunlight casts rectangular patterns on the floor. The doorway is behind the viewer.',
   /**
-   * Collider bounds, and the mesh's own floor plane (`floorY`, see `colliderFloorY` in
-   * services/marble): the densest horizontal slab sits 6 cm above the lowest stray vertex, and it is
-   * the plane the panorama's floor lies on. Hard-coded so the demo is right before the CDN answers.
+   * What the collider mesh says about this room, hard-coded from a real read of its 76k vertices so
+   * the demo is right before the CDN answers (`fetchColliderGeometry`, services/marble).
+   *
+   * - `floorY` / `ceilingY`: the mesh's own floor and ceiling planes — the densest horizontal slab
+   *   in the bottom and top quarter. The floor sits 6 cm above the lowest stray vertex and is the
+   *   plane the panorama's floor lies on.
+   * - `walls`: the room measured to its walls. The bounding box is 7.83 × 7.33 raw units because
+   *   Marble reconstructed the building outside both windows; the walls are 4.37 × 5.91, which at
+   *   the assumed-ceiling anchor is **3.00 × 4.06 m** instead of 5.38 × 5.03 m. Verified against
+   *   the mesh's own wall planes (the two dominant peaks in a histogram of the wall band's
+   *   projections are 4.40 and 5.87 raw units apart, so this is inside 1 %).
+   * - `rotation` 0.82 rad: the room is at 47° to Marble's frame — the photographer faced a corner,
+   *   which is exactly why the bounding box was 41 % too big.
    */
-  bounds: { minX: -3.599, maxX: 4.233, minY: -1.66, maxY: 1.893, minZ: -1.552, maxZ: 5.777, floorY: -1.5975 },
+  bounds: {
+    minX: -3.5989,
+    maxX: 4.233,
+    minY: -1.6597,
+    maxY: 1.8928,
+    minZ: -1.552,
+    maxZ: 5.7774,
+    floorY: -1.5953,
+    ceilingY: 1.8239,
+    method: 'walls' as const,
+    walls: { minX: -0.85, maxX: 3.5236, minZ: -1.2867, maxZ: 4.6218, rotation: 0.8203, score: 0.8 },
+  },
   photoUrl: '/demo/empty-room-corner-windows.jpg',
   note: 'real Marble draft',
 };
@@ -125,10 +148,18 @@ function ensureDraftRoom(tourId: string) {
     const patch: Partial<Room> = {};
     if (existing.name !== 'Corner room') patch.name = 'Corner room';
     if (existing.note !== REAL_MARBLE_WORLD.note) patch.note = REAL_MARBLE_WORLD.note;
-    if (existing.draft && (existing.draft.panoUrl !== REAL_MARBLE_WORLD.panoUrl || existing.draft.bounds?.floorY == null)) {
-      patch.draft = { ...existing.draft, panoUrl: REAL_MARBLE_WORLD.panoUrl, bounds: REAL_MARBLE_WORLD.bounds };
-    }
     if (Object.keys(patch).length) useAudora.getState().updateRoom(existing.id, patch);
+    // Seeds written before the wall band measured this room stored its bounding box as the room:
+    // 5.38 × 5.03 m of a room that is 3.00 × 4.06 m. Re-attaching the world with the measured
+    // bounds re-derives the raw geometry, the anchor and every number on screen; `restageDemo`
+    // (via the SEED_VERSION bump) then re-stages it at its honest size.
+    const stale = existing.draft && (existing.draft.panoUrl !== REAL_MARBLE_WORLD.panoUrl || wallsOf(existing.draft.bounds) == null);
+    if (existing.draft && stale) {
+      const bounds = REAL_MARBLE_WORLD.bounds;
+      useAudora
+        .getState()
+        .attachWorld(existing.id, { ...existing.draft, panoUrl: REAL_MARBLE_WORLD.panoUrl, bounds, raw: rawFromBounds(bounds) });
+    }
     return;
   }
   const raw = rawFromBounds(REAL_MARBLE_WORLD.bounds);
@@ -144,6 +175,7 @@ function ensureDraftRoom(tourId: string) {
     raw,
     bounds: REAL_MARBLE_WORLD.bounds,
     spzUrl: REAL_MARBLE_WORLD.spzUrl,
+    spzUrls: { '100k': REAL_MARBLE_WORLD.spzUrl100k, '500k': REAL_MARBLE_WORLD.spzUrl, full_res: REAL_MARBLE_WORLD.spzUrlFull },
     colliderUrl: REAL_MARBLE_WORLD.colliderUrl,
     thumbnailUrl: REAL_MARBLE_WORLD.thumbnailUrl,
     panoUrl: REAL_MARBLE_WORLD.panoUrl,
@@ -175,6 +207,7 @@ function fullWorldRecord(raw: RawGeometry, bounds?: RoomWorld['bounds']): RoomWo
     raw,
     bounds,
     spzUrl: FULL_MARBLE_WORLD.spzUrl,
+    spzUrls: { '100k': FULL_MARBLE_WORLD.spzUrl100k, '150k': FULL_MARBLE_WORLD.spzUrl150k, '500k': FULL_MARBLE_WORLD.spzUrl },
     colliderUrl: FULL_MARBLE_WORLD.colliderUrl,
     thumbnailUrl: FULL_MARBLE_WORLD.thumbnailUrl,
     panoUrl: FULL_MARBLE_WORLD.panoUrl,
@@ -192,24 +225,28 @@ function fullWorldRecord(raw: RawGeometry, bounds?: RoomWorld['bounds']): RoomWo
 function ensureFullRoom(tourId: string) {
   const existing = hasWorld(FULL_MARBLE_WORLD.worldId);
   if (existing) {
-    // Bounds stored before the floor plane was detected put this world's floor 15 cm under ours
-    // (Marble's ground_plane_offset is not the mesh's floor). One re-read of the collider fixes it.
-    if (existing.full && existing.full.bounds && existing.full.bounds.floorY == null && typeof fetch !== 'undefined') {
-      refreshFullBounds(existing.id);
-    }
+    // Re-read the collider when what is stored predates the floor plane (bounds without one put
+    // this world's floor 15 cm under ours) or the wall band, and when
+    // the extent was not settled the way this world settles it (its collider covers a whole flat,
+    // so the estimate wins and the bounds are stored as `aabb` — see `roomExtent`). Once the record
+    // says that, nothing is fetched again.
+    const b = existing.full?.bounds;
+    const stale = !!b && (b.floorY == null || wallsOf(b) == null || extentMethodOf(b) !== 'aabb');
+    if (existing.full && stale && typeof fetch !== 'undefined') refreshFullBounds(existing.id);
     return;
   }
   const metresPerUnit = FULL_MARBLE_WORLD.metricScaleFactor;
   const raw = rawFromMetres(FULL_MARBLE_WORLD.fallbackMetres, metresPerUnit);
-  const room = useAudora.getState().addRoom(tourId, { name: 'Furnished flat', type: 'living', raw, anchor: anchorFromMarble(metresPerUnit) });
+  const room = useAudora.getState().addRoom(tourId, { name: 'Furnished flat', type: 'living', raw, anchor: anchorFromMarble(metresPerUnit, raw.height) });
   useAudora.getState().updateRoom(room.id, { note: FULL_MARBLE_WORLD.note, stagingPreset: 'sparse' });
   useAudora.getState().attachWorld(room.id, fullWorldRecord(raw));
   const staged = useAudora.getState().rooms[room.id];
   useAudora.getState().setStaging(room.id, sparseStaging(staged.geometry), 'minimal');
 
-  // Read the real collider bounds when the browser can reach the CDN (async, like the photo above):
-  // they centre the reconstruction on the room, carry its floor plane, and are what the geometry
-  // wireframe is measured from.
+  // Read the real collider when the browser can reach the CDN (async, like the photo above): it
+  // centres the reconstruction on the room, carries its floor plane, and measures the walls. This
+  // flat's wall band is a real measurement of a real open-plan space — 6.5 × 11.8 m — which is more
+  // than one room, so `roomExtent` keeps the estimate above and only the floor plane improves.
   if (typeof fetch !== 'undefined') refreshFullBounds(room.id);
 }
 
@@ -217,12 +254,12 @@ function ensureFullRoom(tourId: string) {
 function refreshFullBounds(roomId: string) {
   const metresPerUnit = FULL_MARBLE_WORLD.metricScaleFactor;
   const fallback = rawFromMetres(FULL_MARBLE_WORLD.fallbackMetres, metresPerUnit);
-  fetchColliderBounds(FULL_MARBLE_WORLD.colliderUrl)
+  fetchColliderGeometry(FULL_MARBLE_WORLD.colliderUrl)
     .then((bounds) => {
       const cur = useAudora.getState().rooms[roomId];
       if (!cur?.full) return;
-      const nextRaw = rawFromBoundsOr(bounds, metresPerUnit, fallback);
-      useAudora.getState().attachWorld(roomId, { ...cur.full, bounds, raw: nextRaw });
+      const extent = roomExtent(bounds, metresPerUnit, fallback);
+      useAudora.getState().attachWorld(roomId, { ...cur.full, bounds: extent.bounds, raw: extent.raw });
       const after = useAudora.getState().rooms[roomId];
       useAudora.getState().setStaging(roomId, sparseStaging(after.geometry), after.stagingStyle);
     })
@@ -238,7 +275,7 @@ export function ensureRealRoom(tourId: string) {
 }
 
 /** Bump when the staging engine or demo rooms change; existing browsers re-stage the demo on next load. */
-export const SEED_VERSION = 4;
+export const SEED_VERSION = 6;
 
 /** Re-run the current stager over the demo rooms (keeps rooms, anchors, worlds and analytics). */
 export function restageDemo(tourId: string) {
@@ -248,6 +285,12 @@ export function restageDemo(tourId: string) {
   tour.roomIds.forEach((id, i) => {
     const room = useAudora.getState().rooms[id];
     if (!room) return;
+    /* An anchor saved before the model estimate carried its reference reads "model estimate ·
+       ±15 cm" — an uncertainty with nothing attached to it. Re-derive it from the same scale so
+       the chip states the ceiling the model measured. */
+    if (room.anchor.method === 'marble' && room.anchor.referenceUnits <= 1 && room.raw.height > 0) {
+      useAudora.getState().setAnchor(id, anchorFromMarble(room.anchor.metresPerUnit, room.raw.height));
+    }
     if (room.stagingPreset === 'sparse') {
       useAudora.getState().setStaging(id, sparseStaging(room.geometry), room.stagingStyle);
       return;

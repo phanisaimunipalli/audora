@@ -11,6 +11,7 @@ import { Button, Callout, Chip, Progress, Spinner, cx } from '@/components/ui';
 import { Icon } from '@/components/icons';
 import { FloorPlanSvg } from './FloorPlanSvg';
 import { jobCost, jobElapsed, jobRemaining, modelName, providerName, stepDetail } from './jobMeta';
+import { TierChip } from './TierChip';
 
 export function JobCard({ room, job, now, onPeek, onGenerate }: { room: Room; job?: Job; now: number; onPeek?: (roomId: string) => void; onGenerate?: (room: Room, tier: Tier) => void }) {
   const providers = useAudora((s) => s.providers);
@@ -25,6 +26,8 @@ export function JobCard({ room, job, now, onPeek, onGenerate }: { room: Room; jo
   const tier = job?.tier ?? world?.tier ?? 'draft';
   const model = world && world.tier === tier && world.provider === provider ? world.model : modelName(provider, tier, providers);
   const currentIdx = JOB_STEPS.reduce((acc, s, i) => (progress >= s.at ? i : acc), 0);
+  /** This job is making an existing room better, not building its first world. */
+  const upgrade = Boolean(job && (job.status === 'queued' || job.status === 'running') && job.tier === 'full' && (job.upgrade || room.draft));
 
   return (
     <div className={cx('panel animate-rise flex flex-col gap-4 p-4', running && 'ring-accent')}>
@@ -36,6 +39,7 @@ export function JobCard({ room, job, now, onPeek, onGenerate }: { room: Room; jo
           <div className="flex flex-wrap items-center gap-2">
             <span className="truncate text-base text-ink">{room.name}</span>
             <Chip mono className="!text-[10px] uppercase">{tier}</Chip>
+            <TierChip room={room} generating={status === 'queued' || status === 'running'} />
             <Chip mono tone={provider === 'marble' ? 'ok' : 'neutral'} className="!text-[10px]">
               {providerName(provider)} · {model}
             </Chip>
@@ -43,6 +47,9 @@ export function JobCard({ room, job, now, onPeek, onGenerate }: { room: Room; jo
           <div className="mt-1 text-xs text-ink-3">
             {status === 'queued' ? 'Queued · starts in a moment' : status === 'running' ? `${job?.step} · ${remaining > 0 ? `${eta(remaining)} left` : 'any moment now'}` : status === 'done' ? `Ready in ${clock(elapsed)}` : status === 'failed' ? 'Failed' : 'Not generated yet'}
           </div>
+          {upgrade ? (
+            <div className="mt-1 text-xs text-accent-2">Upgrading to full quality · buyers keep walking the draft until it lands.</div>
+          ) : null}
         </div>
         <div className="shrink-0 text-right">
           <div className={cx('mono text-2xl leading-none', running ? 'text-ink' : 'text-ink-3')}>{clock(elapsed)}</div>

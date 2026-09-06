@@ -6,6 +6,7 @@ import { anchorAssumed, anchorFromCeiling, anchorFromMarble, applyScale, clampFl
 import type { StagingStyle } from '@/engine/autostage';
 import { uid, shortId } from '@/lib/ids';
 import { mockRawGeometry } from '@/services/mockWorld';
+import { pickWorld } from './publish';
 import type { AnalyticsEvent, AnalyticsType, Job, MyStuffItem, PhotoRecord, ProviderStatus, Room, RoomWorld, Settings, Tier, Toast, Tour } from './types';
 
 export interface CreateTourInput {
@@ -432,12 +433,14 @@ export const useAudora = create<AudoraState>()(
               const units = a.axis === 'depth' ? raw.depth : raw.width;
               anchor = { ...a, referenceUnits: units, metresPerUnit: a.referenceMetres / units };
             } else if (world.provider === 'marble' && world.metricScaleFactor) {
-              anchor = anchorFromMarble(world.metricScaleFactor);
+              // The model measured itself: quote its own ceiling height as the reference, so the
+              // chip reads "model scale · ceiling 2.51 m · ±15 cm" rather than a bare uncertainty.
+              anchor = anchorFromMarble(world.metricScaleFactor, raw.height);
             } else if (world.provider === 'marble' && (a.method === 'door' || a.method === 'outlet' || a.method === 'assumed')) {
               // Photo taps cannot be mapped onto the reconstruction's units yet; fall back to the ceiling assumption and keep the taps.
               anchor = { ...anchorFromCeiling(raw), taps: a.taps };
             } else {
-              const units = a.method === 'outlet' ? raw.outletHeightUnits : a.method === 'ceiling' ? raw.height : raw.doorHeightUnits;
+              const units = a.method === 'outlet' ? raw.outletHeightUnits : a.method === 'ceiling' || a.method === 'marble' ? raw.height : raw.doorHeightUnits;
               anchor = { ...a, referenceUnits: units, metresPerUnit: a.referenceMetres / units };
             }
           }
@@ -461,10 +464,16 @@ export const useAudora = create<AudoraState>()(
           seen: false,
           ...input,
         } as Job;
-        set((s) => ({
-          jobs: { ...s.jobs, [job.id]: job },
-          rooms: s.rooms[job.roomId] ? { ...s.rooms, [job.roomId]: { ...s.rooms[job.roomId], status: 'generating', updatedAt: t } } : s.rooms,
-        }));
+        set((s) => {
+          const room = s.rooms[job.roomId];
+          // A room that already has a world stays `ready` while a better one is generated: the buyer
+          // keeps walking the draft, the hub keeps its tabs, and only the job says "upgrading".
+          const keepsWorld = Boolean(room && (room.draft || room.full));
+          return {
+            jobs: { ...s.jobs, [job.id]: job },
+            rooms: room && !keepsWorld ? { ...s.rooms, [job.roomId]: { ...room, status: 'generating', updatedAt: t } } : s.rooms,
+          };
+        });
         return job;
       },
       updateJob: (id, patch) => set((s) => (s.jobs[id] ? { jobs: { ...s.jobs, [id]: { ...s.jobs[id], ...patch, updatedAt: now() } } } : {})),
@@ -580,9 +589,13 @@ export const useAllTours = () => useAudora(useShallow((s: AudoraState) => Object
 export const useAllJobs = () => useAudora(useShallow((s: AudoraState) => Object.values(s.jobs).sort((a, b) => b.createdAt - a.createdAt)));
 export const useMyStuff = () => useAudora((s) => s.myStuff);
 
-/** Best available world for a room: full when it exists, else draft. */
+/**
+ * Best available world for a room: full when it exists, else draft — with the one exception in
+ * `pickWorld`, that a simulated full never displaces a real capture. The buyer always gets the
+ * most realistic world the room has.
+ */
 export function bestWorld(room: Room | undefined): RoomWorld | undefined {
-  return room?.full ?? room?.draft;
+  return pickWorld(room?.draft, room?.full);
 }
 
 /* ---------- transient UI store (not persisted) ---------- */
@@ -593,9 +606,14 @@ interface UiState {
   dismissToast: (id: string) => void;
 }
 
-export const useUi = create<UiState>()((set) => ({
+/** Two toasts that say exactly the same thing are one piece of news; the second is a bug in disguise. */
+const sameToast = (a: Toast, b: Omit<Toast, 'id' | 'createdAt'>) => a.kind === b.kind && a.title === b.title && a.body === b.body;
+
+export const useUi = create<UiState>()((set, get) => ({
   toasts: [],
   pushToast: (t) => {
+    const dup = get().toasts.find((x) => sameToast(x, t));
+    if (dup) return dup.id;
     const id = uid('toast');
     set((s) => ({ toasts: [...s.toasts, { ...t, id, createdAt: Date.now() }] }));
     return id;

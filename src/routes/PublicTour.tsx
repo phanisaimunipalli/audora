@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { selectTourByShare, useAudora, useTourJobs, useTourRooms } from '@/state/store';
 import { TourViewer } from '@/screens/TourViewer';
@@ -16,6 +16,11 @@ export default function PublicTour() {
   const tour = useAudora(selectTourByShare(shareId));
   const rooms = useTourRooms(tour?.id);
   const jobs = useTourJobs(tour?.id);
+  /* Once the buyer is inside the tour they stay inside it. Swapping back to the progress page
+     unmounts the whole canvas, and the splat, the panorama and the walker's position go with it —
+     a room briefly flipping to `generating` (a job queued in the agent's tab, a cross-tab
+     rehydrate) must not cost the buyer a fifteen-second reload of the room they are standing in. */
+  const opened = useRef(false);
 
   /* This route has no app chrome, so the seller's unseen-job badge has no business in its title:
      a buyer must never see "(1) 1247 Oak Street · Audora tour". Switched off first, so the badge
@@ -33,9 +38,11 @@ export default function PublicTour() {
   if (!tour) return <NotFound />;
 
   const ready = rooms.filter((r) => r.status === 'ready');
-  if (ready.length === 0) return <Building title={tour.title} address={tour.address} rooms={rooms.map((r) => ({ id: r.id, name: r.name, status: r.status, progress: jobs.filter((j) => j.roomId === r.id).pop()?.progress ?? 0 }))} />;
+  if (ready.length) opened.current = true;
+  if (ready.length === 0 && !opened.current)
+    return <Building title={tour.title} address={tour.address} rooms={rooms.map((r) => ({ id: r.id, name: r.name, status: r.status, progress: jobs.filter((j) => j.roomId === r.id).pop()?.progress ?? 0 }))} />;
 
-  const wanted = roomId && ready.some((r) => r.id === roomId) ? roomId : undefined;
+  const wanted = roomId && rooms.some((r) => r.id === roomId) ? roomId : undefined;
   return (
     <div className="relative h-dvh w-full bg-bg">
       <TourViewer

@@ -14,6 +14,8 @@ import { OrbitRig, PhotoRig } from '@/three/OrbitRig';
 import { WalkControls } from '@/three/WalkControls';
 import { buildWalkMask, type WalkMask } from '@/three/walkMask';
 import { MarbleWorld, useMarbleFrame, type MarbleWorldStatus } from '@/three/MarbleWorld';
+import { AdaptiveDpr } from '@/three/splat/AdaptiveDpr';
+import { captureYaw } from '@/three/splat/frame';
 import { CaptureLight } from '@/three/CaptureLight';
 import { MeasureTool } from '@/three/MeasureTool';
 import { Minimap } from '@/three/Minimap';
@@ -122,9 +124,11 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
   const photo = mode === 'photo' && hasPano(real);
   const wantSplat = mode === 'walk' && showSplat && Boolean(real?.spzUrl);
   const splat = wantSplat && splatReady;
-  /* The panorama is up in about two seconds and the splat in about eight, so while the splat streams
-     the buyer stands in the photograph rather than in the procedural stand-in. */
-  const panoBackdrop = wantSplat && !splat && hasPano(real);
+  /* The panorama is up in about a second and the smallest splat in two or three, so while the splat
+     streams the buyer stands in the photograph rather than in the procedural stand-in — and it stays
+     there afterwards, behind the splat, as the sky the reconstruction does not reach (and as the
+     room's light). See MarbleWorld: nothing here is ever a black frame. */
+  const panoBackdrop = wantSplat && hasPano(real);
   const showPanoLayer = photo || panoBackdrop;
   /** The photo layer is actually on screen — only then is it safe to take the measured room away. */
   const photoOnly = showPanoLayer && panoReady;
@@ -140,9 +144,10 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
   // capture point, which never moves.
   const px = frame.position[0];
   const pz = frame.position[2];
+  const yaw = captureYaw(frame);
   useEffect(() => {
-    if (photo) setPose({ x: px, z: pz, yaw: 0 });
-  }, [photo, px, pz, setPose]);
+    if (photo) setPose({ x: px, z: pz, yaw });
+  }, [photo, px, pz, yaw, setPose]);
 
   /* The reconstruction's collider is the only honest answer to "where are the real walls?" — the
      room rectangle is its bounding box and overstates the corner room by 15–20%. The mesh loads
@@ -156,12 +161,17 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
     }
     let dead = false;
     let tries = 0;
-    // The mesh reaches us straight out of the loader, a beat before r3f has attached it under the
-    // Marble group — and the mask has to be read in *our* metric frame, so wait for the parent.
+    let timer = 0;
+    /* The mesh reaches us straight out of the loader, a beat before r3f has attached it under the
+       Marble group — and the mask has to be read in *our* metric frame, so wait for the parent.
+       The wait is on a timer, not on `requestAnimationFrame`: r3f attaches the object during a
+       React commit, which owes nothing to the render loop, and a throttled or slow frame loop (a
+       background tab, a software renderer) used to stretch these sixty ticks into two minutes of
+       walking with no collisions but the room rectangle. */
     const build = () => {
       if (dead) return;
       if (!collider.parent && tries++ < 60) {
-        requestAnimationFrame(build);
+        timer = window.setTimeout(build, 8);
         return;
       }
       const m = buildWalkMask(collider, { seed: { x: px, z: pz }, reach: Math.max(8, span) });
@@ -171,6 +181,7 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
     build();
     return () => {
       dead = true;
+      window.clearTimeout(timer);
     };
   }, [collider, px, pz, span]);
   const home = useMemo(() => ({ x: px, z: pz }), [px, pz]);
@@ -184,13 +195,22 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
   return (
     <>
       <CameraTuning mode={mode} />
+      {/* Sorting half a million splats is per-pixel work; the sharp frame comes back the moment the
+          buyer stops moving, which is the only moment they can see it. */}
+      <AdaptiveDpr enabled={splat} />
       {composite ? <CaptureLight texture={panoTex} groupRotationY={frame.rotationY} span={span} /> : null}
       {shell ? (
         <RoomShell room={room.geometry} cullNearWalls={mode === 'orbit'} showGrid={mode === 'orbit'} showCeiling={mode === 'walk'} lights={!composite} />
       ) : null}
       {photo && showGeometry ? <FloorGrid span={span} /> : null}
       {real ? (
+        /* Keyed on the world: switching rooms (or a full-quality world landing under an open
+           viewer) tears the whole capture down instead of re-pointing it. Without the key the
+           panorama sphere is deliberately kept mounted across a change — which is how the buyer
+           spent several seconds looking at the *previous* room's capture under the new room's
+           chrome, minimap and dimensions. */
         <MarbleWorld
+          key={real.worldId || real.panoUrl || real.spzUrl}
           world={real}
           metresPerUnit={room.anchor.metresPerUnit}
           floorOffset={floorOffset}
@@ -218,11 +238,11 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
       />
       {photo ? (
         <>
-          <PhotoRig origin={frame.position} fov={photoFov} onFov={setPhotoFov} resetKey={room.id} drift={tool !== 'measure'} />
+          <PhotoRig origin={frame.position} initialYaw={yaw} fov={photoFov} onFov={setPhotoFov} resetKey={room.id} drift={tool !== 'measure'} />
           <PhotoPose x={px} z={pz} />
         </>
       ) : mode === 'walk' ? (
-        <WalkControls room={room.geometry} pieces={walkPieces} enabled={walking} spawn={spawn} mask={real ? walkMask : null} home={real ? home : undefined} />
+        <WalkControls room={room.geometry} pieces={walkPieces} enabled={walking} spawn={spawn} mask={real ? walkMask : null} home={real ? home : undefined} collider={real ? collider : null} />
       ) : (
         <OrbitRig room={room.geometry} resetKey={room.id} />
       )}
@@ -311,9 +331,24 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   const touch = useMemo(() => isTouchDevice(), []);
   const narrow = useNarrow();
 
-  // Spawn just inside the door, never inside a staged piece. Buyer pieces are deliberately not a dependency:
-  // dropping a sofa must not teleport the walker back to the door.
-  const spawn = useMemo<Pose>(() => teleport ?? (room ? freeSpawn(room.geometry, room.staging) : { x: 0, z: 0, yaw: 0 }), [teleport, room]);
+  /* Where walking starts.
+     On a real reconstruction it is the capture point, facing the way the camera faced (the room's own
+     yaw in our frame; see three/splat/frame) — so the buyer's first frame IS the photograph, exactly as it is
+     in photo view, and the splat lines up with what they were promised. Everywhere else it is just
+     inside the door. Either way `freeSpawn` nudges out of a staged piece, because spawning inside
+     the sofa leaves the walker stuck against it. Buyer pieces are deliberately not a dependency:
+     dropping a sofa must not teleport the walker back to the door. */
+  const realWorld = isReal(world) ? world : undefined;
+  const captureFrame = useMarbleFrame(realWorld ?? NO_WORLD, room?.anchor.metresPerUnit ?? 1, floorOffsetOf(room));
+  const captureX = captureFrame.position[0];
+  const captureZ = captureFrame.position[2];
+  const captureFacing = captureYaw(captureFrame);
+  const spawn = useMemo<Pose>(() => {
+    if (teleport) return teleport;
+    if (!room) return { x: 0, z: 0, yaw: 0 };
+    const base = realWorld ? { x: captureX, z: captureZ, yaw: captureFacing } : undefined;
+    return freeSpawn(room.geometry, room.staging, base);
+  }, [teleport, room, realWorld, captureX, captureZ, captureFacing]);
 
   /* mode on mount, reset on unmount. A public tour of a real reconstruction opens in the photograph. */
   useEffect(() => {
@@ -324,8 +359,11 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tourId]);
 
-  /* room change: fresh spawn, no stale tools. The mode carries over — unless this room has no
-     panorama to stand in, in which case photo view falls back to walking. */
+  /* room change — and a world change, which is what a full-quality upgrade landing under an open
+     viewer looks like: fresh spawn, no stale tools, and no stale "the capture is ready" left over
+     from the asset that has just been replaced (that would keep the measured shell hidden while the
+     new one streams). The mode carries over — unless this room has no panorama to stand in, in
+     which case photo view falls back to walking. */
   useEffect(() => {
     setTeleport(null);
     const st = useViewer.getState();
@@ -335,7 +373,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
     const legal = allowedMode(st.mode, world);
     if (legal !== st.mode) st.setMode(legal);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [room?.id]);
+  }, [room?.id, world?.worldId]);
 
   /* analytics: visit once per tour per session */
   useEffect(() => {
@@ -411,6 +449,8 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   const onMarbleStatus = useCallback((s: MarbleWorldStatus) => setMarbleStatus((prev) => ({ ...prev, [s.layer]: s })), []);
   const pill = loadPill(marbleStatus);
   const splatReady = layerReady(marbleStatus, 'splat');
+  /** A photograph is on screen (splat or panorama) — the vignette and the capture chip belong to it. */
+  const captureOnScreen = Boolean(realWorld) && (splatReady || layerReady(marbleStatus, 'pano'));
   // Until the photograph is actually on screen the measured room stays up, so the viewport is never
   // a black void with a spinner over it.
   const panoReady = layerReady(marbleStatus, 'pano');
@@ -536,6 +576,16 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
 
       {hideHud ? null : (
         <>
+          {/* A soft vignette, the way a photograph sits in a frame. Drawn over the canvas rather
+              than in it, so it costs no fill rate and never touches the capture's own colours. */}
+          {captureOnScreen ? (
+            <div
+              className="pointer-events-none absolute inset-0 z-[5]"
+              style={{ background: 'radial-gradient(ellipse 78% 78% at 50% 48%, rgba(0,0,0,0) 45%, rgba(0,0,0,0.34) 100%)' }}
+              aria-hidden
+            />
+          ) : null}
+
           {/* HUD */}
           <div className={cx('pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-3 transition-[right] duration-300 md:p-4', testOpen && 'md:right-[400px]')}>
             {/* top row */}
@@ -545,9 +595,15 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
               <div className="pointer-events-auto glass max-w-full rounded-2xl px-3.5 py-2.5 sm:max-w-[min(70vw,760px)]">
                 <div className="flex items-baseline gap-2">
                   <div className="display truncate text-lg leading-tight text-ink md:text-xl">{tour.title}</div>
-                  {tour.price ? <div className="mono hidden text-xs text-ink-3 sm:block">{tour.price}</div> : null}
+                  {/* The price is the second thing a buyer looks for; hiding it on a phone left the
+                      panel top-heavy over the one screen size it matters most on. */}
+                  {tour.price ? <div className="mono shrink-0 text-xs text-ink-3">{tour.price}</div> : null}
                 </div>
-                <div ref={pillsRef} className="no-scrollbar mt-1.5 flex gap-1 overflow-x-auto [mask-image:linear-gradient(to_right,black_calc(100%-18px),transparent)]">
+                {/* `overflow-x-auto` also clips vertically (a scroll container has no `visible`
+                    axis), and the mask paints only inside the border box — so the row needs slack
+                    above and below the pills or their descenders and lower border are shaved off.
+                    The negative margin keeps the panel's own spacing unchanged. */}
+                <div ref={pillsRef} className="no-scrollbar -my-0.5 mt-1 flex gap-1 overflow-x-auto py-0.5 [mask-image:linear-gradient(to_right,black_calc(100%-18px),transparent)]">
                   {rooms.map((r) => {
                     const active = r.id === room.id;
                     const job = jobFor(r.id);
@@ -623,8 +679,8 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
                   </div>
                 ) : pill ? (
                   <div className={cx('glass animate-fade flex items-center gap-2 rounded-full px-3 py-1.5 text-xs', pill.tone === 'error' ? 'text-warn' : 'text-ink-2')}>
-                    {pill.tone === 'loading' ? <Spinner size={12} /> : <Icon.Warning size={12} />}
-                    {pill.label}
+                    {pill.tone === 'loading' ? <Spinner size={12} /> : pill.tone === 'error' ? <Icon.Warning size={12} /> : <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-hidden />}
+                    <span className={pill.tone === 'info' ? 'mono text-[11px]' : undefined}>{pill.label}</span>
                   </div>
                 ) : null}
 

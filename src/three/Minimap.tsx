@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import type { PlacedPiece, RoomGeometry, WallSide } from '@/engine/types';
 import { corners, wallFeaturePosition } from '@/engine/geometry';
 import { useViewer } from './viewerStore';
@@ -51,6 +51,8 @@ export function Minimap({ room, pieces, buyerPieces = [], className, style, onCl
   const sel = selectedId === undefined ? viewerSelected : selectedId;
   const svgRef = useRef<SVGSVGElement>(null);
   const [pxPerM, setPxPerM] = useState(36);
+  // Several minimaps can share a page (the hub lists one per room), so the clip needs its own id.
+  const clipId = `minimap-floor-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
 
   const W = room.width + PAD * 2;
   const H = room.depth + PAD * 2;
@@ -142,6 +144,13 @@ export function Minimap({ room, pieces, buyerPieces = [], className, style, onCl
         aria-label="Room plan"
         style={{ width: '100%', height: '100%', flex: 1, minHeight: 0, cursor: onClick ? 'crosshair' : 'default', display: 'block' }}
       >
+        {/* The plan is the room: nothing the viewer draws — least of all a view cone standing in a
+            corner — may spill over the walls onto the panel's padding and rounded edge. */}
+        <defs>
+          <clipPath id={clipId}>
+            <rect x={-room.width / 2 - WALL_W / 2} y={-room.depth / 2 - WALL_W / 2} width={room.width + WALL_W} height={room.depth + WALL_W} />
+          </clipPath>
+        </defs>
         {/* floor */}
         <rect x={-room.width / 2} y={-room.depth / 2} width={room.width} height={room.depth} fill={FLOOR} />
         {/* metre grid */}
@@ -171,7 +180,7 @@ export function Minimap({ room, pieces, buyerPieces = [], className, style, onCl
         <path d={`M ${doorHinge.x} ${doorHinge.z} L ${doorTip.x} ${doorTip.z} A ${room.door.width} ${room.door.width} 0 0 ${sweep} ${doorArcEnd.x} ${doorArcEnd.z}`} fill="none" stroke="#bfb3a3" strokeWidth={0.025} strokeDasharray="0.06 0.05" />
         {/* viewer */}
         {showViewer ? (
-          <g opacity={walkable ? 1 : 0.45}>
+          <g opacity={walkable ? 1 : 0.45} clipPath={`url(#${clipId})`}>
             <polygon points={cone} fill={ACCENT} fillOpacity={0.2} stroke={ACCENT} strokeOpacity={0.35} strokeWidth={0.02} strokeLinejoin="round" />
             <circle cx={pose.x} cy={pose.z} r={0.17} fill={ACCENT} />
             <circle cx={pose.x} cy={pose.z} r={0.07} fill={INK} />

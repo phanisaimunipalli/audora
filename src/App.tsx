@@ -28,6 +28,19 @@ function ScrollToTop() {
   return null;
 }
 
+/**
+ * Toasts are seller/agent chrome: job progress, credits, room names from the seller's own tour and
+ * links into the authenticated hub. The public buyer view has no app chrome and no account, so a
+ * job landing in another tab must not drop "Full quality is ready — Dining room … Open tour →" over
+ * a stranger's viewer. The tray, the title badge and browser notifications are already suppressed
+ * there; this is the last one.
+ */
+function AppToaster() {
+  const { pathname } = useLocation();
+  if (pathname === '/t' || pathname.startsWith('/t/')) return null;
+  return <Toaster />;
+}
+
 export default function App() {
   useJobRunner();
   const setProviders = useAudora((s) => s.setProviders);
@@ -64,7 +77,7 @@ export default function App() {
           <Route path="*" element={<Landing />} />
         </Route>
       </Routes>
-      <Toaster />
+      <AppToaster />
     </>
   );
 }

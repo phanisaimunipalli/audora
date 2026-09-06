@@ -108,17 +108,48 @@ export function anchorFromCeiling(raw: RawGeometry): AnchorSpec {
   };
 }
 
-/** Marble's own metric estimate. Honest but coarse, so the UI should push for a real anchor. */
-export function anchorFromMarble(metricScaleFactor: number): AnchorSpec {
+/* ---------- reading a room off a reconstruction ----------
+ * Measuring a real reconstruction needs a few more everyday heights, and they belong next to the
+ * door and the outlet: they are assumptions about how homes are built, not facts about a mesh.
+ * `services/marble` turns them into raw reconstruction units with `ceilingUnits()` — the collider
+ * has no scale of its own until an anchor gives it one, but the ratio of a height to the ceiling
+ * is the same in both. */
+
+/** Knees to shoulders: the slice of a room that is wall rather than floor or ceiling. */
+export const WALL_BAND_MARGIN_M = 0.3;
+/** A plausible window: sill 0.90 m, head 2.10 m. Used only where the reconstruction is silent. */
+export const WINDOW_SILL_M = 0.9;
+export const WINDOW_HEAD_M = 2.1;
+
+/**
+ * A height in metres expressed in the raw units of a reconstruction whose floor-to-ceiling
+ * distance is `ceilingUnits`, assuming a standard 2.44 m ceiling — the same assumption
+ * `anchorFromCeiling` makes, so the two agree to the centimetre.
+ */
+export function unitsFromMetres(metres: number, ceilingUnits: number): number {
+  if (!(ceilingUnits > 0)) return 0;
+  return (metres / CEILING_HEIGHT_M) * ceilingUnits;
+}
+
+/**
+ * Marble's own metric estimate. Honest but coarse, so the UI should push for a real anchor.
+ *
+ * The chip has to name the quantity the ± is attached to — "±15 cm" of *what* is not a measurement,
+ * it is a shrug. Given the reconstruction's ceiling in raw units, the reference is stated the way
+ * every other anchor states its own: as the room height the model believes in, which a seller can
+ * sanity-check against the building.
+ */
+export function anchorFromMarble(metricScaleFactor: number, ceilingUnits?: number): AnchorSpec {
   const u = 0.15;
+  const ceiling = ceilingUnits && ceilingUnits > 0 ? ceilingUnits * metricScaleFactor : null;
   return {
     method: 'marble',
-    referenceMetres: metricScaleFactor,
-    referenceUnits: 1,
+    referenceMetres: ceiling ?? metricScaleFactor,
+    referenceUnits: ceiling ? (ceilingUnits as number) : 1,
     metresPerUnit: metricScaleFactor,
     uncertaintyM: u,
-    label: `model estimate · ${fmtCm(u)}`,
-    detail: 'Scale guessed by the reconstruction model. Tap a door to tighten it.',
+    label: ceiling ? `model scale · ceiling ${ceiling.toFixed(2)} m · ${fmtCm(u)}` : `model scale · ${metricScaleFactor.toFixed(2)} m per unit · ${fmtCm(u)}`,
+    detail: 'Scale measured by the reconstruction model itself. Type a wall length to tighten it.',
   };
 }
 

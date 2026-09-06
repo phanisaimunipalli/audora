@@ -9,11 +9,12 @@ import { bestWorld, selectRoom, toast, useAudora, useTourRooms } from '@/state/s
 import { useCollab } from '@/state/collab';
 import type { Room, Tour } from '@/state/types';
 import { aiAutoStage } from '@/services/ai';
-import { useViewer, type ViewMode } from '@/three/viewerStore';
+import { useViewer, type Pose, type ViewMode } from '@/three/viewerStore';
 import { SceneCanvas } from '@/three/SceneCanvas';
 import { RoomShell } from '@/three/RoomShell';
 import { OrbitRig, PhotoRig } from '@/three/OrbitRig';
 import { MarbleWorld, useMarbleFrame, type MarbleWorldStatus } from '@/three/MarbleWorld';
+import { captureYaw } from '@/three/splat/frame';
 import { CaptureLight } from '@/three/CaptureLight';
 import { WalkControls } from '@/three/WalkControls';
 import { buildWalkMask, type WalkMask } from '@/three/walkMask';
@@ -346,12 +347,13 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
   const world = bestWorld(room);
   const real = isReal(world) ? world : undefined;
   const photo = mode === 'photo' && hasPano(real);
+  const wantSplat = mode === 'walk' && showSplat && Boolean(real?.spzUrl);
   const marbleFrame = useMarbleFrame(real ?? NO_WORLD, room.anchor.metresPerUnit, floorOffsetOf(room));
   const pill = loadPill(marbleStatus);
   const panoLoading = layerLoading(marbleStatus, 'pano');
   // The measured room stays up until the photograph has actually arrived.
   const photoOnly = photo && layerReady(marbleStatus, 'pano');
-  const splatUp = mode === 'walk' && showSplat && Boolean(real?.spzUrl) && layerReady(marbleStatus, 'splat');
+  const splatUp = wantSplat && layerReady(marbleStatus, 'splat');
   /** Furniture is standing on a real capture, so it is lit by it and casts onto it. */
   const composite = photoOnly || splatUp;
   /* Under the splat the measured shell is a milky box drawn inside the photograph, not a stand-in:
@@ -363,7 +365,11 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
   const [walkMask, setWalkMask] = useState<WalkMask | null>(null);
   const captureX = marbleFrame.position[0];
   const captureZ = marbleFrame.position[2];
+  const captureFacing = captureYaw(marbleFrame);
   const walkHome = useMemo(() => ({ x: captureX, z: captureZ }), [captureX, captureZ]);
+  /* The seller walks the room from where the photographer stood, facing the way they faced — the
+     same first frame the buyer gets, so staging is judged against the buyer's view. */
+  const walkSpawn = useMemo<Pose | undefined>(() => (real ? { x: captureX, z: captureZ, yaw: captureFacing } : undefined), [real, captureX, captureZ, captureFacing]);
   useEffect(() => {
     if (!collider) {
       setWalkMask(null);
@@ -459,12 +465,16 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
               <RoomShell room={geometry} cullNearWalls={mode === 'orbit'} showGrid={mode === 'orbit'} showCeiling={mode === 'walk'} lights={!composite} />
             ) : null}
             {real ? (
+              /* Keyed on the world so a different capture is a teardown, not a re-point: the
+                 panorama is deliberately kept mounted across prop changes and would otherwise
+                 linger from the world it belonged to. */
               <MarbleWorld
+                key={real.worldId || real.panoUrl || real.spzUrl}
                 world={real}
                 metresPerUnit={room.anchor.metresPerUnit}
                 floorOffset={floorOffsetOf(room)}
-                showPano={photo}
-                showSplat={mode === 'walk' && showSplat && Boolean(real.spzUrl)}
+                showPano={photo || wantSplat}
+                showSplat={wantSplat}
                 showGeometry={showGeometry && Boolean(real.colliderUrl)}
                 onStatus={onMarbleStatus}
                 onCollider={setCollider}
@@ -490,11 +500,11 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
             />
             <PeerCursors peers={collab.peers} />
             {photo ? (
-              <PhotoRig origin={marbleFrame.position} fov={photoFov} onFov={setPhotoFov} resetKey={roomId} />
+              <PhotoRig origin={marbleFrame.position} initialYaw={captureFacing} fov={photoFov} onFov={setPhotoFov} resetKey={roomId} />
             ) : mode === 'orbit' ? (
               <OrbitRig room={geometry} resetKey={roomId} />
             ) : (
-              <WalkControls room={geometry} pieces={present} mask={real ? walkMask : null} home={real ? walkHome : undefined} />
+              <WalkControls room={geometry} pieces={present} spawn={walkSpawn} mask={real ? walkMask : null} collider={real ? collider : null} home={real ? walkHome : undefined} />
             )}
           </SceneCanvas>
 
@@ -528,7 +538,9 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
                 ) : null}
               </div>
             ) : null}
-            <div className="flex items-start justify-center">
+            {/* The layers button is pinned to the top-left corner; leaving room for it on both sides
+                keeps this row centred and keeps the button clickable on a narrow screen. */}
+            <div className="flex items-start justify-center px-11">
               {placing && editable ? (
                 <div className="glass animate-rise pointer-events-auto flex items-center gap-3 rounded-full py-1.5 pr-1.5 pl-4 text-[13px] text-ink-2">
                   <span>
@@ -606,8 +618,12 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
 
       {isMobile ? (
         <>
-          {/* One scrollable row: the anchor chip is never clipped away, it scrolls into view (the mask is the affordance). */}
-          <nav className="no-scrollbar flex h-14 shrink-0 items-center gap-2 overflow-x-auto border-t border-line bg-bg px-3 [mask-image:linear-gradient(to_right,black_calc(100%-24px),transparent)]">
+          {/* Two rows, because the anchor is not optional. Pushed to the end of one scrolling row it
+              was cut off by the viewport edge with the ± unreachable — and an uncertainty the seller
+              cannot read is the one number Audora refuses to hide. The controls scroll; the anchor
+              gets its own full-width line and truncates its reference, never its ±. */}
+          <nav className="flex shrink-0 flex-col gap-1.5 border-t border-line bg-bg px-3 py-2">
+            <div className="no-scrollbar flex items-center gap-2 overflow-x-auto [mask-image:linear-gradient(to_right,black_calc(100%-24px),transparent)]">
             <Segmented
               size="sm"
               className="shrink-0"
@@ -630,7 +646,8 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
                 </Chip>
               ) : null}
             </Button>
-            <AnchorChip anchor={room.anchor} size="sm" className="ml-auto shrink-0 !max-w-none" />
+            </div>
+            <AnchorChip anchor={room.anchor} size="sm" className="w-full" />
           </nav>
           <BottomSheet open={sheet === 'catalog'} onClose={() => setSheet(null)} title="Catalog" height="tall">
             <CatalogRail roomType={room.type} onAdd={addFromCatalog} activeId={placing?.id ?? null} />

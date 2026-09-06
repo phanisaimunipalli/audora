@@ -4,6 +4,7 @@ import { useAudora } from '@/state/store';
 import { activeProvider } from '@/state/jobs';
 import type { Tier } from '@/state/types';
 import { TIER_INFO } from '@/services/mockWorld';
+import { DRAFT_MODEL, FULL_MODEL, credits as fmtCredits } from '@/state/publish';
 import { notificationPermission, requestNotifications } from '@/lib/notify';
 import { eta } from '@/lib/format';
 import { AnchorChip } from '@/components/AnchorChip';
@@ -48,6 +49,7 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
             {(['draft', 'full'] as Tier[]).map((t) => {
               const i = TIER_INFO[t];
               const on = quality === t;
+              const tierModel = t === 'draft' ? providers.models?.marbleDraft ?? DRAFT_MODEL : providers.models?.marbleFull ?? FULL_MODEL;
               return (
                 <button
                   key={t}
@@ -57,16 +59,24 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-base text-ink">{i.label}</span>
-                    {t === 'draft' ? <Chip tone="ok">recommended</Chip> : null}
+                    {t === 'draft' ? <Chip tone="ok">recommended to start</Chip> : <Chip mono>what buyers walk</Chip>}
                   </div>
                   <div className="mono text-sm text-ink-2">
-                    ~{t === 'draft' ? '1 minute' : '10 minutes'} · ~${i.usd.toFixed(2)}/room
+                    ~{t === 'draft' ? '1 minute' : '10 minutes'} · {fmtCredits(i.credits)} credits · ~${i.usd.toFixed(2)}/room
                   </div>
+                  <div className="mono text-[11px] text-ink-3">{tierModel}</div>
                   <div className="text-xs text-ink-3">{i.blurb}</div>
                 </button>
               );
             })}
           </div>
+          {/* The tier story, said once at the point where the seller first meets it. */}
+          <p className="text-xs text-ink-3">
+            Start with drafts: they are quick and they are what you stage against. When the listing is ready, <strong className="font-medium text-ink-2">Publish</strong>{' '}
+            offers a full <span className="mono">{FULL_MODEL}</span> reconstruction for every room (<span className="mono">{fmtCredits(TIER_INFO.full.credits)} credits ≈ $
+            {TIER_INFO.full.usd.toFixed(2)}</span> each, about ten minutes) and shows the total before it spends anything. Buyers always get the best world a room has, so the
+            draft stays walkable until the full one lands.
+          </p>
         </section>
 
         <section className="flex flex-col gap-3">
@@ -79,7 +89,8 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
                 </Chip>
                 <Chip mono>{model}</Chip>
                 <Chip mono tone="accent">
-                  ~{info.credits} credits × {liveRooms} room{liveRooms === 1 ? '' : 's'} = ~{info.credits * liveRooms} credits · ~${(info.usd * liveRooms).toFixed(2)}
+                  ~{fmtCredits(info.credits)} credits × {liveRooms} room{liveRooms === 1 ? '' : 's'} = ~{fmtCredits(info.credits * liveRooms)} credits · ~$
+                  {(info.usd * liveRooms).toFixed(2)}
                 </Chip>
               </div>
               <p className="text-xs text-ink-3">
@@ -183,7 +194,7 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
             <Icon.Sparkles size={18} /> Generate {rooms.length} room{rooms.length === 1 ? '' : 's'}
           </Button>
           <div className="mono text-center text-[11px] text-ink-3">
-            {provider === 'marble' ? `~${info.credits * liveRooms} credits · ${eta(info.realSeconds)} per room` : `simulated · free · ~${mockSeconds}s per room`}
+            {provider === 'marble' ? `~${fmtCredits(info.credits * liveRooms)} credits · ${eta(info.realSeconds)} per room` : `simulated · free · ~${mockSeconds}s per room`}
           </div>
         </div>
       </aside>

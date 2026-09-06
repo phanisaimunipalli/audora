@@ -1,13 +1,14 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { PlacedPiece, RoomGeometry } from '@/engine/types';
 import { EYE_HEIGHT_M } from '@/engine/anchor';
 import { useViewer, type Pose } from './viewerStore';
 import { readJoystick } from './TouchJoystick';
-import { integrate, intentFrom, isMoving, keyCode, spawnPose, standable, type WalkBounds, type WalkState } from './walkMath';
+import { colliderProbe } from './splat/colliderProbe';
+import { integrate, intentFrom, isMoving, keyCode, nearestFree, spawnPose, standable, type WalkBounds, type WalkState } from './walkMath';
 
-export { blocked, spawnPose, standable } from './walkMath';
+export { blocked, nearestFree, spawnPose, standable } from './walkMath';
 export type { WalkBounds } from './walkMath';
 
 export type LookMode = 'drag' | 'pointerLock';
@@ -38,6 +39,12 @@ export interface WalkControlsProps {
    * wall into a black void.
    */
   mask?: WalkBounds | null;
+  /**
+   * The reconstruction's collider mesh, already placed in our metric frame. Used only when `mask` is
+   * missing — a mesh that does not enclose the capture point gets no mask — as a direct raycast test
+   * against the real walls, so the buyer is never left free to walk out of the photograph.
+   */
+  collider?: THREE.Object3D | null;
   /** A point known to be inside the walkable floor — the capture point. Used to rescue a spawn, a click or a walker that ends up outside it. */
   home?: { x: number; z: number };
   onArrive?: (pose: Pose) => void;
@@ -67,6 +74,7 @@ export function WalkControls({
   glideSeconds = 0.6,
   entrySeconds = 0.9,
   mask = null,
+  collider = null,
   home,
   onArrive,
 }: WalkControlsProps) {
@@ -82,8 +90,12 @@ export function WalkControls({
   const entry = useRef<{ fromPos: THREE.Vector3; fromQuat: THREE.Quaternion; toQuat: THREE.Quaternion; t0: number; dur: number } | null>(null);
   const piecesRef = useRef(pieces);
   piecesRef.current = pieces;
-  const maskRef = useRef(mask);
-  maskRef.current = mask;
+  /* The rasterised mask is the cheap, complete answer; the collider raycast is the net for a
+     reconstruction that could not produce one (see splat/colliderProbe). One of them, never both. */
+  const probe = useMemo(() => (mask || !collider ? null : colliderProbe(collider)), [mask, collider]);
+  const bounds = mask ?? probe;
+  const maskRef = useRef(bounds);
+  maskRef.current = bounds;
   const homeRef = useRef(home);
   homeRef.current = home;
   const spawnRef = useRef(spawn);
@@ -111,12 +123,20 @@ export function WalkControls({
     setGliding(true);
   };
 
-  /** The nearest spot to (x,z) that is inside the real walls, reached from `from` or from home. */
+  /**
+   * The nearest spot to (x,z) that is inside the real walls, reached by walking from `from`.
+   *
+   * Never a point the walker could not walk to: `standable` marches and stops at the last free step,
+   * and when the walker is themselves stuck the fallback is a step back toward home, not a jump to
+   * the target. A click through an open doorway therefore stops at the doorway, and can never put
+   * the buyer inside the photographed wall on the far side of the room.
+   */
   const reachable = (x: number, z: number, fromX: number, fromZ: number): { x: number; z: number } | null => {
     const direct = standable(x, z, fromX, fromZ, room, piecesRef.current, maskRef.current);
     if (direct) return direct;
     const h = homeRef.current;
-    return h ? standable(x, z, h.x, h.z, room, piecesRef.current, maskRef.current) ?? h : null;
+    if (!h) return null;
+    return nearestFree(fromX, fromZ, room, piecesRef.current, maskRef.current, h);
   };
 
   /* Respawn on a *changed* spawn, never on a new object with the same numbers in it. The store
@@ -126,35 +146,55 @@ export function WalkControls({
   roomRef.current = room;
   const spawnKey = `${room.width},${room.depth},${room.door.wall},${room.door.offset},${spawn ? `${spawn.x},${spawn.z},${spawn.yaw}` : 'door'}`;
 
-  // spawn / respawn
+  /* spawn / respawn.
+   *
+   * Two rules, both learned the hard way:
+   *
+   * 1. **The camera is placed here, synchronously, never by the frame loop.** The entry tween is a
+   *    nicety layered on top; the camera is already standing in the room before the first frame is
+   *    drawn. When frames are slow or throttled (a background tab, a software renderer, a 23 MB
+   *    splat decoding) the old code left the camera at r3f's default `[4, 3, 6]` — outside the
+   *    room, looking at the shell from behind its back faces, which reads as "a black void with
+   *    the furniture floating in it".
+   * 2. **It runs whether or not input is enabled.** Turning the ruler on unmounts the walker's
+   *    input (`enabled = false`) and used to skip placement entirely, so reaching for the ruler in
+   *    the first seconds of a room threw the buyer outside it.
+   */
   useEffect(() => {
-    if (!enabled) return;
     const room = roomRef.current;
     const spawn = spawnRef.current;
     const want = spawn ?? spawnPose(room);
     const h = homeRef.current;
-    // The spawn is computed from the room *rectangle*; on a real reconstruction that can be outside
-    // the photographed walls, so it is pulled back to the nearest spot the buyer can actually stand.
-    const safe = (h ? standable(want.x, want.z, h.x, h.z, room, piecesRef.current, maskRef.current) : null) ?? want;
+    // The spawn is computed from the room *rectangle*; on a real reconstruction that is a few
+    // centimetres wider than the walk mask, so the capture point itself can read as blocked. Pull
+    // it to the nearest spot the buyer can actually stand — and can walk out of.
+    const safe = nearestFree(want.x, want.z, room, piecesRef.current, maskRef.current, h ?? null) ?? want;
     const p: Pose = { x: safe.x, z: safe.z, yaw: want.yaw };
+    const from = camera.position.clone();
+    const fromQuat = camera.quaternion.clone();
     pos.current.set(p.x, eyeHeight, p.z);
     yaw.current = targetYaw.current = p.yaw;
-    pitch.current = targetPitch.current = 0;
+    /* Picking up the ruler re-runs this with the walker exactly where they already stand: that is a
+       freeze, not a respawn, so the direction they were looking in — including how far down — is
+       left alone. Only a real move levels the view. */
+    const standingHere = from.distanceTo(pos.current) < 0.01;
+    if (!standingHere) pitch.current = targetPitch.current = 0;
     vel.current.set(0, 0);
     glide.current = null;
-    const far = camera.position.distanceTo(pos.current) > 0.5;
-    if (far && entrySeconds > 0) {
-      // fly down from wherever the camera is (the dollhouse, usually) to eye height at the door
+    // Stand there now. Whatever happens to the frame loop, the next frame is drawn from eye height.
+    camera.position.copy(pos.current);
+    camera.rotation.set(pitch.current, yaw.current, 0, 'YXZ');
+    (camera as THREE.PerspectiveCamera).updateProjectionMatrix?.();
+    const far = from.distanceTo(pos.current) > 0.5;
+    if (enabled && far && entrySeconds > 0) {
+      // fly down from wherever the camera was (the dollhouse, usually) to eye height at the door
       const toQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, p.yaw, 0, 'YXZ'));
-      entry.current = { fromPos: camera.position.clone(), fromQuat: camera.quaternion.clone(), toQuat, t0: performance.now(), dur: entrySeconds * 1000 };
+      entry.current = { fromPos: from, fromQuat, toQuat, t0: performance.now(), dur: entrySeconds * 1000 };
       setGliding(true);
     } else {
       entry.current = null;
-      camera.position.copy(pos.current);
-      camera.rotation.set(0, p.yaw, 0, 'YXZ');
       setGliding(false);
     }
-    (camera as THREE.PerspectiveCamera).updateProjectionMatrix?.();
     lastPose.current = { ...p };
     setPose(p);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -179,10 +219,10 @@ export function WalkControls({
    * void with nothing but a mode switch to recover.
    */
   useEffect(() => {
-    if (!enabled || !mask) return;
+    if (!bounds) return;
     const h = home ?? { x: 0, z: 0 };
-    if (!mask.blocked(pos.current.x, pos.current.z)) return;
-    const dest = standable(h.x, h.z, pos.current.x, pos.current.z, room, piecesRef.current, mask) ?? h;
+    if (!bounds.blocked(pos.current.x, pos.current.z)) return;
+    const dest = nearestFree(pos.current.x, pos.current.z, room, piecesRef.current, bounds, h) ?? h;
     pos.current.x = dest.x;
     pos.current.z = dest.z;
     glide.current = null;
@@ -191,7 +231,7 @@ export function WalkControls({
     setGliding(false);
     setPose({ x: dest.x, z: dest.z, yaw: wrapAngle(yaw.current) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, mask, home, room, eyeHeight]);
+  }, [enabled, bounds, home, room, eyeHeight]);
 
   // input
   useEffect(() => {

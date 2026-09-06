@@ -1,0 +1,20 @@
+{
+  "id": "ftckpt_7d27eb9f-be42-4332-b07d-f859062be85e",
+  "created_at": 1788707198,
+  "fine_tuned_model_checkpoint": "ft:Qwen/Qwen3-8B-2026-09-06:org_placeholder:audora-stager:IDPlaceholder:ckpt-step-6",
+  "fine_tuning_job_id": "ftjob-49718f4839c04dd89ab749632021f946",
+  "metrics": {
+    "train_loss": 0.7314797639846802,
+    "valid_loss": 0.1436544954776764
+  },
+  "object": "fine_tuning.job.checkpoint",
+  "step_number": 6,
+  "result_files": [
+    "file-74d06c599a1255dbb9c3a0f64dcf45bd",
+    "file-062769b42faa5a1da3237cd0a71bb9bc",
+    "file-a7d5d77593145faeaa48d210c7f8276b",
+    "file-448e292bccb4585eb22bc66423ff88d6",
+    "file-4db725e19cb1515489e6e920a8e6612e",
+    "file-2ad53c393fd85e0e9eafb5c0b58f2565"
+  ]
+}

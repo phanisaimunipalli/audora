@@ -1,0 +1,68 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "ftckpt_a30257f8-3410-4e83-bc3d-36a128dbe4f6",
+      "created_at": 1788707153,
+      "fine_tuned_model_checkpoint": "ft:Qwen/Qwen3-8B-2026-09-06:org_placeholder:audora-stager:IDPlaceholder:ckpt-step-2",
+      "fine_tuning_job_id": "ftjob-49718f4839c04dd89ab749632021f946",
+      "metrics": {
+        "train_loss": 1.0093913078308105,
+        "valid_loss": 0.43544140458106995
+      },
+      "object": "fine_tuning.job.checkpoint",
+      "step_number": 2,
+      "result_files": [
+        "file-5f3a625f88325585b911e29b045f0f70",
+        "file-592bc8f056265e71990f27561fe6d706",
+        "file-884cabbbb3e7590f953552f9e4ec793b",
+        "file-d0dbc6fb27b05dc9914506b10a66c039",
+        "file-4f300bac3f5c5fe3af00794b524f92f0",
+        "file-caec95a9e4245615b58de020e96f7baf"
+      ]
+    },
+    {
+      "id": "ftckpt_dcf2d081-8134-445f-81ea-ef375d92e3a9",
+      "created_at": 1788707179,
+      "fine_tuned_model_checkpoint": "ft:Qwen/Qwen3-8B-2026-09-06:org_placeholder:audora-stager:IDPlaceholder:ckpt-step-4",
+      "fine_tuning_job_id": "ftjob-49718f4839c04dd89ab749632021f946",
+      "metrics": {
+        "train_loss": 0.8732964396476746,
+        "valid_loss": 0.18168877065181732
+      },
+      "object": "fine_tuning.job.checkpoint",
+      "step_number": 4,
+      "result_files": [
+        "file-b78a58fb57d45778a64c4be1f60d9d37",
+        "file-a6d14390ba9653c99681da20babf78d2",
+        "file-eb942b6d882d5d4681e54d83e5768783",
+        "file-663f0bf39d6b53d78a0cd77bbf99bdf9",
+        "file-cfef6b16b439528d9b4061ca634727a8",
+        "file-920035ae30d5504d829b53cd25a4fded"
+      ]
+    },
+    {
+      "id": "ftckpt_7d27eb9f-be42-4332-b07d-f859062be85e",
+      "created_at": 1788707198,
+      "fine_tuned_model_checkpoint": "ft:Qwen/Qwen3-8B-2026-09-06:org_placeholder:audora-stager:IDPlaceholder:ckpt-step-6",
+      "fine_tuning_job_id": "ftjob-49718f4839c04dd89ab749632021f946",
+      "metrics": {
+        "train_loss": 0.7314797639846802,
+        "valid_loss": 0.1436544954776764
+      },
+      "object": "fine_tuning.job.checkpoint",
+      "step_number": 6,
+      "result_files": [
+        "file-74d06c599a1255dbb9c3a0f64dcf45bd",
+        "file-062769b42faa5a1da3237cd0a71bb9bc",
+        "file-a7d5d77593145faeaa48d210c7f8276b",
+        "file-448e292bccb4585eb22bc66423ff88d6",
+        "file-4db725e19cb1515489e6e920a8e6612e",
+        "file-2ad53c393fd85e0e9eafb5c0b58f2565"
+      ]
+    }
+  ],
+  "first_id": "ftckpt_a30257f8-3410-4e83-bc3d-36a128dbe4f6",
+  "last_id": "ftckpt_7d27eb9f-be42-4332-b07d-f859062be85e",
+  "has_more": false
+}

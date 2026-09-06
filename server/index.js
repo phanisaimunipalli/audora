@@ -19,6 +19,36 @@ const RENDER_TASK = process.env.RENDER_WORKFLOW_TASK || 'audora-pipeline/buildWo
 const useWorkflow = () => Boolean(RENDER_KEY)
 const PORT = process.env.PORT || 10000
 
+// Page views. Held in memory and flushed to a file, so the count survives a
+// restart. Point DATA_DIR at a Render disk and it survives deploys too.
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '.data')
+const VIEWS_FILE = path.join(DATA_DIR, 'views.json')
+let views = 0
+try {
+  const n = JSON.parse(fs.readFileSync(VIEWS_FILE, 'utf8')).views
+  views = Number.isFinite(n) && n >= 0 ? n : 0
+} catch { views = 0 }
+
+let pendingFlush = false
+function bumpViews() {
+  views += 1
+  if (pendingFlush) return views
+  pendingFlush = true
+  // Coalesce bursts into one write a second rather than hitting disk per hit.
+  setTimeout(() => {
+    pendingFlush = false
+    try {
+      fs.mkdirSync(DATA_DIR, { recursive: true })
+      // Write then rename. A deploy SIGTERM landing mid-write would otherwise
+      // leave a truncated file, and the next boot would read zero.
+      const tmp = `${VIEWS_FILE}.tmp`
+      fs.writeFileSync(tmp, JSON.stringify({ views }))
+      fs.renameSync(tmp, VIEWS_FILE)
+    } catch (e) { console.error('views write failed:', e.message) }
+  }, 1000).unref?.()
+  return views
+}
+
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json',
@@ -39,6 +69,10 @@ async function api(req, res, url) {
   const send = (code, obj) => {
     res.writeHead(code, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(obj))
+  }
+  if (url.pathname === '/api/views') {
+    if (req.method === 'POST') return send(200, { views: bumpViews() })
+    return send(200, { views })
   }
   if (!KEY) return send(500, { error: 'WORLDLABS_API_KEY not configured on the server' })
   try {

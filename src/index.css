@@ -364,3 +364,13 @@ button:focus-visible, a:focus-visible, label:focus-within { outline:2px solid va
   .topbar { flex-wrap:wrap; gap:8px; }
   .topbar .right { margin-left:0; flex-wrap:wrap; }
 }
+
+/* Page views. A footnote under the row, not a headline. */
+.views {
+  margin:26px 0 0;
+  text-align:center;
+  font-size:11px;
+  letter-spacing:.07em;
+  text-transform:uppercase;
+  color:var(--faint);
+}

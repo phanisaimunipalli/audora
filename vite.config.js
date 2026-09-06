@@ -33,6 +33,21 @@ function marbleDevApi() {
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify(obj))
         }
+        // Views. Same shape as production, so the UI needs no dev special case.
+        if (req.url.startsWith('/api/views')) {
+          const dir = process.env.DATA_DIR || '.data'
+          const f = `${dir}/views.json`
+          let n = 0
+          try { n = JSON.parse(fs.readFileSync(f, 'utf8')).views || 0 } catch { n = 0 }
+          if (req.method === 'POST') {
+            n += 1
+            try {
+              fs.mkdirSync(dir, { recursive: true })
+              fs.writeFileSync(f, JSON.stringify({ views: n }))
+            } catch { /* dev only, a failed write is not worth breaking on */ }
+          }
+          return send(200, { views: n })
+        }
         if (!key) return send(500, { error: 'WORLDLABS_API_KEY missing from .env.local' })
         try {
           if (req.url.startsWith('/api/generate') && req.method === 'POST') {

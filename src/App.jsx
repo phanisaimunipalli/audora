@@ -127,6 +127,21 @@ function Strip({ items, activeId, onPick }) {
 
 let seq = 0
 
+// Counts a visit once per browser session, so a reload does not inflate it.
+function useViews() {
+  const [views, setViews] = useState(null)
+  useEffect(() => {
+    let seen = null
+    try { seen = sessionStorage.getItem('audora-seen') } catch { /* private mode */ }
+    fetch('/api/views', seen ? undefined : { method: 'POST' })
+      .then(r => r.json())
+      .then(d => { if (typeof d.views === 'number') setViews(d.views) })
+      .catch(() => { /* a missing counter is not worth surfacing */ })
+    if (!seen) { try { sessionStorage.setItem('audora-seen', '1') } catch { /* ignore */ } }
+  }, [])
+  return views
+}
+
 export default function App() {
   const [phase, setPhase] = useState('idle')
   const [tier, setTier] = useState(null)
@@ -145,6 +160,7 @@ export default function App() {
   const [showMetrics, setShowMetrics] = useState(true)
   const [panoDims, setPanoDims] = useState(null)
   const [credits, setCredits] = useState(null)
+  const views = useViews()
   const [history, setHistory] = useState([])
   const [staging, setStaging] = useState(false)
   const [items, setItems] = useState([])
@@ -484,6 +500,9 @@ export default function App() {
               Skip the wait, open a world we already made →
             </button>
             <Strip items={history} activeId={null} onPick={pick} />
+            {views != null && (
+              <p className="views">{views.toLocaleString()} {views === 1 ? 'view' : 'views'}</p>
+            )}
           </>
         )}
       </div>

@@ -3,13 +3,15 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, useTexture, useGLTF, Html } from '@react-three/drei'
 import * as THREE from 'three'
 
-function Pano({ url }) {
+function Pano({ url, onMeasured }) {
   const tex = useTexture(url)
   useEffect(() => {
     tex.colorSpace = THREE.SRGBColorSpace
     tex.minFilter = THREE.LinearFilter
     tex.generateMipmaps = false
-  }, [tex])
+    const img = tex.image
+    if (img?.width) onMeasured?.({ w: img.width, h: img.height })
+  }, [tex, onMeasured])
   return (
     <mesh scale={[-1, 1, 1]}>
       <sphereGeometry args={[60, 96, 64]} />
@@ -96,7 +98,7 @@ function Drift({ on }) {
 
 export default function WorldView({
   world, showMesh, metric,
-  items = [], floorY = -1.3, selected, onSelect, onMove, staging,
+  items = [], floorY = -1.3, selected, onSelect, onMove, staging, onMeasured,
 }) {
   const [touched, setTouched] = useState(false)
   const [grabbed, setGrabbed] = useState(null)
@@ -112,7 +114,7 @@ export default function WorldView({
       <directionalLight position={[3, 8, 4]} intensity={1.1} />
       <directionalLight position={[-4, 4, -3]} intensity={0.35} />
       <Suspense fallback={<Html center><div className="loading">Loading world…</div></Html>}>
-        <Pano url={world.pano} />
+        <Pano url={world.pano} onMeasured={onMeasured} />
         {showMesh && world.collider && (
           <Suspense fallback={null}>
             <Collider

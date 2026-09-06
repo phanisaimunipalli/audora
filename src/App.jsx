@@ -6,7 +6,7 @@ import { SETS, SINGLES, byId, cm } from './data.js'
 
 const DRAFT = 'marble-1.0-draft'
 const FULL = 'marble-1.1'
-const MAX_PHOTOS = 6
+const MAX_PHOTOS = 1  // one photo for now, on purpose
 
 function downscale(file, max = 1600) {
   return new Promise((resolve, reject) => {
@@ -54,11 +54,63 @@ const worldFrom = (resp) => {
 
 const hasPano = (w) => Boolean(w?.assets?.imagery?.pano_url)
 
+// Fixed slots so the sky is stable across renders: left/top in %, width in px,
+// drift duration and delay in s, depth 0..1 (deeper = smaller, fainter, slower).
+const SKY_SLOTS = [
+  { l: 4,  t: 12, w: 220, d: 26, y: 0,   z: .35 },
+  { l: 78, t: 8,  w: 250, d: 30, y: -4,  z: .55 },
+  { l: 12, t: 62, w: 190, d: 24, y: -9,  z: .25 },
+  { l: 70, t: 64, w: 230, d: 28, y: -6,  z: .45 },
+  { l: 40, t: 4,  w: 160, d: 22, y: -12, z: .15 },
+  { l: 88, t: 38, w: 170, d: 25, y: -2,  z: .3 },
+  { l: 26, t: 30, w: 140, d: 21, y: -7,  z: .1 },
+  { l: 55, t: 78, w: 180, d: 27, y: -10, z: .2 },
+]
+
+function House({ hue = 0 }) {
+  return (
+    <svg viewBox="0 0 120 92" className="house" style={{ filter: `hue-rotate(${hue}deg)` }} aria-hidden="true">
+      <path d="M8 44 L60 8 L112 44" fill="none" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M20 40 V84 H100 V40" fill="rgba(29,99,255,.08)" stroke="currentColor" strokeWidth="5" strokeLinejoin="round" />
+      <path d="M50 84 V58 H70 V84" fill="rgba(29,99,255,.16)" stroke="currentColor" strokeWidth="5" strokeLinejoin="round" />
+      <rect x="28" y="50" width="14" height="12" rx="2" fill="rgba(29,99,255,.16)" stroke="currentColor" strokeWidth="4" />
+      <rect x="78" y="50" width="14" height="12" rx="2" fill="rgba(29,99,255,.16)" stroke="currentColor" strokeWidth="4" />
+    </svg>
+  )
+}
+
+// Rooms Audora already generated drift slowly behind the upload card. When
+// there is no history yet, line-drawn homes take their place.
+function Sky({ items }) {
+  const thumbs = items.map(w => w.assets?.thumbnail_url).filter(Boolean)
+  return (
+    <div className="sky" aria-hidden="true">
+      {SKY_SLOTS.map((s, i) => {
+        const src = thumbs.length ? thumbs[i % thumbs.length] : null
+        const style = {
+          left: `${s.l}%`, top: `${s.t}%`, width: `${s.w}px`,
+          animationDuration: `${s.d}s`, animationDelay: `${s.y}s`,
+          opacity: 0.22 + s.z * 0.55, transform: `scale(${0.75 + s.z * 0.35})`,
+          filter: `blur(${(1 - s.z) * 1.6}px)`,
+        }
+        return (
+          <div key={i} className="scene" style={style}>
+            {src
+              ? <img src={src} alt="" loading="lazy" />
+              : <div className="scene-home"><House hue={i * 14} /></div>}
+            <span className="scene-tag">{src ? 'Generated room' : 'Your room, soon'}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function Strip({ items, activeId, onPick }) {
   if (!items.length) return null
   return (
     <div className="strip">
-      <div className="strip-l">{items.length} generated</div>
+      <div className="strip-l"><span>Rooms already generated</span><em>{items.length}</em></div>
       <div className="strip-scroll">
         {items.map((w) => (
           <button key={w.world_id}
@@ -218,9 +270,10 @@ export default function App() {
 
   const addPhotos = async (files) => {
     setError(null)
-    const picked = Array.from(files).slice(0, Math.max(0, MAX_PHOTOS - photos.length))
+    const picked = Array.from(files).slice(0, MAX_PHOTOS)
     const urls = await Promise.all(picked.map(f => downscale(f)))
-    setPhotos(p => [...p, ...urls])
+    // With a cap of one, a new pick replaces the current photo.
+    setPhotos(p => [...p, ...urls].slice(-MAX_PHOTOS))
   }
 
   const addPiece = (id, at) => {
@@ -370,10 +423,18 @@ export default function App() {
 
   return (
     <div className="up">
+      <Sky items={history} />
+      <header className="nav">
+        <div className="brand">AUDORA</div>
+        <nav className="nav-r">
+          {credits != null && <span className="nav-credits">{credits.toLocaleString()} credits</span>}
+          <a className="nav-link" href="https://github.com/phanisaimunipalli/audora" target="_blank" rel="noreferrer">GitHub</a>
+        </nav>
+      </header>
       <div className="up-inner">
-        <div className="brand big">AUDORA</div>
+        <div className="eyebrow">Photo to walkable 3D · World Labs Marble</div>
         <h1>Live it before buying or selling.</h1>
-        <p className="sub">Upload photos of a room and get back a real 3D world you can walk through and stage with furniture at true dimensions.</p>
+        <p className="sub">One photo of a room becomes a real 3D world you can walk through and stage with furniture at true dimensions.</p>
 
         {phase === 'working' ? (
           <div className="progress">
@@ -385,38 +446,43 @@ export default function App() {
           </div>
         ) : (
           <>
-            {photos.length > 0 && (
-              <div className="pgrid picked">
-                {photos.map((p, i) => (
-                  <div key={i} className="pcell">
-                    <img src={p} alt="" />
-                    <button className="px" onClick={() => setPhotos(s => s.filter((_, j) => j !== i))}>×</button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <label className={'drop' + (photos.length ? ' small' : '')}>
-              <input type="file" accept="image/*" multiple
-                onChange={e => { addPhotos(e.target.files); e.target.value = '' }} />
-              <span className="drop-i">＋</span>
-              <span className="drop-t">{photos.length ? 'Add another angle' : 'Choose photos'}</span>
-              <span className="drop-s">
-                {photos.length ? `${photos.length} of ${MAX_PHOTOS} · more angles, better geometry`
-                               : 'One works. Several from different angles works better.'}
-              </span>
-            </label>
-            {photos.length > 0 && (
-              <button className="go wide" onClick={run}>
-                Generate draft from {photos.length} {photos.length === 1 ? 'photo' : 'photos'} →
-              </button>
-            )}
-            <p className="tiny">Draft first, always. You decide whether it goes to full quality.</p>
-            {error && <div className="err">{error}</div>}
-            {notice && <div className="err notice-inline">{notice}</div>}
+            <div className="card">
+              {photos.length > 0 && (
+                <div className="pgrid picked">
+                  {photos.map((p, i) => (
+                    <div key={i} className="pcell">
+                      <img src={p} alt="" />
+                      <button className="px" onClick={() => setPhotos(s => s.filter((_, j) => j !== i))} aria-label="Remove photo">×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <label className={'drop' + (photos.length ? ' small' : '')}>
+                <input type="file" accept="image/*"
+                  onChange={e => { addPhotos(e.target.files); e.target.value = '' }} />
+                <span className="drop-i" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /><path d="M12 15V4" /><path d="m7 9 5-5 5 5" />
+                  </svg>
+                </span>
+                <span className="drop-t">{photos.length ? 'Choose a different photo' : 'Add one photo of the room'}</span>
+                <span className="drop-s">
+                  {photos.length ? 'One photo is all we need for now.'
+                                 : 'Stand in the doorway, get the far corner in. JPG or PNG.'}
+                </span>
+              </label>
+              {photos.length > 0 && (
+                <button className="go wide" onClick={run}>
+                  Generate draft from this photo →
+                </button>
+              )}
+              <p className="tiny">Draft first, always. Full quality only when you say so.</p>
+              {error && <div className="err">{error}</div>}
+              {notice && <div className="err notice-inline">{notice}</div>}
+            </div>
             <button className="ghost" onClick={() => openWorld(DEMO_WORLD, 'full')}>
               Skip the wait, open a world we already made →
             </button>
-            {credits != null && <p className="tiny">{credits.toLocaleString()} credits remaining</p>}
             <Strip items={history} activeId={null} onPick={pick} />
           </>
         )}

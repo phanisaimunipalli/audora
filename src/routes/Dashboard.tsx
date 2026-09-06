@@ -105,7 +105,7 @@ function TourRow({ tour, roomCount, readyCount, summary }: { tour: ReturnType<ty
           {readyCount}/{roomCount} {roomCount === 1 ? 'room' : 'rooms'} ready · {tour.price ?? '—'} · updated {timeAgo(tour.updatedAt)}
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
-          <Link to={`/tours/${tour.id}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line-2 bg-surface-2 px-3 text-[13px] text-ink hover:bg-surface-3">
+          <Link to={`/tours/${tour.id}?tab=insights`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line-2 bg-surface-2 px-3 text-[13px] text-ink hover:bg-surface-3">
             <Icon.Chart size={14} /> Open insights
           </Link>
           <Link to={`/t/${tour.shareId}`} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] text-ink-2 hover:bg-surface-2 hover:text-ink">

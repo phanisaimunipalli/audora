@@ -16,10 +16,12 @@ export async function fetchColliderBounds(url: string): Promise<WorldBounds> {
   const total = dv.getUint32(8, true);
   let off = 12;
   let json: any = null;
+  let bin: { start: number; length: number } | null = null;
   while (off < total) {
     const len = dv.getUint32(off, true);
     const type = dv.getUint32(off + 4, true);
     if (type === 0x4e4f534a) json = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, off + 8, len)));
+    if (type === 0x004e4942) bin = { start: off + 8, length: len };
     off += 8 + len;
   }
   if (!json) throw new Error('GLB has no JSON chunk');
@@ -37,7 +39,56 @@ export async function fetchColliderBounds(url: string): Promise<WorldBounds> {
     }
   }
   if (!Number.isFinite(b.minX)) throw new Error('Collider has no positions');
-  return b;
+  const floorY = bin ? colliderFloorY(buf, json, bin, b) : undefined;
+  return floorY == null ? b : { ...b, floorY };
+}
+
+/**
+ * The reconstruction's own floor plane, in raw units: the densest horizontal slab in the bottom
+ * quarter of the collider mesh.
+ *
+ * Neither of the two numbers Marble hands over is that plane. `minY` is the mesh's lowest stray
+ * vertex — a skirt a few centimetres under the floor (6 cm on the demo draft world). And
+ * `ground_plane_offset` is a *different* plane again: on the reference build's full-quality world it
+ * sits 15 cm above the mesh's floor, which is exactly why that build needed a floor-height slider to
+ * make furniture stand on the photograph. The panorama's floor is the mesh's floor, and the
+ * photograph is the ground truth, so this is the plane Audora maps to y = 0.
+ *
+ * Measured on both demo worlds: floor −1.5975 vs minY −1.6597 (draft corner room) and −0.6535 vs
+ * −0.7308 with `ground_plane_offset` 1.3065 (full-quality flat). Using it puts the reconstruction's
+ * floor on y = 0 in both, instead of 4 cm under it and 15 cm over it.
+ */
+function colliderFloorY(buf: ArrayBuffer, json: any, bin: { start: number; length: number }, b: WorldBounds): number | undefined {
+  const span = b.maxY - b.minY;
+  if (!(span > 0)) return undefined;
+  const BINS = 200;
+  const counts = new Int32Array(BINS);
+  // Only the bottom quarter can be floor; everything above is walls, sills and ceiling.
+  const cut = b.minY + span * 0.25;
+  const dv = new DataView(buf, bin.start, bin.length);
+  let seen = 0;
+  for (const mesh of json.meshes || []) {
+    for (const prim of mesh.primitives || []) {
+      const acc = json.accessors?.[prim.attributes?.POSITION];
+      if (!acc || acc.componentType !== 5126 || acc.type !== 'VEC3') continue;
+      const view = json.bufferViews?.[acc.bufferView];
+      if (!view) continue;
+      const stride = view.byteStride || 12;
+      const base = (view.byteOffset || 0) + (acc.byteOffset || 0);
+      for (let i = 0; i < acc.count; i++) {
+        const at = base + i * stride + 4; // y is the second float
+        if (at + 4 > bin.length) break;
+        const y = dv.getFloat32(at, true);
+        if (y > cut) continue;
+        counts[Math.min(BINS - 1, Math.max(0, Math.floor(((y - b.minY) / span) * BINS)))]++;
+        seen++;
+      }
+    }
+  }
+  if (seen < 64) return undefined;
+  let best = 0;
+  for (let i = 1; i < BINS; i++) if (counts[i] > counts[best]) best = i;
+  return b.minY + ((best + 0.5) / BINS) * span;
 }
 
 /**
@@ -91,11 +142,14 @@ export interface SplatTransform {
  * The two ways a world knows its own size, handled the same way whether or not `bounds` are known:
  * - **Full quality** carries `metric_scale_factor` (raw units → metres) and `ground_plane_offset`
  *   (metres the capture point sits ABOVE the ground plane — already metric, so it is never
- *   multiplied by the scale). Mapping the capture point to `y = +ground_plane_offset` therefore
- *   drops the model's own ground plane onto y = 0. Verified against the reference build, which
- *   draws its collider at `position.y = -ground_plane_offset` with the camera left at the origin.
- * - **Draft** carries neither, so `metresPerUnit` comes from the room's anchor and the collider's
- *   own `bounds.minY` (the lowest point of the mesh) stands in for the ground plane.
+ *   multiplied by the scale). Verified against the reference build, which draws its collider at
+ *   `position.y = -ground_plane_offset` with the camera left at the origin.
+ * - **Draft** carries neither, so `metresPerUnit` comes from the room's anchor.
+ *
+ * The floor itself comes from `bounds.floorY` whenever the collider has been read — the mesh's own
+ * floor plane, which is the one you can see in the panorama (see `fetchColliderBounds`). It beats
+ * both `ground_plane_offset` (15 cm high on the full-quality demo world) and `bounds.minY` (4 cm low
+ * on the draft one), which are the fallbacks in that order.
  *
  * `bounds`, when present, additionally centre the room on the origin in x/z. `floorOffset`
  * (`Room.floorOffset`, metres) raises the whole reconstruction so its floor meets ours; nothing in
@@ -112,7 +166,7 @@ export function splatTransform(
   const b = world.bounds;
   // Height of the capture point above Audora's floor: the model's own estimate when it has one,
   // otherwise the drop from the camera to the lowest point of the collider.
-  const captureY = metric && world.groundPlaneOffset != null ? world.groundPlaneOffset : b ? -b.minY * s : 0;
+  const captureY = b?.floorY != null ? -b.floorY * s : metric && world.groundPlaneOffset != null ? world.groundPlaneOffset : b ? -b.minY * s : 0;
   // p' = R(π)·(p − c)·s → x' = −(x − cx)s, z' = −(z − cz)s. A rotated group at `position` does this.
   const x = b ? ((b.minX + b.maxX) / 2) * s : 0;
   const z = b ? ((b.minZ + b.maxZ) / 2) * s : 0;

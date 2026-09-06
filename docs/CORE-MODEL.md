@@ -82,5 +82,5 @@ Every tour produces labels without asking anyone to label:
 ## Sequencing
 
 1. Ship: Marble backbone, splat-first rendering, anchor + collider fusion, rule-based stager as the floor, big-model semantic stager on top (done / in progress).
-2. This week: layers realism, plan reader v0 (zero-shot VLM + eval), site step with ShadeMap, stager distillation set → first LoRA on an 8B base → A/B in the eval.
+2. This week: layers realism, plan reader v0 (zero-shot VLM + eval), site step with ShadeMap. Stager distillation and the first 8B LoRA are done and A/B'd (ties the teacher); **product decision 2026-09-06: staging stays on the hosted 235B on Token Factory**, the fine-tune is the cost path behind `STAGER_MODEL`.
 3. Next: photo-analyst fine-tune from confirmed labels, scale prior, sun-as-compass, Atlas early access behind the same `RoomWorld` contract.

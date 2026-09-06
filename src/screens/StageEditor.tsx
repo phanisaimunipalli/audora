@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import type { Object3D } from 'three';
 import type { CatalogItem, PlacedPiece } from '@/engine/types';
 import { STYLE_LABELS, pieceId, type StagingStyle } from '@/engine/autostage';
 import { fitReport, pieceStatus } from '@/engine/fit';
@@ -13,15 +14,18 @@ import { SceneCanvas } from '@/three/SceneCanvas';
 import { RoomShell } from '@/three/RoomShell';
 import { OrbitRig, PhotoRig } from '@/three/OrbitRig';
 import { MarbleWorld, useMarbleFrame, type MarbleWorldStatus } from '@/three/MarbleWorld';
+import { CaptureLight } from '@/three/CaptureLight';
 import { WalkControls } from '@/three/WalkControls';
+import { buildWalkMask, type WalkMask } from '@/three/walkMask';
 import { StagingLayer } from '@/three/furniture/StagingLayer';
 import { PeerCursors } from '@/three/furniture/PeerCursors';
 import { inTextField, throttle } from '@/three/furniture/floor';
 import { CatalogRail } from '@/components/CatalogRail';
 import { FitReportPanel } from '@/components/FitReportPanel';
 import { AnchorChip } from '@/components/AnchorChip';
+import { WorldLayers } from '@/components/WorldLayers';
 import { Icon } from '@/components/icons';
-import { Button, Chip, EmptyState, IconButton, Kbd, Segmented, StagedLabel, cx } from '@/components/ui';
+import { Button, Chip, EmptyState, IconButton, Kbd, Segmented, StagedLabel } from '@/components/ui';
 import { TopBar, type AutoStageMeta } from './editor/TopBar';
 import { Inspector } from './editor/Inspector';
 import { ShortcutLegend } from './editor/ShortcutLegend';
@@ -82,6 +86,8 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
   const setHoverId = useViewer((s) => s.setHoverId);
   const showGeometry = useViewer((s) => s.showGeometry);
   const setShowGeometry = useViewer((s) => s.setShowGeometry);
+  const showSplat = useViewer((s) => s.showSplat);
+  const setShowSplat = useViewer((s) => s.setShowSplat);
   const photoFov = useViewer((s) => s.photoFov);
   const setPhotoFov = useViewer((s) => s.setPhotoFov);
   const pose = useViewer((s) => s.pose);
@@ -97,7 +103,10 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
   const [autoBusy, setAutoBusy] = useState(false);
   const [autoMeta, setAutoMeta] = useState<AutoStageMeta | null>(null);
   const [sheet, setSheet] = useState<'catalog' | 'fit' | null>(null);
+  const [layersOpen, setLayersOpen] = useState(false);
   const [marbleStatus, setMarbleStatus] = useState<MarbleStatusMap>({});
+  // The panorama is the room's light as well as its backdrop (PMREM environment + estimated sun).
+  const [panoTex, setPanoTex] = useState<import('three').Texture | null>(null);
   const onMarbleStatus = useCallback((st: MarbleWorldStatus) => setMarbleStatus((prev) => ({ ...prev, [st.layer]: st })), []);
 
   const roomRef = useRef(room);
@@ -342,6 +351,42 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
   const panoLoading = layerLoading(marbleStatus, 'pano');
   // The measured room stays up until the photograph has actually arrived.
   const photoOnly = photo && layerReady(marbleStatus, 'pano');
+  const splatUp = mode === 'walk' && showSplat && Boolean(real?.spzUrl) && layerReady(marbleStatus, 'splat');
+  /** Furniture is standing on a real capture, so it is lit by it and casts onto it. */
+  const composite = photoOnly || splatUp;
+  /* Under the splat the measured shell is a milky box drawn inside the photograph, not a stand-in:
+     the seller has to stage against what the buyer will actually see. */
+  const shell = !photoOnly && !splatUp;
+
+  /* Real walls for walk mode, read off the collider mesh (the room rectangle is its bounding box). */
+  const [collider, setCollider] = useState<Object3D | null>(null);
+  const [walkMask, setWalkMask] = useState<WalkMask | null>(null);
+  const captureX = marbleFrame.position[0];
+  const captureZ = marbleFrame.position[2];
+  const walkHome = useMemo(() => ({ x: captureX, z: captureZ }), [captureX, captureZ]);
+  useEffect(() => {
+    if (!collider) {
+      setWalkMask(null);
+      return;
+    }
+    let dead = false;
+    let tries = 0;
+    const build = () => {
+      if (dead) return;
+      // the loader hands the mesh over a beat before r3f has attached it under the Marble group
+      if (!collider.parent && tries++ < 60) {
+        requestAnimationFrame(build);
+        return;
+      }
+      const m = buildWalkMask(collider, { seed: { x: captureX, z: captureZ }, reach: Math.max(8, Math.max(geometry.width, geometry.depth)) });
+      setWalkMask(m);
+      if (import.meta.env.DEV) window.__audoraWalkMask = m;
+    };
+    build();
+    return () => {
+      dead = true;
+    };
+  }, [collider, captureX, captureZ, geometry.width, geometry.depth]);
   // Staging is arranged from above (orbit) and, for a real room, straight inside the photograph.
   const editable = mode === 'orbit' || photo;
 
@@ -388,6 +433,7 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
         peers={collab.peers}
         self={collab.self}
         compact={isMobile}
+        hasPhoto={hasPano(real)}
       />
 
       <div className="flex min-h-0 flex-1">
@@ -407,29 +453,28 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
             busyProgress={pill?.progress ?? null}
             loadingLabel={photo ? 'Developing the photograph…' : 'Building the room…'}
           >
-            {photoOnly ? (
-              <>
-                <ambientLight intensity={0.85} />
-                <directionalLight position={[3, 8, 4]} intensity={1.1} />
-                <directionalLight position={[-4, 4, -3]} intensity={0.35} />
-              </>
-            ) : (
-              <RoomShell room={geometry} cullNearWalls={mode === 'orbit'} showGrid={mode === 'orbit'} showCeiling={mode === 'walk'} />
-            )}
+            {/* The seller stages against exactly what the buyer will see: the room's own light. */}
+            {composite ? <CaptureLight texture={panoTex} groupRotationY={marbleFrame.rotationY} span={Math.max(geometry.width, geometry.depth)} /> : null}
+            {shell ? (
+              <RoomShell room={geometry} cullNearWalls={mode === 'orbit'} showGrid={mode === 'orbit'} showCeiling={mode === 'walk'} lights={!composite} />
+            ) : null}
             {real ? (
               <MarbleWorld
                 world={real}
                 metresPerUnit={room.anchor.metresPerUnit}
                 floorOffset={floorOffsetOf(room)}
                 showPano={photo}
-                showSplat={mode === 'walk' && Boolean(real.spzUrl)}
+                showSplat={mode === 'walk' && showSplat && Boolean(real.spzUrl)}
                 showGeometry={showGeometry && Boolean(real.colliderUrl)}
                 onStatus={onMarbleStatus}
+                onCollider={setCollider}
+                onPanoTexture={setPanoTex}
               />
             ) : null}
             <StagingLayer
               room={geometry}
               pieces={present}
+              contactShadows={composite}
               editable={editable}
               selectedId={selectedId}
               onSelect={setSelectedId}
@@ -449,7 +494,7 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
             ) : mode === 'orbit' ? (
               <OrbitRig room={geometry} resetKey={roomId} />
             ) : (
-              <WalkControls room={geometry} pieces={present} />
+              <WalkControls room={geometry} pieces={present} mask={real ? walkMask : null} home={real ? walkHome : undefined} />
             )}
           </SceneCanvas>
 
@@ -457,19 +502,29 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
           <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-3">
             {/* Real-reconstruction layers. Kept out of the top bar so the room's own controls stay put. */}
             {real ? (
-              <div className="pointer-events-auto absolute left-3 top-3 flex items-center gap-1.5">
-                {hasPano(real) ? (
-                  <IconButton label={photo ? 'Leave the photograph' : 'Stand in the photograph'} active={photo} onClick={() => changeMode(photo ? 'orbit' : 'photo')} className="glass !h-8 !w-8">
-                    <Icon.Camera size={15} />
+              <div className="pointer-events-auto absolute left-3 top-3 flex flex-col items-start gap-2">
+                <div className="flex items-center gap-1.5">
+                  <IconButton
+                    label={layersOpen ? 'Close the capture layers' : 'Capture layers and floor height'}
+                    active={layersOpen || showGeometry}
+                    onClick={() => setLayersOpen((v) => !v)}
+                    className="glass !h-8 !w-8"
+                  >
+                    <Icon.Layers size={15} />
                   </IconButton>
-                ) : null}
-                {real.colliderUrl ? (
-                  <IconButton label={showGeometry ? 'Hide the measured geometry' : 'Show the measured geometry'} active={showGeometry} onClick={() => setShowGeometry(!showGeometry)} className="glass !h-8 !w-8">
-                    <Icon.Grid size={15} />
-                  </IconButton>
-                ) : null}
-                {pill ? (
-                  <span className={cx('glass rounded-full px-2.5 py-1 text-[11px]', pill.tone === 'error' ? 'text-warn' : 'text-ink-2')}>{pill.label}</span>
+                  {pill?.tone === 'error' ? <span className="glass rounded-full px-2.5 py-1 text-[11px] text-warn">{pill.label}</span> : null}
+                </div>
+                {layersOpen ? (
+                  <WorldLayers
+                    roomId={roomId}
+                    world={real}
+                    showGeometry={showGeometry}
+                    onGeometry={setShowGeometry}
+                    showSplat={showSplat}
+                    onSplat={mode === 'walk' ? setShowSplat : undefined}
+                    splatHint={mode === 'walk' ? undefined : 'The Gaussian splat, shown while you walk the room.'}
+                    onClose={() => setLayersOpen(false)}
+                  />
                 ) : null}
               </div>
             ) : null}

@@ -6,7 +6,7 @@ import { pieceStatus } from '@/engine/fit';
 import { makePiece, pieceId } from '@/engine/autostage';
 import { FurniturePiece, type PieceStatus } from './FurniturePiece';
 import { RotationHandle } from './RotationHandle';
-import { capture, floorPoint, inTextField, throttle, wrapAngle } from './floor';
+import { capture, floorPoint, inTextField, throttle, wrapAngle, DRAG_FLOOR_LIMITS } from './floor';
 import { ACCENT, BUYER_BLUE } from './palette';
 
 export interface StagingLayerProps {
@@ -43,6 +43,11 @@ export interface StagingLayerProps {
   onGestureEnd?: () => void;
   /** Wall snap threshold in metres (Alt disables snapping). */
   snap?: number;
+  /**
+   * Draw a soft contact shadow under every solid piece. On whenever the pieces stand on a real
+   * capture rather than on our own floor, which has none of its own.
+   */
+  contactShadows?: boolean;
 }
 
 interface DragState {
@@ -65,7 +70,7 @@ interface PieceApi {
 }
 
 /** Binds one piece to the shared handler table with stable callbacks so FurniturePiece's memo holds. */
-const PieceView = memo(function PieceView({ piece, status, selected, hovered, api }: { piece: PlacedPiece; status: PieceStatus; selected: boolean; hovered: boolean; api: PieceApi }) {
+const PieceView = memo(function PieceView({ piece, status, selected, hovered, contact, api }: { piece: PlacedPiece; status: PieceStatus; selected: boolean; hovered: boolean; contact?: boolean; api: PieceApi }) {
   const onPointerDown = useCallback((e: ThreeEvent<PointerEvent>) => api.down(piece, e), [api, piece]);
   const onPointerMove = useCallback((e: ThreeEvent<PointerEvent>) => api.move(piece, e), [api, piece]);
   const onPointerUp = useCallback((e: ThreeEvent<PointerEvent>) => api.up(piece, e), [api, piece]);
@@ -78,6 +83,7 @@ const PieceView = memo(function PieceView({ piece, status, selected, hovered, ap
       status={status}
       selected={selected}
       hovered={hovered}
+      contact={contact}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -95,7 +101,7 @@ const PieceView = memo(function PieceView({ piece, status, selected, hovered, ap
  * Works with a single touch pointer. Orbit controls are paused while dragging.
  */
 export function StagingLayer(props: StagingLayerProps) {
-  const { room, pieces, buyerPieces = [], editable = false, showSeller = true, selectedId, placing = null, placingOwner = 'seller', snap = 0.12 } = props;
+  const { room, pieces, buyerPieces = [], editable = false, showSeller = true, selectedId, placing = null, placingOwner = 'seller', snap = 0.12, contactShadows = false } = props;
   const controls = useThree((s) => s.controls) as unknown as { enabled: boolean } | null;
   const gl = useThree((s) => s.gl);
 
@@ -219,7 +225,9 @@ export function StagingLayer(props: StagingLayerProps) {
       move(piece, e) {
         const d = drag.current;
         if (!d || d.pointerId !== e.pointerId || d.id !== piece.id) return;
-        const fp = floorPoint(e.ray);
+        // Near the horizon a pixel is worth metres of floor, so the drag stops following rather than
+        // flinging the piece across the room. Lower the pointer and it picks up again.
+        const fp = floorPoint(e.ray, DRAG_FLOOR_LIMITS);
         if (!fp) return;
         const raw = { ...piece, x: fp.x + d.offset.x, z: fp.z + d.offset.z };
         if (!d.moved) {
@@ -423,7 +431,7 @@ export function StagingLayer(props: StagingLayerProps) {
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
       {visible.map((p) => (
-        <PieceView key={p.id} piece={p} status={statusById[p.id] ?? 'ok'} selected={sel === p.id} hovered={hover === p.id && !placing} api={api} />
+        <PieceView key={p.id} piece={p} status={statusById[p.id] ?? 'ok'} selected={sel === p.id} hovered={hover === p.id && !placing} contact={contactShadows} api={api} />
       ))}
       {ghost ? <FurniturePiece piece={ghost} ghost status={ghostStatus} /> : null}
       {showHandle && selPiece ? (

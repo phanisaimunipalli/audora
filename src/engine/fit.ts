@@ -9,9 +9,25 @@ function solid(p: PlacedPiece): boolean {
   return !p.flat;
 }
 
-/** Pieces too small to define a corridor: gaps beside them are not walkways. */
-function small(p: PlacedPiece): boolean {
+/**
+ * Pieces too small to define a corridor: gaps beside them are not walkways. Exported because every
+ * surface that *draws* a clearance (the landing playground's plan line, the fit report) has to pick
+ * the same neighbour the verdict sentence quotes — otherwise the headline number and the drawn
+ * number disagree.
+ */
+export function smallPiece(p: PlacedPiece): boolean {
   return Math.max(p.w, p.d) < 0.7;
+}
+
+const small = smallPiece;
+
+/**
+ * "Coffee table" → "coffee table", but "L-sectional", "TV console" and "the window wall" keep their
+ * casing. Only a plain Capitalised word is lowered; anything with a second capital, a digit or a
+ * hyphenated initial is a proper name and stays as the catalogue wrote it.
+ */
+export function lowerName(name: string): string {
+  return /^[A-Z][a-z]/.test(name) ? name.charAt(0).toLowerCase() + name.slice(1) : name;
 }
 
 /** Companion arrangements whose gap is legroom, not a walkway (sofa ↔ coffee table, bed ↔ nightstand...). */
@@ -49,7 +65,9 @@ export function fitReport(pieces: PlacedPiece[], room: RoomGeometry): FitReport 
     }
   }
 
-  const misfitSet = new Set<string>(outOfBounds);
+  // "Do not fit" is every piece the room rejects, door blockers included: a stat that reads 0 next to
+  // a "blocks the door" badge is a contradiction the seller has to resolve by hand.
+  const misfitSet = new Set<string>([...outOfBounds, ...blocksDoor]);
   for (const [a, b] of overlapsFound) {
     misfitSet.add(a);
     misfitSet.add(b);
@@ -129,7 +147,7 @@ export function buyerVerdict(piece: PlacedPiece, staging: PlacedPiece[], room: R
   if (reasons.length) {
     return {
       fits: false,
-      headline: `Your ${name.toLowerCase()} does not fit here.`,
+      headline: `Your ${lowerName(name)} does not fit here.`,
       detail: reasons.join(' '),
       reasons,
     };
@@ -138,7 +156,7 @@ export function buyerVerdict(piece: PlacedPiece, staging: PlacedPiece[], room: R
   if (piece.flat) {
     return {
       fits: true,
-      headline: `Your ${name.toLowerCase()} fits.`,
+      headline: `Your ${lowerName(name)} fits.`,
       detail: 'It lies flat, so nothing has to walk around it.',
       reasons: [],
     };
@@ -154,12 +172,12 @@ export function buyerVerdict(piece: PlacedPiece, staging: PlacedPiece[], room: R
   for (const s of staging) {
     if (s.flat || s.owner === 'buyer' || small(s)) continue;
     const m = separation(piece, s);
-    if (m >= AGAINST_M && (!best || m < best.metres)) best = { metres: round(m, 2), toward: `the ${s.name.toLowerCase()}` };
+    if (m >= AGAINST_M && (!best || m < best.metres)) best = { metres: round(m, 2), toward: `the ${lowerName(s.name)}` };
   }
   const tight = best && best.metres < MIN_WALKWAY_M;
   return {
     fits: true,
-    headline: `Your ${name.toLowerCase()} fits.`,
+    headline: `Your ${lowerName(name)} fits.`,
     detail: best
       ? `${best.metres.toFixed(2)} m walkway remains to ${best.toward}.${tight ? ` That is tighter than the ${MIN_WALKWAY_M.toFixed(2)} m most people want.` : ''}`
       : 'Plenty of room around it.',
@@ -170,12 +188,16 @@ export function buyerVerdict(piece: PlacedPiece, staging: PlacedPiece[], room: R
 
 /** "the double bed and both nightstands": each blocker named once, counted when it repeats. */
 export function listNames(names: string[]): string {
-  const counts = new Map<string, number>();
+  // Grouped case-insensitively so "Nightstand" and "nightstand" are one blocker, but displayed with
+  // the casing the catalogue used, so "L-sectional" is not mangled into "l-sectional".
+  const counts = new Map<string, { label: string; count: number }>();
   for (const n of names) {
     const k = n.toLowerCase();
-    counts.set(k, (counts.get(k) ?? 0) + 1);
+    const cur = counts.get(k);
+    if (cur) cur.count += 1;
+    else counts.set(k, { label: lowerName(n), count: 1 });
   }
-  const parts = [...counts].map(([n, c]) => (c === 1 ? `the ${n}` : c === 2 ? `both ${pluralName(n)}` : `${c} ${pluralName(n)}`));
+  const parts = [...counts.values()].map(({ label: n, count: c }) => (c === 1 ? `the ${n}` : c === 2 ? `both ${pluralName(n)}` : `${c} ${pluralName(n)}`));
   if (parts.length <= 1) return parts[0] ?? '';
   return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
 }

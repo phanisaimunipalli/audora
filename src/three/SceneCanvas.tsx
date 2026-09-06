@@ -37,6 +37,11 @@ export interface SceneCanvasProps {
   busyLabel?: string;
   /** 0..1 progress bar under the label. */
   busyProgress?: number | null;
+  /**
+   * The first frame has been drawn — the scene is on screen. HUDs use it to hold back anything that
+   * would cover the loading state (or claim the buyer is standing somewhere that is not there yet).
+   */
+  onReady?: () => void;
 }
 
 export const HOUSE_BG = '#0e0d0c';
@@ -97,6 +102,7 @@ export function SceneCanvas({
   busy = false,
   busyLabel,
   busyProgress = null,
+  onReady,
 }: SceneCanvasProps) {
   const fogArgs: [number, number] | null = fog === false ? null : fog === true ? [14, 46] : [fog.near, fog.far];
   const extra: Record<string, unknown> = {};
@@ -104,6 +110,8 @@ export function SceneCanvas({
   if (eventSource) extra.eventSource = eventSource;
   if (onPointerMissed) extra.onPointerMissed = onPointerMissed;
   const [ready, setReady] = useState(false);
+  const readyCb = useRef(onReady);
+  readyCb.current = onReady;
   const showLoading = !hideLoading && frameloop !== 'never' && (!ready || busy);
   const label = busy && busyLabel ? busyLabel : loadingLabel;
   // `h-full w-full` is the default so a canvas dropped into a sized parent fills it. Without it the
@@ -131,7 +139,12 @@ export function SceneCanvas({
         <color attach="background" args={[background]} />
         {fogArgs ? <fog attach="fog" args={[background, fogArgs[0], fogArgs[1]]} /> : null}
         {children}
-        <FirstFrame onFrame={() => setReady(true)} />
+        <FirstFrame
+          onFrame={() => {
+            setReady(true);
+            readyCb.current?.();
+          }}
+        />
       </Canvas>
       {showLoading ? (
         <div className={cx('pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity duration-300', ready && 'bg-transparent')} aria-hidden>

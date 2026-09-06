@@ -11,13 +11,24 @@ export function hasPano(world: RoomWorld | undefined): boolean {
   return Boolean(world?.panoUrl);
 }
 
+export function hasSplat(world: RoomWorld | undefined): boolean {
+  return Boolean(world?.spzUrl);
+}
+
 /**
- * Where a room opens. A buyer arriving on a share link of a real reconstruction should see the
- * photograph first — that is the thing they came for — and only then start walking.
+ * Where a room opens.
+ *
+ * ARCHITECTURE's 2026-09-06 priority update settles this: "Walk mode is the default public
+ * experience when a splat exists", because a Gaussian splat is photoreal *and* walkable and that is
+ * the most real thing Audora can show. The panorama is the instant backdrop while it streams (see
+ * TourViewer), so opening in Walk no longer costs the buyer the first eight seconds. A world with a
+ * panorama but no splat still opens in Photo — it is the only photoreal thing it has — and a
+ * simulated room opens walking.
  */
 export function defaultMode(world: RoomWorld | undefined, publicMode: boolean): ViewMode {
-  if (publicMode) return hasPano(world) ? 'photo' : 'walk';
-  return 'orbit';
+  if (!publicMode) return 'orbit';
+  if (hasSplat(world)) return 'walk';
+  return hasPano(world) ? 'photo' : 'walk';
 }
 
 /** Keeps the current mode legal for a room: photo needs a panorama. */

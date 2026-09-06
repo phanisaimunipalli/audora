@@ -34,7 +34,7 @@ function live(): boolean {
   return useAudora.getState().providers.nebius;
 }
 
-async function chat(task: string, model: 'text' | 'fast' | 'vision', messages: any[], schema?: object, opts?: { temperature?: number; max_tokens?: number }): Promise<ChatResult> {
+async function chat(task: string, model: 'text' | 'fast' | 'vision' | 'stager', messages: any[], schema?: object, opts?: { temperature?: number; max_tokens?: number }): Promise<ChatResult> {
   const r = await fetch('/api/ai/chat', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -282,7 +282,7 @@ export async function aiAutoStage(room: Room, style: StagingStyle): Promise<Auto
   try {
     const r = await chat(
       'auto_stage',
-      'text',
+      'stager',
       [
         { role: 'system', content: SEMANTIC_STAGE_SYSTEM },
         { role: 'user', content: semanticStagePrompt(room.geometry, room.type, style) },

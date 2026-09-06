@@ -36,6 +36,8 @@ export interface TopBarProps {
   peers: Peer[];
   self: Peer;
   compact?: boolean;
+  /** This room has a panorama, so Photo joins Orbit / Walk — the same choice the buyer gets. */
+  hasPhoto?: boolean;
 }
 
 /**
@@ -244,8 +246,9 @@ export function TopBar(p: TopBarProps) {
             value={p.mode}
             onChange={p.onMode}
             options={[
-              { value: 'orbit', label: 'Orbit', icon: <Icon.Orbit size={15} /> },
-              { value: 'walk', label: 'Walk', icon: <Icon.Walk size={15} /> },
+              ...(p.hasPhoto ? [{ value: 'photo' as ViewMode, label: 'Photo', icon: <Icon.Camera size={15} /> }] : []),
+              { value: 'orbit' as ViewMode, label: 'Orbit', icon: <Icon.Orbit size={15} /> },
+              { value: 'walk' as ViewMode, label: 'Walk', icon: <Icon.Walk size={15} /> },
             ]}
           />
         ) : null}

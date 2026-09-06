@@ -133,3 +133,48 @@ Quality tier: draft for speed while staging; **full (`marble-1.1`) for the publi
 ### Sun map decision (owner pointer: shadowmap.org / shademap.app)
 
 Use **ShadeMap's `leaflet-shadow-simulator`** (npm, MIT-style, depends on `suncalc`) in the Site step: a Leaflet map with OSM tiles, the ShadeMap layer with `terrainSource` = free AWS Terrarium DEM tiles (`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png`, `getElevation: ({r,g,b}) => r*256 + g + b/256 - 32768`), `getFeatures` = GeoJSON building polygons from Overpass (`buildingFootprint` in src/services/geo.ts; heights from `height` / `building:levels` × 3 m, default 6 m), `setDate(date)` driven by the time-of-day control, and `isPositionInSun(lat, lng)` sampled at each window's position on the footprint edge to decide whether that window really gets sun at that hour (neighbours' shadows included). Key: `import.meta.env.VITE_SHADEMAP_KEY` (browser-side by design; the owner must obtain one at https://shademap.app/about/). Without a key: no shadow layer, the sun angle still comes from src/engine/sun.ts. Shadowmap.org's API is enterprise-priced; not used.
+
+### Merged and measured (2026-09-06, integrator)
+
+The merge above is in. Four conventions were settled empirically against the two real worlds; they
+supersede the guesses earlier in this section.
+
+- **The collider `.glb` is a reflection, not a rotation.** Drawn as delivered the room comes out
+  mirrored. `COLLIDER_MIRROR = [-1,1,1]` inside the Marble group puts it back, and it then agrees
+  exactly with the SPZ splat (a proper rotation, `rotX(π)`, no mirror). "GLB: rotY(π)" above is right
+  about the turn and misses the mirror.
+- **Panorama yaw.** three.js maps an equirect texel to `azimuth = 360u − 90°`; mirroring x makes it
+  `90° − 360u`, so `PANO_YAW = +π/2` lands it on the `180° − 360u` the mirrored collider needs.
+  Verified on both worlds: the wireframe hugs the panorama's walls, window reveals and door frame.
+- **The floor is the mesh's floor.** `fetchColliderBounds` now also returns `bounds.floorY` — the
+  densest horizontal slab in the bottom quarter of the collider — and `splatTransform` maps that
+  plane to y = 0. It beats both alternatives: `bounds.minY` is a stray skirt 6 cm below the floor on
+  the draft world, and `ground_plane_offset` is a different plane again, 15 cm above the floor on the
+  full-quality one (which is why the reference build needed its floor slider to make furniture stand
+  on the photograph). Order of preference: `floorY`, then `ground_plane_offset`, then `minY`.
+  `Room.floorOffset` remains as the manual nudge on top.
+- **Room extent is still the collider's bounding box** (`rawFromBounds`), which overstates the corner
+  room: the box is 7.83 × 7.33 raw units while the nearest wall in each direction sits at 6.4 × 6.6.
+  The room's own numbers are therefore ~15–20% generous. The fix is a wall-line estimator beside
+  `colliderFloorY` (nearest vertical surface per azimuth in the wall band); nothing about the
+  reconstruction's placement depends on it.
+- **Walking is bounded by the mesh, not by that box** (`src/three/walkMask.ts`, 2026-09-06). The
+  collider's wall band (0.3–1.7 m above our floor) is rasterised into a 12 cm occupancy grid, grown
+  by the walker's radius and flood-filled from the capture point; `WalkControls` takes it as `mask`
+  and `standable()` marches out from the walker so a click-to-glide stops at the last free point
+  instead of sailing through the photographed wall. A mask whose flood escapes the grid, or that
+  encloses less than 2 m², is discarded and the room rectangle is used, so the walker is never
+  frozen. Measured on the demo corner room: 7.1 m² of standable floor, and the wall band turns out
+  to be a **diamond** in our axes — the room really is at ~45° to the capture direction, which is
+  exactly why its bounding box is 41% too big. `window.__audoraWalkMask` exposes it in dev.
+
+Photo view is one shared surface: the same mode switch, the same `WorldLayers` panel (geometry, real
+capture, floor height) and the same frame in the public viewer, the hub's Tour tab and the staging
+editor.
+
+**The measured shell is never drawn over a real capture.** Portrait-mode layering means the photo
+layer wins: whenever the panorama or the splat is actually on screen, `RoomShell` is not rendered at
+all (it used to fade to `opacity 0.15`, which read as a hard-edged milky box *inside* the
+photograph, because its walls are a different size from the real ones). `StagingLayer` carries its
+own invisible floor plane, so dragging and the ghost still work with the shell gone. The shell comes
+back the moment the capture is switched off or fails to load.

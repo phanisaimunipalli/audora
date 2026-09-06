@@ -55,6 +55,45 @@ export interface MarbleWorldProps {
   onOrigin?: (position: [number, number, number]) => void;
   /** The loaded collider scene, for callers that want to raycast it. */
   onCollider?: (scene: THREE.Object3D | null) => void;
+  /** The panorama's decoded texture, so it can light the furniture standing in it (see CaptureLight). */
+  onPanoTexture?: (texture: THREE.Texture | null) => void;
+}
+
+/**
+ * Marble's collider is meshed from a depth map, so every depth discontinuity — a window reveal, a
+ * door frame, the far edge of a doorway — is bridged by a few enormously stretched triangles that
+ * hang in mid-air between the near surface and the far one. Drawn as a wireframe they are the purple
+ * curtains that appear to float in front of the furniture, which is the opposite of the story the
+ * Geometry toggle tells ("the mesh hugs the walls").
+ *
+ * They are trivially separable: a real surface triangle spans centimetres, a bridging one spans
+ * metres. Anything with an edge longer than `maxEdge` (a fraction of the room's own diagonal) is
+ * dropped. Vertices are left alone; only the index changes, so the mesh keeps its bounds.
+ */
+export function trimStretchedTriangles(geometry: THREE.BufferGeometry, edgeFraction = 0.055): THREE.BufferGeometry {
+  const pos = geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+  if (!pos) return geometry;
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  if (!box) return geometry;
+  const maxEdge = box.min.distanceTo(box.max) * edgeFraction;
+  if (!(maxEdge > 0)) return geometry;
+  const index = geometry.getIndex();
+  const count = index ? index.count : pos.count;
+  const read = (i: number) => (index ? index.getX(i) : i);
+  const kept: number[] = [];
+  const span = (a: number, b: number) => Math.hypot(pos.getX(a) - pos.getX(b), pos.getY(a) - pos.getY(b), pos.getZ(a) - pos.getZ(b));
+  for (let i = 0; i + 2 < count; i += 3) {
+    const a = read(i);
+    const b = read(i + 1);
+    const c = read(i + 2);
+    if (span(a, b) > maxEdge || span(b, c) > maxEdge || span(c, a) > maxEdge) continue;
+    kept.push(a, b, c);
+  }
+  // All or nothing would be a bug, not a clean-up: keep the mesh as delivered.
+  if (kept.length === 0 || kept.length === count) return geometry;
+  geometry.setIndex(kept);
+  return geometry;
 }
 
 /** Where this world sits in the metric room frame. Same maths the group below uses. */
@@ -103,6 +142,7 @@ function Collider({ url, visible, onStatus, onScene }: ColliderProps) {
         gltf.scene.traverse((o) => {
           const mesh = o as THREE.Mesh;
           if (mesh.isMesh) {
+            if (mesh.geometry) trimStretchedTriangles(mesh.geometry);
             mesh.material = material;
             mesh.castShadow = false;
             mesh.receiveShadow = false;
@@ -163,6 +203,7 @@ export function MarbleWorld({
   onStatus,
   onOrigin,
   onCollider,
+  onPanoTexture,
 }: MarbleWorldProps) {
   const t = useMarbleFrame(world, metresPerUnit, floorOffset);
   const report = useRef(onStatus);
@@ -199,6 +240,7 @@ export function MarbleWorld({
             opacity={panoOpacity}
             onStatus={(s: PanoStatus, detail?: string) => report.current?.({ layer: 'pano', status: s, detail })}
             onProgress={(progress) => report.current?.({ layer: 'pano', status: 'loading', progress })}
+            onTexture={onPanoTexture}
           />
         ) : null}
         <Collider url={world.colliderUrl} visible={showGeometry} onStatus={(s, detail) => report.current?.({ layer: 'collider', status: s, detail })} onScene={onCollider} />

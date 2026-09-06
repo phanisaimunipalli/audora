@@ -1,6 +1,6 @@
 import type { PlacedPiece, RoomGeometry } from '@/engine/types';
 import { pointInFootprint } from '@/engine/geometry';
-import { spawnPose } from '@/three/WalkControls';
+import { spawnPose } from '@/three/walkMath';
 import type { Pose } from '@/three/viewerStore';
 
 const RADIUS = 0.3;

@@ -4,6 +4,7 @@ import { selectTourByShare, useAudora, useTourJobs, useTourRooms } from '@/state
 import { TourViewer } from '@/screens/TourViewer';
 import { Progress, StagedLabel, Spinner } from '@/components/ui';
 import { Icon } from '@/components/icons';
+import { setTitleBadgeEnabled } from '@/lib/notify';
 
 /**
  * The buyer's link: /t/:shareId[/:roomId]. No app chrome. They land standing in the room at eye height.
@@ -16,11 +17,16 @@ export default function PublicTour() {
   const rooms = useTourRooms(tour?.id);
   const jobs = useTourJobs(tour?.id);
 
+  /* This route has no app chrome, so the seller's unseen-job badge has no business in its title:
+     a buyer must never see "(1) 1247 Oak Street · Audora tour". Switched off first, so the badge
+     lets go of the title before we set our own. */
   useEffect(() => {
+    setTitleBadgeEnabled(false);
     const prev = document.title;
     if (tour) document.title = `${tour.title} · Audora tour`;
     return () => {
       document.title = prev;
+      setTitleBadgeEnabled(true);
     };
   }, [tour]);
 

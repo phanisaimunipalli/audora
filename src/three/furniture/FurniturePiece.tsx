@@ -1,6 +1,7 @@
 import { memo, useMemo } from 'react';
 import type { ThreeEvent } from '@react-three/fiber';
 import type { PlacedPiece } from '@/engine/types';
+import { contactShadow } from '../textures';
 import { KindBody } from './kinds';
 import { ACCENT, BUYER_BLUE, hash32, tonesFor } from './palette';
 import { Parts } from './parts';
@@ -15,6 +16,11 @@ export interface FurniturePieceProps {
   hovered?: boolean;
   /** Translucent preview while placing from the catalog. */
   ghost?: boolean;
+  /**
+   * Draw the soft darkening where the piece meets the floor. On over a real capture, where the piece
+   * is composited onto a photograph and has nothing else to sit in.
+   */
+  contact?: boolean;
   onPointerDown?: (e: ThreeEvent<PointerEvent>) => void;
   onPointerOver?: (e: ThreeEvent<PointerEvent>) => void;
   onPointerOut?: (e: ThreeEvent<PointerEvent>) => void;
@@ -56,7 +62,7 @@ function FootprintRing({ w, d, color, opacity, pad = 0.08, thickness = 0.018, y 
  * Status tints it red (overlap / outside) or amber (blocks the door); buyer pieces are always blue;
  * selection adds an accent halo on the floor; hover lifts and brightens; ghosts render at 50%.
  */
-function FurniturePieceImpl({ piece, status = 'ok', selected, hovered, ghost, onPointerDown, onPointerOver, onPointerOut, onPointerMove, onPointerUp, onClick }: FurniturePieceProps) {
+function FurniturePieceImpl({ piece, status = 'ok', selected, hovered, ghost, contact, onPointerDown, onPointerOver, onPointerOut, onPointerMove, onPointerUp, onClick }: FurniturePieceProps) {
   const tones = useMemo(() => tonesFor(piece, status, { selected, hovered }), [piece, status, selected, hovered]);
   const seed = useMemo(() => hash32(piece.id), [piece.id]);
   const state = useMemo<PartState>(
@@ -68,6 +74,7 @@ function FurniturePieceImpl({ piece, status = 'ok', selected, hovered, ghost, on
   // A buyer's piece keeps its blue selection ring; the misfit is a separate red outline drawn over it.
   const ringColor = buyer ? BUYER_BLUE : STATUS_RING[status] ?? ACCENT;
   const misfitEdge = buyer ? STATUS_RING[status] : null;
+  const contactTex = useMemo(() => (contact && !piece.flat && !ghost ? contactShadow() : null), [contact, piece.flat, ghost]);
   return (
     <group
       position={[piece.x, lift, piece.z]}
@@ -79,6 +86,15 @@ function FurniturePieceImpl({ piece, status = 'ok', selected, hovered, ghost, on
       onPointerUp={onPointerUp}
       onClick={onClick}
     >
+      {/* Under the body, so the piece itself never draws over its own contact shadow. */}
+      {contactTex ? (
+        // 2 cm up, not on the floor: a rug is a flat piece 1.2 cm thick, and a contact shadow drawn
+        // under it would be invisible for exactly the pieces most likely to stand on one.
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02 - lift, 0]} raycast={noRaycast} renderOrder={2} userData={{ measureIgnore: true, stillsKeep: true }}>
+          <planeGeometry args={[piece.w * 1.5 + 0.18, piece.d * 1.5 + 0.18]} />
+          <meshBasicMaterial map={contactTex} transparent opacity={0.5} depthWrite={false} toneMapped={false} fog={false} polygonOffset polygonOffsetFactor={-2} />
+        </mesh>
+      ) : null}
       <Parts state={state}>
         <KindBody kind={piece.kind} w={piece.w} d={piece.d} h={piece.flat ? 0.012 : piece.h} t={tones} seed={seed} />
       </Parts>

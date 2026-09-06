@@ -90,6 +90,9 @@ function models() {
     text: ENV.NEBIUS_TEXT_MODEL || DEFAULT_TEXT,
     fast: ENV.NEBIUS_FAST_MODEL || DEFAULT_FAST,
     vision: ENV.NEBIUS_VISION_MODEL || DEFAULT_VISION,
+    // Product decision 2026-09-06: staging runs on the hosted 235B on Token Factory. STAGER_MODEL can point
+    // at the fine-tuned 8B (e.g. "modal:stager") when a host for it exists; same accuracy, ~10× cheaper.
+    stager: ENV.STAGER_MODEL || ENV.NEBIUS_TEXT_MODEL || DEFAULT_TEXT,
     marbleDraft: ENV.MARBLE_DRAFT_MODEL || 'marble-1.0-draft',
     marbleFull: ENV.MARBLE_FULL_MODEL || 'marble-1.1',
   };
@@ -142,7 +145,7 @@ async function nebiusChat(body: any, res: ServerResponse) {
   if (!key) return json(res, 503, { error: 'NEBIUS_API_KEY is not set on the server. Running in mock mode.' });
   await loadPrices(key);
   const m = models();
-  const alias: Record<string, string> = { text: m.text, fast: m.fast, vision: m.vision };
+  const alias: Record<string, string> = { text: m.text, fast: m.fast, vision: m.vision, stager: m.stager };
   const requested = alias[body.model] || body.model || m.text;
   const task = String(body.task || 'chat');
   // For vision requests, try alternates when an endpoint is down or out of memory.

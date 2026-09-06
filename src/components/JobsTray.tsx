@@ -103,8 +103,11 @@ export function JobsTray() {
                       </div>
                       <Progress value={j.progress} />
                       <div className="mono flex items-center justify-between text-[11px] text-ink-3">
-                        <span className="truncate">
-                          {j.status === 'queued' ? 'queued' : j.step} · {j.tier} · {providerName(j.provider).toLowerCase()}
+                        {/* The step is the long part and the only one worth eliding: "simulated" is
+                            the line that says no credits are being spent, so it stays whole. */}
+                        <span className="flex min-w-0 items-center gap-1">
+                          <span className="truncate">{j.status === 'queued' ? 'queued' : j.step}</span>
+                          <span className="shrink-0 whitespace-nowrap">· {j.tier} · {providerName(j.provider).toLowerCase()}</span>
                         </span>
                         <span className="shrink-0">{j.status === 'queued' ? 'starting' : remaining > 0 ? `${eta(remaining)} left` : 'any moment'}</span>
                       </div>

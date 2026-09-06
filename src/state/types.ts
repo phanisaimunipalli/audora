@@ -46,8 +46,12 @@ export interface RoomWorld {
   marbleUrl?: string;
   metricScaleFactor?: number | null;
   groundPlaneOffset?: number | null;
-  /** Axis-aligned bounds of the collider mesh in the provider's raw frame (y up, camera at origin). */
-  bounds?: { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number };
+  /**
+   * Axis-aligned bounds of the collider mesh in the provider's raw frame (y up, camera at origin).
+   * `floorY` is the mesh's own floor plane — see `fetchColliderBounds`; it is the plane the
+   * panorama's floor sits on, and what puts Audora's y = 0 there.
+   */
+  bounds?: { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number; floorY?: number };
   credits?: number;
   usd?: number;
   seconds?: number;

@@ -29,7 +29,12 @@ export const REAL_MARBLE_WORLD = {
   panoUrl: 'https://cdn.marble.worldlabs.ai/24be684c-177e-49c2-a920-51dcf51e4c8b/b1806895-7133-4163-b27c-73e792dc9e25_pano/rgb_0.png',
   caption:
     'An empty residential room with dark wood plank flooring, white baseboards and light neutral walls. A tall window on the left wall and a smaller one on the adjacent wall look onto a brick building; sunlight casts rectangular patterns on the floor. The doorway is behind the viewer.',
-  bounds: { minX: -3.599, maxX: 4.233, minY: -1.66, maxY: 1.893, minZ: -1.552, maxZ: 5.777 },
+  /**
+   * Collider bounds, and the mesh's own floor plane (`floorY`, see `colliderFloorY` in
+   * services/marble): the densest horizontal slab sits 6 cm above the lowest stray vertex, and it is
+   * the plane the panorama's floor lies on. Hard-coded so the demo is right before the CDN answers.
+   */
+  bounds: { minX: -3.599, maxX: 4.233, minY: -1.66, maxY: 1.893, minZ: -1.552, maxZ: 5.777, floorY: -1.5975 },
   photoUrl: '/demo/empty-room-corner-windows.jpg',
   note: 'real Marble draft',
 };
@@ -86,17 +91,22 @@ function rawFromMetres(m: { width: number; depth: number; height: number }, metr
  * Staging for a room that is already furnished inside the reconstruction: one rug and one plant,
  * enough to prove that Audora's metric furniture stands on the real floor without pretending the
  * flat is empty.
+ *
+ * Both pieces go IN FRONT of the capture point (toward the north wall, which is what the photo view
+ * faces). A rug centred on the origin would lie under the buyer's own feet and a plant behind their
+ * shoulder, so the one thing this staging exists to show — our furniture standing on the real floor
+ * — would be out of frame the moment they arrive.
  */
 export function sparseStaging(g: RoomGeometry): PlacedPiece[] {
   const out: PlacedPiece[] = [];
   const rug = catalogItem('rug-l');
   const plant = catalogItem('plant');
   if (rug) {
-    const f = clampToRoom({ x: 0, z: 0, w: rug.w, d: rug.d, rot: 0 }, g);
+    const f = clampToRoom({ x: 0, z: -g.depth * 0.24, w: rug.w, d: rug.d, rot: 0 }, g);
     out.push(makePiece(rug, f.x, f.z, f.rot, 'seller', '#a8937a'));
   }
   if (plant) {
-    const f = clampToRoom(placeAgainstWall(g, 'north', Math.min(0.6, g.width / 2), plant.w, plant.d, 0.1), g);
+    const f = clampToRoom(placeAgainstWall(g, 'north', g.width * 0.76, plant.w, plant.d, 0.1), g);
     out.push(makePiece(plant, f.x, f.z, f.rot, 'seller'));
   }
   return out;
@@ -115,7 +125,9 @@ function ensureDraftRoom(tourId: string) {
     const patch: Partial<Room> = {};
     if (existing.name !== 'Corner room') patch.name = 'Corner room';
     if (existing.note !== REAL_MARBLE_WORLD.note) patch.note = REAL_MARBLE_WORLD.note;
-    if (existing.draft && existing.draft.panoUrl !== REAL_MARBLE_WORLD.panoUrl) patch.draft = { ...existing.draft, panoUrl: REAL_MARBLE_WORLD.panoUrl };
+    if (existing.draft && (existing.draft.panoUrl !== REAL_MARBLE_WORLD.panoUrl || existing.draft.bounds?.floorY == null)) {
+      patch.draft = { ...existing.draft, panoUrl: REAL_MARBLE_WORLD.panoUrl, bounds: REAL_MARBLE_WORLD.bounds };
+    }
     if (Object.keys(patch).length) useAudora.getState().updateRoom(existing.id, patch);
     return;
   }
@@ -179,7 +191,14 @@ function fullWorldRecord(raw: RawGeometry, bounds?: RoomWorld['bounds']): RoomWo
 /** The real full-quality Marble world: a furnished flat that scales itself. */
 function ensureFullRoom(tourId: string) {
   const existing = hasWorld(FULL_MARBLE_WORLD.worldId);
-  if (existing) return;
+  if (existing) {
+    // Bounds stored before the floor plane was detected put this world's floor 15 cm under ours
+    // (Marble's ground_plane_offset is not the mesh's floor). One re-read of the collider fixes it.
+    if (existing.full && existing.full.bounds && existing.full.bounds.floorY == null && typeof fetch !== 'undefined') {
+      refreshFullBounds(existing.id);
+    }
+    return;
+  }
   const metresPerUnit = FULL_MARBLE_WORLD.metricScaleFactor;
   const raw = rawFromMetres(FULL_MARBLE_WORLD.fallbackMetres, metresPerUnit);
   const room = useAudora.getState().addRoom(tourId, { name: 'Furnished flat', type: 'living', raw, anchor: anchorFromMarble(metresPerUnit) });
@@ -189,19 +208,25 @@ function ensureFullRoom(tourId: string) {
   useAudora.getState().setStaging(room.id, sparseStaging(staged.geometry), 'minimal');
 
   // Read the real collider bounds when the browser can reach the CDN (async, like the photo above):
-  // they centre the reconstruction on the room and are what the geometry wireframe is measured from.
-  if (typeof fetch !== 'undefined') {
-    fetchColliderBounds(FULL_MARBLE_WORLD.colliderUrl)
-      .then((bounds) => {
-        const cur = useAudora.getState().rooms[room.id];
-        if (!cur?.full) return;
-        const nextRaw = rawFromBoundsOr(bounds, metresPerUnit, raw);
-        useAudora.getState().attachWorld(room.id, { ...cur.full, bounds, raw: nextRaw });
-        const after = useAudora.getState().rooms[room.id];
-        useAudora.getState().setStaging(room.id, sparseStaging(after.geometry), after.stagingStyle);
-      })
-      .catch(() => undefined);
-  }
+  // they centre the reconstruction on the room, carry its floor plane, and are what the geometry
+  // wireframe is measured from.
+  if (typeof fetch !== 'undefined') refreshFullBounds(room.id);
+}
+
+/** Re-read the full-quality collider and re-apply everything derived from it. Never throws. */
+function refreshFullBounds(roomId: string) {
+  const metresPerUnit = FULL_MARBLE_WORLD.metricScaleFactor;
+  const fallback = rawFromMetres(FULL_MARBLE_WORLD.fallbackMetres, metresPerUnit);
+  fetchColliderBounds(FULL_MARBLE_WORLD.colliderUrl)
+    .then((bounds) => {
+      const cur = useAudora.getState().rooms[roomId];
+      if (!cur?.full) return;
+      const nextRaw = rawFromBoundsOr(bounds, metresPerUnit, fallback);
+      useAudora.getState().attachWorld(roomId, { ...cur.full, bounds, raw: nextRaw });
+      const after = useAudora.getState().rooms[roomId];
+      useAudora.getState().setStaging(roomId, sparseStaging(after.geometry), after.stagingStyle);
+    })
+    .catch(() => undefined);
 }
 
 /** Adds the real-world rooms to the demo tour if they are not there yet (also migrates older seeds). */
@@ -213,7 +238,7 @@ export function ensureRealRoom(tourId: string) {
 }
 
 /** Bump when the staging engine or demo rooms change; existing browsers re-stage the demo on next load. */
-export const SEED_VERSION = 3;
+export const SEED_VERSION = 4;
 
 /** Re-run the current stager over the demo rooms (keeps rooms, anchors, worlds and analytics). */
 export function restageDemo(tourId: string) {

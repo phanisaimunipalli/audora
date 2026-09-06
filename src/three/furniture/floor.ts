@@ -6,12 +6,36 @@ export const FLOOR_PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
 const scratch = new THREE.Vector3();
 
-/** Where a pointer ray meets the floor, in room coordinates; null when the ray never reaches it. */
-export function floorPoint(ray: THREE.Ray): { x: number; z: number } | null {
+export interface FloorPointLimits {
+  /**
+   * Minimum |dy| of the ray direction. A ray that leaves the eye almost level with the floor meets it
+   * hundreds of metres away, so the last few pixels before the horizon cover the whole room: a 140 px
+   * drag would throw a bed across it. Below this slope the hit is refused and the piece simply stops.
+   * 0.11 ≈ 6° below the horizon, which from 1.6 m eye height is about 15 m out.
+   */
+  minSlope?: number;
+  /** Metres from the ray origin beyond which the hit is refused as well. */
+  maxDistance?: number;
+}
+
+/**
+ * Where a pointer ray meets the floor, in room coordinates; null when the ray never reaches it — or
+ * when it only reaches it at a grazing angle where screen pixels stop being a usable unit of floor
+ * (see {@link FloorPointLimits}).
+ */
+export function floorPoint(ray: THREE.Ray, limits?: FloorPointLimits): { x: number; z: number } | null {
   const hit = ray.intersectPlane(FLOOR_PLANE, scratch);
   if (!hit) return null;
+  if (limits) {
+    const slope = Math.abs(ray.direction.y) / Math.max(1e-6, ray.direction.length());
+    if (limits.minSlope != null && slope < limits.minSlope) return null;
+    if (limits.maxDistance != null && hit.distanceTo(ray.origin) > limits.maxDistance) return null;
+  }
   return { x: hit.x, z: hit.z };
 }
+
+/** The limits a drag uses: past these a piece would teleport rather than follow the pointer. */
+export const DRAG_FLOOR_LIMITS: FloorPointLimits = { minSlope: 0.11, maxDistance: 45 };
 
 export interface Throttled<A extends unknown[]> {
   (...args: A): void;

@@ -11,6 +11,7 @@ import { FloorPlanSvg } from '@/screens/hub/FloorPlanSvg';
 import {
   ROOM_TYPE_LABELS,
   TOOL_OPTIONS,
+  anchorFromRecipe,
   draftAnchor,
   draftGeometry,
   finalAnchor,
@@ -189,32 +190,56 @@ function emptyRecipe(method: AnchorMethodChoice): AnchorRecipe {
   }
 }
 
+/** Does this recipe actually produce a measurement, or is it still half-typed? */
+function recipeMeasures(room: DraftRoom, recipe: AnchorRecipe): boolean {
+  return recipe.method === 'skip' || Boolean(anchorFromRecipe(room.raw, recipe));
+}
+
 function PhotoPanel({ room, onRecipe }: { room: DraftRoom; onRecipe: (r: AnchorRecipe | undefined) => void }) {
   const recipe = room.recipe;
   const [method, setMethod] = useState<AnchorMethodChoice>(recipe && recipe.method !== 'skip' ? recipe.method : 'door');
+  /**
+   * The half-finished recipe of the method being tried, held here rather than pushed up: switching
+   * from "type a wall length" to "tap the door" must not throw away the 4.20 m the seller already
+   * measured. The room keeps its anchor until the new method produces one of its own.
+   */
+  const [pending, setPending] = useState<AnchorRecipe | undefined>(undefined);
   const photo = room.photo!;
   const anchor = draftAnchor(room);
   const shown = finalAnchor(room);
   const g = draftGeometry(room);
   const warnings = plausibility(g);
   const skipped = recipe?.method === 'skip';
+  // What the controls edit: the stored recipe when it is the method on screen, else the local draft.
+  const editing: AnchorRecipe | undefined = recipe && recipe.method === method ? recipe : pending && pending.method === method ? pending : undefined;
+  // An anchor is only "kept" while the method on screen has not replaced it yet.
+  const keeping = recipe && recipe.method !== method && anchor ? anchor : undefined;
 
+  /** Push a recipe up only once it measures something; until then it lives in `pending`. */
+  const propose = (next: AnchorRecipe) => {
+    setPending(next);
+    if (recipeMeasures(room, next) || !anchor) onRecipe(next);
+  };
   const choose = (m: AnchorMethodChoice) => {
     setMethod(m);
-    if (recipe?.method !== m) onRecipe(emptyRecipe(m));
+    if (recipe?.method === m) return;
+    const fresh = emptyRecipe(m);
+    setPending(fresh);
+    // Nothing to lose (no declared anchor yet), or a deliberate skip: adopt the new method at once.
+    if (!anchor || m === 'skip') onRecipe(fresh);
   };
-  const taps: Tap[] = recipe && (recipe.method === 'door' || recipe.method === 'outlet') ? recipe.taps : [];
+  const taps: Tap[] = editing && (editing.method === 'door' || editing.method === 'outlet') ? editing.taps : [];
   const tap = (t: Tap) => {
     if (method !== 'door' && method !== 'outlet') return;
     const next = taps.length >= 2 ? [t] : [...taps, t];
-    onRecipe({ method, taps: next });
+    propose({ method, taps: next });
   };
   const useSuggestion = () => {
     const b = room.analysis?.doorBox;
     if (!b) return;
     const cx = b.x + b.w / 2;
-    onRecipe({ method: 'door', taps: [{ x: cx, y: b.y }, { x: cx, y: b.y + b.h }] });
     setMethod('door');
+    propose({ method: 'door', taps: [{ x: cx, y: b.y }, { x: cx, y: b.y + b.h }] });
   };
 
   return (
@@ -238,7 +263,7 @@ function PhotoPanel({ room, onRecipe }: { room: DraftRoom; onRecipe: (r: AnchorR
           tapping={method === 'door' || method === 'outlet'}
           suggestion={method === 'door' ? room.analysis?.doorBox : undefined}
           onTap={tap}
-          onReset={() => onRecipe({ method: method === 'outlet' ? 'outlet' : 'door', taps: [] })}
+          onReset={() => propose({ method: method === 'outlet' ? 'outlet' : 'door', taps: [] })}
           onUseSuggestion={useSuggestion}
         />
       </div>
@@ -266,11 +291,17 @@ function PhotoPanel({ room, onRecipe }: { room: DraftRoom; onRecipe: (r: AnchorR
                     <span className="block text-xs text-ink-3">{m.body}</span>
                   </span>
                 </button>
-                {on ? <MethodControls recipe={recipe} onRecipe={onRecipe} /> : null}
+                {on ? <MethodControls recipe={editing} onRecipe={propose} /> : null}
               </li>
             );
           })}
         </ol>
+
+        {keeping ? (
+          <Callout tone="info" title="Your measurement is still in place">
+            <span className="mono">{keeping.label}</span> stays the anchor until this method gives one of its own. Nothing is lost by looking.
+          </Callout>
+        ) : null}
 
         <DerivedPanel anchor={shown} declared={!!anchor && !skipped} g={g} warnings={warnings} />
 

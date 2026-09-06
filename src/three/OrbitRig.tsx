@@ -197,24 +197,71 @@ export function PhotoRig({ origin, enabled = true, initialYaw = 0, fov = 78, onF
     invalidate();
   }, [enabled, fov, camera, invalidate]);
 
-  // Wheel zooms the lens, not the position.
+  /**
+   * Zoom changes the LENS, never the position — you cannot step forward inside a photograph. The
+   * wheel does it on a desktop and a two-finger pinch does it on a phone, which is what the buyer's
+   * welcome card promises there. OrbitControls has both pan and dolly switched off, so two fingers
+   * are ours to read.
+   */
   useEffect(() => {
     if (!enabled) return;
     const el = gl.domElement;
+    /**
+     * Photo view owns the gestures on this canvas. Without this, mobile Safari and Chrome treat the
+     * two-finger pinch as a page zoom and the first millimetres of a drag as a page pan, so the
+     * "drag to look around · pinch to zoom" the welcome card promises never reaches the handlers
+     * below. Walk mode does the same thing (WalkControls); the previous value is put back on the way
+     * out so neither mode leaves the page unscrollable.
+     */
+    const prevTouch = el.style.touchAction;
+    el.style.touchAction = 'none';
+    const setFov = (next: number) => {
+      const v = THREE.MathUtils.clamp(next, PHOTO_FOV_MIN, PHOTO_FOV_MAX);
+      if (v === fovRef.current) return;
+      fovRef.current = v;
+      onFovRef.current?.(v);
+    };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const next = THREE.MathUtils.clamp(fovRef.current + Math.sign(e.deltaY) * 3, PHOTO_FOV_MIN, PHOTO_FOV_MAX);
-      if (next !== fovRef.current) {
-        fovRef.current = next;
-        onFovRef.current?.(next);
-      }
+      setFov(fovRef.current + Math.sign(e.deltaY) * 3);
     };
-    const onDown = () => setTouched(true);
+    const fingers = new Map<number, { x: number; y: number }>();
+    let spread = 0;
+    const measure = () => {
+      const [a, b] = [...fingers.values()];
+      return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+    };
+    const onDown = (e: PointerEvent) => {
+      setTouched(true);
+      if (e.pointerType !== 'touch') return;
+      fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (fingers.size === 2) spread = measure();
+    };
+    const onMove = (e: PointerEvent) => {
+      if (!fingers.has(e.pointerId)) return;
+      fingers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (fingers.size !== 2 || !spread) return;
+      const now = measure();
+      // Fingers apart = zoom in = a narrower lens. Scaled by the canvas so it feels the same on any screen.
+      setFov(fovRef.current - ((now - spread) / Math.max(1, el.clientHeight)) * 120);
+      spread = now;
+    };
+    const onLift = (e: PointerEvent) => {
+      fingers.delete(e.pointerId);
+      if (fingers.size < 2) spread = 0;
+    };
     el.addEventListener('wheel', onWheel, { passive: false });
     el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerup', onLift);
+    el.addEventListener('pointercancel', onLift);
     return () => {
+      el.style.touchAction = prevTouch;
       el.removeEventListener('wheel', onWheel);
       el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerup', onLift);
+      el.removeEventListener('pointercancel', onLift);
     };
   }, [enabled, gl]);
 

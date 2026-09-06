@@ -226,7 +226,7 @@ export function FurnitureTest({ room, buyerPieces, onChange, onClose, staging, p
           ) : (
             // How the text was parsed is engineering detail, not a buyer's business: it stays in the tooltip.
             <div className="text-xs text-ink-3" title={lastMeta ? `Parsed ${lastMeta.source === 'nebius' ? `by ${lastMeta.model ?? 'nebius'}` : 'locally'} in ${lastMeta.ms} ms.` : undefined}>
-              Name it and give two numbers in cm; height is optional. It lands in front of you.
+              Name it and give width by depth, in cm or m; height is optional. {mode === 'orbit' ? 'It appears in the room and on the plan.' : 'It lands in front of you.'}
             </div>
           )}
         </form>

@@ -65,7 +65,12 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  overflow-x: hidden;
+  /* `clip`, never `hidden`. `overflow-x: hidden` forces the other axis to compute to `auto`, which
+     turns this 100%-tall body into its own scroll container: the wheel, Page Down, Space and End all
+     stop scrolling the page (only `window.scrollTo` still moved it). `clip` is exempt from that
+     pairing rule — overflow-y stays `visible` and propagates to the viewport — while still clipping
+     the horizontal overflow the full-bleed sections would otherwise add. */
+  overflow-x: clip;
 }
 
 ::selection { background: rgb(232 115 74 / 0.35); }

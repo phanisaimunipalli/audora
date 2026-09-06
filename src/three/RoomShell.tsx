@@ -403,9 +403,13 @@ export function RoomShell({
       </mesh>
       {showGrid ? <gridHelper args={[Math.max(room.width, room.depth), Math.round(Math.max(room.width, room.depth)), '#5a4d40', '#3a322b']} position={[0, 0.003, 0]} /> : null}
       {showCeiling ? (
+        /* A ceiling plane faces down, so it catches the hemisphere's *ground* colour and none of the
+           sun: left to the lights alone it renders near-black, and standing in the room you see a
+           hole where the ceiling should be. A little emissive plaster is what a real ceiling does
+           anyway — it is lit by everything the room bounces up at it. */
         <mesh ref={ceiling} rotation={[Math.PI / 2, 0, 0]} position={[0, room.height, 0]} userData={{ audoraCeiling: room.height }}>
           <planeGeometry args={[room.width, room.depth]} />
-          <meshStandardMaterial color="#f3eee6" roughness={1} transparent={opacity < 1} opacity={opacity} />
+          <meshStandardMaterial color="#f3eee6" roughness={1} emissive="#e9dcc9" emissiveIntensity={0.42} transparent={opacity < 1} opacity={opacity} />
         </mesh>
       ) : null}
       {WALLS.map((w) => (

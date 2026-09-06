@@ -3,7 +3,8 @@
  * engine API; the viewer has its own placement UX, this just finds a sensible spot automatically.
  */
 import { buyerVerdict, clampToRoom, makePiece, parseFurnitureText, placeAgainstWall, wallLength } from '@/engine';
-import { aabb, corners, separation, wallGaps, wallLabel } from '@/engine/geometry';
+import { aabb, corners, round, separation, wallGaps, wallLabel } from '@/engine/geometry';
+import { lowerName, smallPiece } from '@/engine/fit';
 import type { BuyerVerdict, CatalogCategory, CatalogItem, PlacedPiece, ProceduralKind, RoomGeometry, Vec2, WallSide } from '@/engine/types';
 
 export interface BuyerSpec {
@@ -153,7 +154,11 @@ function perimeter(p: PlacedPiece, n = 10): Vec2[] {
   return out;
 }
 
-/** The nearest walkway around a piece, as a drawable segment. Mirrors what buyerVerdict reports. */
+/**
+ * The nearest walkway around a piece, as a drawable segment. It has to pick exactly the neighbour
+ * `buyerVerdict` quotes — same `AGAINST` floor, same `smallPiece` filter, same 2-decimal rounding —
+ * or the plan draws one number while the verdict sentence says another.
+ */
 export function nearestGap(piece: PlacedPiece, staging: PlacedPiece[], room: RoomGeometry): Gap | null {
   if (piece.flat) return null; // rugs never define a walkway
   let best: Gap | null = null;
@@ -166,11 +171,13 @@ export function nearestGap(piece: PlacedPiece, staging: PlacedPiece[], room: Roo
       wall === 'north' ? { x: piece.x, z: box.minZ } : wall === 'south' ? { x: piece.x, z: box.maxZ } : wall === 'west' ? { x: box.minX, z: piece.z } : { x: box.maxX, z: piece.z };
     const b: Vec2 =
       wall === 'north' ? { x: piece.x, z: -room.depth / 2 } : wall === 'south' ? { x: piece.x, z: room.depth / 2 } : wall === 'west' ? { x: -room.width / 2, z: piece.z } : { x: room.width / 2, z: piece.z };
-    best = { a, b, metres: m, toward: wallLabel(room, wall) };
+    best = { a, b, metres: round(m, 2), toward: wallLabel(room, wall) };
   });
   const mine = perimeter(piece);
   for (const s of staging) {
-    if (s.flat || s.owner === 'buyer') continue;
+    // A nightstand is too small to define a corridor, so the gap beside it is not a walkway —
+    // exactly the rule buyerVerdict applies when it picks the clearance it reports.
+    if (s.flat || s.owner === 'buyer' || smallPiece(s)) continue;
     const m = separation(piece, s);
     if (m < AGAINST || (best && m >= best.metres)) continue;
     const theirs = perimeter(s);
@@ -187,7 +194,7 @@ export function nearestGap(piece: PlacedPiece, staging: PlacedPiece[], room: Roo
         }
       }
     }
-    best = { a: pa, b: pb, metres: m, toward: `the ${s.name.toLowerCase()}` };
+    best = { a: pa, b: pb, metres: round(m, 2), toward: `the ${lowerName(s.name)}` };
   }
   return best;
 }

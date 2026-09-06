@@ -254,14 +254,25 @@ export default function NewTour() {
 
   const current = WIZARD_STEPS[step];
 
-  // Each step opens at its heading, not wherever the previous step was scrolled to.
+  // Each step opens at its heading, not wherever the previous step was scrolled to. Instant, not
+  // smooth: a smooth scroll is abandoned the moment the new step's layout lands (and never starts at
+  // all in a background tab), which is how a step used to open half way down its own list. Re-applied
+  // on the next frame because the browser's scroll anchoring pulls the position back once the taller
+  // step is swapped for the shorter one.
   const firstStep = useRef(true);
   useEffect(() => {
     if (firstStep.current) {
       firstStep.current = false;
       return;
     }
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    const top = () => window.scrollTo({ top: 0, behavior: 'auto' });
+    top();
+    const frame = window.requestAnimationFrame(top);
+    const settle = window.setTimeout(top, 80);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(settle);
+    };
   }, [step]);
 
   return (
@@ -300,7 +311,8 @@ export default function NewTour() {
         </Callout>
       ) : null}
 
-      <div key={current.key} className="animate-fade">
+      {/* Scroll anchoring would otherwise keep the old step's position when the new one is shorter. */}
+      <div key={current.key} className="animate-fade" style={{ overflowAnchor: 'none' }}>
         {step === 0 ? <StepListing listing={listing} onChange={(p) => setListing((l) => ({ ...l, ...p }))} /> : null}
         {step === 1 ? <StepRooms rooms={rooms} loading={loading} onAddFiles={addFiles} onAddMeasured={addMeasured} onUpdate={patchRoom} onRemove={removeRoom} onMove={moveRoom} /> : null}
         {step === 2 ? <StepAnchor rooms={rooms} activeId={activeAnchor} onActive={setActiveAnchor} onRecipe={setRecipe} onMeasured={setMeasured} /> : null}

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { AnchorSpec, FitReport, PlausibilityWarning, RoomGeometry, TightSpot } from '@/engine/types';
 import { MIN_WALKWAY_M, plausibility } from '@/engine/anchor';
+import { lowerName } from '@/engine/fit';
 import { AnchorChip } from './AnchorChip';
 import { cm, m } from '@/lib/format';
 import { Icon } from './icons';
@@ -34,7 +35,7 @@ function Metric({ label, value, tone = 'neutral', hint }: { label: string; value
 
 
 /** "Coffee table" → "coffee table", but leave "TV console", "L-sectional" and "the window wall" alone. */
-const lower = (s: string) => (/^[A-Z][a-z]/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s);
+const lower = lowerName;
 
 function spotLabel(spot: TightSpot, names: Record<string, string> | undefined): { a: string; b: string } {
   const a = names?.[spot.a] ?? spot.aLabel;
@@ -70,6 +71,8 @@ export function FitReportPanel({ report, names, onFocusPiece, room, anchor, sele
       if (a === id) out.push(`overlaps the ${lower(name(b))}`);
       else if (b === id) out.push(`overlaps the ${lower(name(a))}`);
     }
+    // A door blocker counts in the "Do not fit" stat, so it has to say why here too.
+    if (report.blocksDoor.includes(id)) out.push('sits in the door swing');
     return out;
   };
   const clean = report.misfits.length === 0 && report.blocksDoor.length === 0 && report.tightSpots.length === 0;

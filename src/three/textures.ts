@@ -326,6 +326,29 @@ export function lightPool(): THREE.CanvasTexture {
   });
 }
 
+/**
+ * The soft darkening a solid object puts on the floor it stands on. Alpha only, black, radial: the
+ * ambient occlusion a shadow map at room scale can never resolve, and the thing that stops a piece
+ * of furniture from floating over a photograph.
+ */
+export function contactShadow(): THREE.CanvasTexture {
+  return memo('contact', () => {
+    const s = 128;
+    const { c, ctx } = canvas(s, s);
+    const g = ctx.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+    g.addColorStop(0, 'rgba(0,0,0,0.9)');
+    g.addColorStop(0.42, 'rgba(0,0,0,0.62)');
+    g.addColorStop(0.72, 'rgba(0,0,0,0.2)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, s, s);
+    const t = finish(c, false, 2);
+    t.wrapS = THREE.ClampToEdgeWrapping;
+    t.wrapT = THREE.ClampToEdgeWrapping;
+    return t;
+  });
+}
+
 /** Clone a shared texture with its own repeat, without re-uploading the source more than needed. */
 export function withRepeat(t: THREE.CanvasTexture, rx: number, ry: number): THREE.CanvasTexture {
   const c = t.clone();

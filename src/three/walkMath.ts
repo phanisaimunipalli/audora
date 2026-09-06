@@ -70,8 +70,34 @@ export function isMoving(i: WalkIntent): boolean {
   return Math.hypot(i.fwd, i.strafe) > 0.02;
 }
 
-export function blocked(x: number, z: number, room: RoomGeometry, pieces: PlacedPiece[]): boolean {
+/**
+ * The walkable floor of a real reconstruction, read off its collider mesh (see `walkMask.ts`).
+ * The room rectangle is the collider's *bounding box* and so overstates the photographed room by
+ * 15–20%; where a mask is available it is the truth about where the walls are.
+ */
+export interface WalkBounds {
+  blocked(x: number, z: number): boolean;
+}
+
+/** Where the walker stands when walk mode starts: just inside the door, facing into the room. */
+export function spawnPose(room: RoomGeometry): { x: number; z: number; yaw: number } {
+  const d = room.door;
+  const inset = 0.7;
+  switch (d.wall) {
+    case 'south':
+      return { x: -room.width / 2 + d.offset, z: room.depth / 2 - inset, yaw: 0 };
+    case 'north':
+      return { x: -room.width / 2 + d.offset, z: -room.depth / 2 + inset, yaw: Math.PI };
+    case 'east':
+      return { x: room.width / 2 - inset, z: -room.depth / 2 + d.offset, yaw: Math.PI / 2 };
+    case 'west':
+      return { x: -room.width / 2 + inset, z: -room.depth / 2 + d.offset, yaw: -Math.PI / 2 };
+  }
+}
+
+export function blocked(x: number, z: number, room: RoomGeometry, pieces: PlacedPiece[], mask?: WalkBounds | null): boolean {
   if (Math.abs(x) > room.width / 2 - WALK_RADIUS || Math.abs(z) > room.depth / 2 - WALK_RADIUS) return true;
+  if (mask?.blocked(x, z)) return true;
   for (const p of pieces) {
     if (p.flat) continue;
     if (pointInFootprint({ x, z }, { x: p.x, z: p.z, w: p.w + WALK_RADIUS * 2, d: p.d + WALK_RADIUS * 2, rot: p.rot })) return true;
@@ -79,28 +105,66 @@ export function blocked(x: number, z: number, room: RoomGeometry, pieces: Placed
   return false;
 }
 
-/** Nearest standable point to (x,z), backing off toward (fx,fz) when the target is inside something. */
-export function standable(x: number, z: number, fx: number, fz: number, room: RoomGeometry, pieces: PlacedPiece[]): { x: number; z: number } | null {
+/**
+ * The furthest point toward (x,z) the walker can actually reach from (fx,fz) in a straight line.
+ *
+ * It is not enough for the destination itself to be free: a click on the floor beyond a wall used
+ * to land the buyer *outside* the reconstruction, because the target was inside the room rectangle
+ * and nothing checked the way there. Marching out from the walker and stopping at the last free
+ * point keeps every glide inside the room the photograph shows. Returns null when even the first
+ * step is blocked.
+ */
+export function standable(
+  x: number,
+  z: number,
+  fx: number,
+  fz: number,
+  room: RoomGeometry,
+  pieces: PlacedPiece[],
+  mask?: WalkBounds | null,
+): { x: number; z: number } | null {
   const cx = clamp(x, -room.width / 2 + WALK_RADIUS + 0.02, room.width / 2 - WALK_RADIUS - 0.02);
   const cz = clamp(z, -room.depth / 2 + WALK_RADIUS + 0.02, room.depth / 2 - WALK_RADIUS - 0.02);
-  if (!blocked(cx, cz, room, pieces)) return { x: cx, z: cz };
-  const dx = fx - cx;
-  const dz = fz - cz;
+  const dx = cx - fx;
+  const dz = cz - fz;
   const len = Math.hypot(dx, dz);
-  if (len < 1e-3) return null;
-  for (let s = 0.1; s <= len; s += 0.1) {
-    const px = cx + (dx / len) * s;
-    const pz = cz + (dz / len) * s;
-    if (!blocked(px, pz, room, pieces)) return { x: px, z: pz };
+  if (len < 1e-3) return blocked(cx, cz, room, pieces, mask) ? null : { x: cx, z: cz };
+  const ux = dx / len;
+  const uz = dz / len;
+  if (blocked(fx, fz, room, pieces, mask)) {
+    // The walker is standing somewhere they should not be (a mask arrived under their feet):
+    // the nearest free point on the way to the target is the way out.
+    for (let s = 0.1; s <= len; s += 0.1) {
+      const px = fx + ux * s;
+      const pz = fz + uz * s;
+      if (!blocked(px, pz, room, pieces, mask)) return { x: px, z: pz };
+    }
+    return blocked(cx, cz, room, pieces, mask) ? null : { x: cx, z: cz };
   }
-  return null;
+  let best = { x: fx, z: fz };
+  for (let s = 0.1; s <= len; s += 0.1) {
+    const px = fx + ux * s;
+    const pz = fz + uz * s;
+    if (blocked(px, pz, room, pieces, mask)) return best;
+    best = { x: px, z: pz };
+  }
+  return blocked(cx, cz, room, pieces, mask) ? best : { x: cx, z: cz };
 }
 
 /**
  * One physics step: ease the velocity toward the wanted velocity (in the yaw frame), then move,
  * sliding along whatever blocks each axis. Mutates `st` and returns true when the position changed.
  */
-export function integrate(st: WalkState, intent: WalkIntent, yaw: number, dt: number, speed: number, room: RoomGeometry, pieces: PlacedPiece[]): boolean {
+export function integrate(
+  st: WalkState,
+  intent: WalkIntent,
+  yaw: number,
+  dt: number,
+  speed: number,
+  room: RoomGeometry,
+  pieces: PlacedPiece[],
+  mask?: WalkBounds | null,
+): boolean {
   const hurry = intent.hurry ? 1.9 : 1;
   const sin = Math.sin(yaw);
   const cos = Math.cos(yaw);
@@ -118,9 +182,9 @@ export function integrate(st: WalkState, intent: WalkIntent, yaw: number, dt: nu
   const z0 = st.z;
   const nx = st.x + st.vx * dt;
   const nz = st.z + st.vz * dt;
-  if (!blocked(nx, st.z, room, pieces)) st.x = nx;
+  if (!blocked(nx, st.z, room, pieces, mask)) st.x = nx;
   else st.vx = 0;
-  if (!blocked(st.x, nz, room, pieces)) st.z = nz;
+  if (!blocked(st.x, nz, room, pieces, mask)) st.z = nz;
   else st.vz = 0;
   return st.x !== x0 || st.z !== z0;
 }

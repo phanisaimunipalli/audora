@@ -27,6 +27,11 @@ export interface PanoWorldProps {
   onProgress?: (p: PanoProgress) => void;
   /** Pixel size of the panorama once decoded. */
   onMeasured?: (size: { w: number; h: number }) => void;
+  /**
+   * The decoded texture, so the same photograph can light the furniture standing in it (PMREM
+   * environment + sun estimate; see CaptureLight). Called with null while nothing is loaded.
+   */
+  onTexture?: (texture: THREE.Texture | null) => void;
 }
 
 /**
@@ -132,11 +137,16 @@ async function loadPano(url: string, onProgress: (p: PanoProgress) => void, sign
  * Lives inside the Marble group, so `radius` is in raw provider units and the mirror/yaw above put
  * the room where the collider and the splat put it.
  */
-export function PanoWorld({ url, radius = PANO_RADIUS, visible = true, opacity = 1, yaw = 0, onStatus, onProgress, onMeasured }: PanoWorldProps) {
+export function PanoWorld({ url, radius = PANO_RADIUS, visible = true, opacity = 1, yaw = 0, onStatus, onProgress, onMeasured, onTexture }: PanoWorldProps) {
   const invalidate = useThree((s) => s.invalidate);
   const [tex, setTex] = useState<THREE.Texture | null>(null);
-  const cb = useRef({ onStatus, onProgress, onMeasured });
-  cb.current = { onStatus, onProgress, onMeasured };
+  const cb = useRef({ onStatus, onProgress, onMeasured, onTexture });
+  cb.current = { onStatus, onProgress, onMeasured, onTexture };
+
+  // The texture is the room's light as well as its backdrop; hand it up whenever it changes.
+  useEffect(() => {
+    cb.current.onTexture?.(tex);
+  }, [tex]);
 
   useEffect(() => {
     setTex(null);
@@ -184,6 +194,7 @@ export function PanoWorld({ url, radius = PANO_RADIUS, visible = true, opacity =
     })();
     return () => {
       ctrl.abort();
+      cb.current.onTexture?.(null);
       if (mine) {
         const img = mine.image as ImageBitmap | null;
         mine.dispose();

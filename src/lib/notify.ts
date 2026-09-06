@@ -33,11 +33,43 @@ export function sendNotification(title: string, body: string, onClick?: () => vo
   }
 }
 
+/* ---------- unseen-job badge in the tab title ----------
+ * The badge belongs to the seller's app chrome. The job runner is mounted app-wide, so without a
+ * switch a buyer sitting on a public share link would watch the seller's tab title turn into
+ * "(1) 1247 Oak Street · Audora tour". Routes that own their own title (the public viewer) turn it
+ * off while they are mounted, and the title is left exactly as they set it. */
 let baseTitle: string | null = null;
+let badgeCount = 0;
+let badgeEnabled = true;
+
+/** "(2) Audora" → "Audora", so a re-read never captures a badge as the base title. */
+function stripBadge(title: string): string {
+  return title.replace(/^\(\d+\)\s+/, '');
+}
+
+function renderTitle() {
+  if (typeof document === 'undefined' || !badgeEnabled) return;
+  if (baseTitle === null) baseTitle = stripBadge(document.title);
+  document.title = badgeCount > 0 ? `(${badgeCount}) ${baseTitle}` : baseTitle;
+}
+
 export function setTitleBadge(count: number) {
-  if (typeof document === 'undefined') return;
-  if (baseTitle === null) baseTitle = document.title;
-  document.title = count > 0 ? `(${count}) ${baseTitle}` : baseTitle;
+  badgeCount = count;
+  renderTitle();
+}
+
+/**
+ * Turn the badge off for routes with no app chrome. Switching it off restores the plain title and
+ * forgets it, so the route is free to set its own; switching it back on re-reads whatever is there.
+ */
+export function setTitleBadgeEnabled(on: boolean) {
+  if (on === badgeEnabled) return;
+  if (!on) {
+    if (typeof document !== 'undefined' && baseTitle !== null) document.title = baseTitle;
+    baseTitle = null;
+  }
+  badgeEnabled = on;
+  renderTitle();
 }
 
 /** A short, soft chime using WebAudio — no asset needed. */

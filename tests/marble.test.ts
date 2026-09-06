@@ -43,6 +43,19 @@ describe('splatTransform', () => {
     expect(t.position[1]).not.toBeCloseTo(-FULL_BOUNDS.minY * FULL.metricScaleFactor, 2);
   });
 
+  it("stands the mesh's own floor on y=0 when the collider has been read", () => {
+    // `floorY` is the densest horizontal slab of the collider — the plane the panorama's floor lies
+    // on. Measured: 6 cm above minY on the draft world, 15 cm below ground_plane_offset on the full
+    // one. It wins over both, so a sofa on y = 0 stands on the photographed floor.
+    const draft = splatTransform({ metricScaleFactor: null, groundPlaneOffset: null, bounds: { ...DRAFT_BOUNDS, floorY: -1.5975 } }, 0.6867);
+    expect(draft.position[1]).toBeCloseTo(1.5975 * 0.6867, 6);
+    expect(draft.position[1]).not.toBeCloseTo(-DRAFT_BOUNDS.minY * 0.6867, 3);
+
+    const full = splatTransform({ ...FULL, bounds: { ...FULL_BOUNDS, floorY: -0.6535 } }, 1);
+    expect(full.position[1]).toBeCloseTo(0.6535 * FULL.metricScaleFactor, 6);
+    expect(full.position[1]).not.toBeCloseTo(FULL.groundPlaneOffset, 2);
+  });
+
   it('is consistent with and without bounds: same scale, same capture height, centre only from bounds', () => {
     const withB = splatTransform({ ...FULL, bounds: FULL_BOUNDS }, 1);
     const withoutB = splatTransform({ ...FULL }, 1);

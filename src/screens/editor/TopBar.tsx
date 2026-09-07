@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { STYLE_LABELS, type StagingStyle } from '@/engine/autostage';
 import type { Peer } from '@/state/collab';
 import type { Room } from '@/state/types';
@@ -8,7 +8,8 @@ import type { AiMeta } from '@/services/ai';
 import type { ViewMode } from '@/three/viewerStore';
 import { AnchorChip } from '@/components/AnchorChip';
 import { Icon } from '@/components/icons';
-import { Button, Chip, IconButton, Segmented, Spinner, cx } from '@/components/ui';
+import { Button, Chip, Spinner, cx } from '@/components/ui';
+import { HudPill, PillDivider, TierTag, TopBar as HudTopBar, Wordmark, tierWord } from '@/screens/viewer/hud';
 import { usd } from '@/lib/format';
 
 export interface AutoStageMeta extends AiMeta {
@@ -38,6 +39,8 @@ export interface TopBarProps {
   compact?: boolean;
   /** This room has a panorama, so Photo joins Orbit / Walk — the same choice the buyer gets. */
   hasPhoto?: boolean;
+  /** Extra pills for the right-hand group (the layers and the hour of the day). */
+  extraPills?: ReactNode;
 }
 
 /**
@@ -104,7 +107,7 @@ function Popover({
     <div
       ref={ref}
       role="menu"
-      className="popover animate-rise fixed z-[90] min-w-56 max-w-[min(92vw,22rem)] overflow-y-auto rounded-2xl p-1.5 shadow-soft"
+      className="popover animate-rise fixed z-[90] min-w-56 max-w-[min(92vw,22rem)] overflow-y-auto rounded-2xl p-1.5"
       style={{ top: box.top, left: box.left, right: box.right, maxHeight: box.maxHeight }}
     >
       {children}
@@ -125,18 +128,18 @@ function RoomSwitcher({ tourId, room, rooms, compact }: { tourId: string; room: 
   const trigger = useRef<HTMLButtonElement>(null);
   const nav = useNavigate();
   return (
-    <div className="relative min-w-0 flex-1 md:flex-none">
-      <button ref={trigger} type="button" onClick={() => setOpen((o) => !o)} className="flex max-w-full items-center gap-1.5 rounded-lg px-2 py-1 text-left transition-colors hover:bg-surface-2">
+    <div className="relative min-w-0">
+      <button ref={trigger} type="button" onClick={() => setOpen((o) => !o)} className="flex max-w-full items-center gap-1.5 rounded-lg px-1 py-0.5 text-left transition-colors hover:bg-surface">
         <span className="display min-w-0 truncate text-[19px] leading-none text-ink">{room.name}</span>
         {!compact ? (
-          <span className="mono hidden text-[11px] text-ink-3 sm:inline">
+          <span className="mono hidden text-[11px] text-dim sm:inline">
             {room.geometry.width.toFixed(2)} × {room.geometry.depth.toFixed(2)} m
           </span>
         ) : null}
-        <Icon.ChevronDown size={14} className="shrink-0 text-ink-3" />
+        <Icon.ChevronDown size={14} className="shrink-0 text-faint" />
       </button>
       <Popover open={open} onClose={() => setOpen(false)} anchorRef={trigger}>
-        <div className="px-2.5 pt-1.5 pb-1 text-[10px] uppercase tracking-[0.14em] text-ink-3">Rooms in this tour</div>
+        <div className="micro px-2.5 pb-1 pt-1.5">Rooms in this tour</div>
         {rooms.map((r) => (
           <button
             key={r.id}
@@ -145,10 +148,10 @@ function RoomSwitcher({ tourId, room, rooms, compact }: { tourId: string; room: 
               setOpen(false);
               if (r.id !== room.id) nav(`/tours/${tourId}/stage/${r.id}`);
             }}
-            className={cx('flex w-full items-center justify-between gap-4 rounded-xl px-2.5 py-2 text-left text-sm transition-colors', r.id === room.id ? 'bg-accent/10 text-accent-2' : 'text-ink-2 hover:bg-surface-2 hover:text-ink')}
+            className={cx('flex w-full items-center justify-between gap-4 rounded-xl px-2.5 py-2 text-left text-[13.5px] transition-colors', r.id === room.id ? 'bg-accent-soft text-ink' : 'text-ink-2 hover:bg-surface hover:text-ink')}
           >
             <span className="truncate">{r.name}</span>
-            <span className="mono shrink-0 text-[11px] text-ink-3">
+            <span className="mono shrink-0 text-[11px] text-dim">
               {r.geometry.width.toFixed(1)} × {r.geometry.depth.toFixed(1)} m · {r.staging.length} pcs
             </span>
           </button>
@@ -163,14 +166,14 @@ function AutoStageMenu({ style, busy, meta, onRun, compact }: { style: StagingSt
   const trigger = useRef<HTMLButtonElement>(null);
   return (
     <div className="relative flex items-center gap-2">
-      <Button ref={trigger} variant="primary" size="sm" onClick={() => setOpen((o) => !o)} disabled={busy} title="Auto-stage this room">
+      <Button ref={trigger} variant="primary" size="sm" onClick={() => setOpen((o) => !o)} disabled={busy} title="Auto-stage this room" className="!h-[30px]">
         {busy ? <Spinner size={14} /> : <Icon.Sparkles size={15} />}
         {compact ? null : <span>Auto-stage</span>}
         <Icon.ChevronDown size={13} className="opacity-70" />
       </Button>
       {meta && !compact ? (
         <span className="hidden xl:inline-flex" title={meta.rationale ?? (meta.source === 'heuristic' ? 'Rule-based stager (no model key, or the model proposal failed validation).' : 'Nebius Token Factory proposal, validated by the engine.')}>
-          <Chip tone={meta.source === 'nebius' ? 'accent' : 'neutral'} mono className="!text-[10px]">
+          <Chip mono className="!text-[10px]">
             {meta.source}
             {meta.model ? ` · ${meta.model.split('/').pop()}` : ''} · {meta.ms}ms{meta.usd != null ? ` · ${usd(meta.usd)}` : ''}
             {meta.dropped ? ` · ${meta.dropped} dropped` : ''}
@@ -178,7 +181,7 @@ function AutoStageMenu({ style, busy, meta, onRun, compact }: { style: StagingSt
         </span>
       ) : null}
       <Popover open={open} onClose={() => setOpen(false)} align="right" anchorRef={trigger}>
-        <div className="px-2.5 pt-1.5 pb-1 text-[10px] uppercase tracking-[0.14em] text-ink-3">Stage in a style</div>
+        <div className="micro px-2.5 pb-1 pt-1.5">Stage in a style</div>
         {(Object.keys(STYLE_LABELS) as StagingStyle[]).map((s) => (
           <button
             key={s}
@@ -187,13 +190,13 @@ function AutoStageMenu({ style, busy, meta, onRun, compact }: { style: StagingSt
               setOpen(false);
               onRun(s);
             }}
-            className={cx('flex w-full flex-col items-start gap-0.5 rounded-xl px-2.5 py-2 text-left transition-colors', s === style ? 'bg-accent/10' : 'hover:bg-surface-2')}
+            className={cx('flex w-full flex-col items-start gap-0.5 rounded-xl px-2.5 py-2 text-left transition-colors', s === style ? 'bg-accent-soft' : 'hover:bg-surface')}
           >
-            <span className={cx('text-sm', s === style ? 'text-accent-2' : 'text-ink')}>{STYLE_LABELS[s]}</span>
-            <span className="text-[11px] text-ink-3">{STYLE_HINT[s]}</span>
+            <span className="text-[13.5px] font-semibold text-ink">{STYLE_LABELS[s]}</span>
+            <span className="text-[11px] text-dim">{STYLE_HINT[s]}</span>
           </button>
         ))}
-        <div className="px-2.5 pt-1.5 pb-1 text-[11px] text-ink-3">Replaces the current staging. Undo brings it back.</div>
+        <div className="px-2.5 pb-1 pt-1.5 text-[11px] text-dim">Replaces the current staging. Undo brings it back.</div>
       </Popover>
     </div>
   );
@@ -212,71 +215,80 @@ export function PresenceAvatars({ self, peers, max = 4 }: { self: Peer; peers: P
   const shown = peers.slice(0, max);
   return (
     <div className="flex items-center" title={peers.length ? `${peers.map((p) => p.name).join(', ')} ${peers.length === 1 ? 'is' : 'are'} in this room` : 'Only you here. Open this page in a second tab to stage together.'}>
-      <span className="mono flex h-7 w-7 items-center justify-center rounded-full border-2 text-[10px]" style={{ borderColor: self.color, color: self.color, background: 'rgba(14,13,12,0.9)' }}>
+      <span className="mono flex h-7 w-7 items-center justify-center rounded-full border-2 bg-bg text-[10px]" style={{ borderColor: self.color, color: self.color }}>
         {initials(self.name)}
       </span>
       {shown.map((p) => (
-        <span key={p.id} className="mono -ml-2 flex h-7 w-7 items-center justify-center rounded-full border-2 text-[10px]" style={{ borderColor: p.color, color: p.color, background: 'rgba(14,13,12,0.9)' }}>
+        <span key={p.id} className="mono -ml-2 flex h-7 w-7 items-center justify-center rounded-full border-2 bg-bg text-[10px]" style={{ borderColor: p.color, color: p.color }}>
           {initials(p.name)}
         </span>
       ))}
-      {peers.length > max ? <span className="mono -ml-2 flex h-7 w-7 items-center justify-center rounded-full border-2 border-line-2 bg-surface-2 text-[10px] text-ink-2">+{peers.length - max}</span> : null}
-      {peers.length ? <span className="ml-2 hidden text-[11px] text-ink-3 lg:inline">{peers.length === 1 ? `${peers[0].name} is here` : `${peers.length} others here`}</span> : null}
+      {peers.length > max ? <span className="mono -ml-2 flex h-7 w-7 items-center justify-center rounded-full border-2 border-line-2 bg-bg text-[10px] text-ink-2">+{peers.length - max}</span> : null}
+      {peers.length ? <span className="ml-2 hidden text-[11px] text-dim lg:inline">{peers.length === 1 ? `${peers[0].name} is here` : `${peers.length} others here`}</span> : null}
     </div>
   );
 }
 
+/**
+ * The editor's chrome: the same transparent bar the buyer's viewer wears — wordmark and tier on the
+ * left, the black/white pill group on the right — so a seller stages inside the frame the buyer will
+ * open.
+ */
 export function TopBar(p: TopBarProps) {
   const { compact } = p;
-  // `relative z-30` puts the header (and its popovers) above the canvas, which is a later sibling in a
-  // positioned stacking order and used to paint over the menus.
+  const modes: { value: ViewMode; label: string; icon: ReactNode }[] = [
+    ...(p.hasPhoto ? [{ value: 'photo' as ViewMode, label: 'Photo', icon: <Icon.Camera size={14} /> }] : []),
+    { value: 'orbit' as ViewMode, label: 'Orbit', icon: <Icon.Orbit size={14} /> },
+    { value: 'walk' as ViewMode, label: 'Walk', icon: <Icon.Walk size={14} /> },
+  ];
+  const tier = tierWord(p.room);
   return (
-    <header className="relative z-30 flex h-14 shrink-0 items-center gap-2 border-b border-line bg-bg/95 px-2 backdrop-blur md:gap-3 md:px-3">
-      <Link to={`/tours/${p.tourId}`} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink" title={`Back to ${p.tourTitle}`}>
-        <Icon.ArrowLeft size={18} />
-      </Link>
-      <RoomSwitcher tourId={p.tourId} room={p.room} rooms={p.rooms} compact={compact} />
-      {!compact ? <AnchorChip anchor={p.room.anchor} size="sm" className="hidden lg:inline-flex" /> : null}
-
-      <div className="ml-auto flex shrink-0 items-center gap-1.5 md:gap-2">
-        {/* On phones the Orbit / Walk switch lives in the bottom bar so the title keeps its room. */}
-        {!compact ? (
-          <Segmented
-            size="sm"
-            value={p.mode}
-            onChange={p.onMode}
-            options={[
-              ...(p.hasPhoto ? [{ value: 'photo' as ViewMode, label: 'Photo', icon: <Icon.Camera size={15} /> }] : []),
-              { value: 'orbit' as ViewMode, label: 'Orbit', icon: <Icon.Orbit size={15} /> },
-              { value: 'walk' as ViewMode, label: 'Walk', icon: <Icon.Walk size={15} /> },
-            ]}
-          />
-        ) : null}
-        <div className="flex items-center gap-1">
-          <IconButton label="Undo (⌘Z)" onClick={p.onUndo} disabled={!p.canUndo} className="disabled:opacity-40">
+    <HudTopBar
+      left={
+        <>
+          <Wordmark to={null} />
+          {tier ? <TierTag className="hidden sm:inline">{tier}</TierTag> : null}
+          <span className="hidden h-4 w-px shrink-0 bg-line-2 sm:block" aria-hidden />
+          <RoomSwitcher tourId={p.tourId} room={p.room} rooms={p.rooms} compact={compact} />
+          {!compact ? <AnchorChip anchor={p.room.anchor} size="sm" className="hidden xl:inline-flex" /> : null}
+        </>
+      }
+      right={
+        <>
+          {/* On phones the mode switch lives in the bottom bar so the title keeps its room. */}
+          {!compact
+            ? modes.map((m) => (
+                <HudPill key={m.value} active={p.mode === m.value} onClick={() => p.onMode(m.value)} icon={m.icon} title={`${m.label} view`}>
+                  <span className="hidden lg:inline">{m.label}</span>
+                </HudPill>
+              ))
+            : null}
+          {p.extraPills}
+          <PillDivider />
+          <HudPill square onClick={p.onUndo} disabled={!p.canUndo} aria-label="Undo" title="Undo (⌘Z)">
             <Icon.Rotate size={15} style={{ transform: 'scaleX(-1)' }} />
-          </IconButton>
-          <IconButton label="Redo (⇧⌘Z)" onClick={p.onRedo} disabled={!p.canRedo} className="disabled:opacity-40">
+          </HudPill>
+          <HudPill square onClick={p.onRedo} disabled={!p.canRedo} aria-label="Redo" title="Redo (⇧⌘Z)">
             <Icon.Rotate size={15} />
-          </IconButton>
-        </div>
-        <AutoStageMenu style={p.style} busy={p.autoStaging} meta={p.autoMeta} onRun={p.onAutoStage} compact={compact} />
-        {!compact ? (
-          <Button variant="ghost" size="sm" onClick={p.onClear} title="Remove every piece (undoable)">
-            Clear
-          </Button>
-        ) : null}
-        {!compact ? <PresenceAvatars self={p.self} peers={p.peers} /> : null}
-        {compact ? (
-          <IconButton label="Done" onClick={p.onDone} className="!border-accent/50 !bg-accent/15 !text-accent-2">
-            <Icon.Check size={16} />
-          </IconButton>
-        ) : (
-          <Button variant="secondary" size="sm" onClick={p.onDone}>
-            <Icon.Check size={14} /> Done
-          </Button>
-        )}
-      </div>
-    </header>
+          </HudPill>
+          <AutoStageMenu style={p.style} busy={p.autoStaging} meta={p.autoMeta} onRun={p.onAutoStage} compact={compact} />
+          {!compact ? (
+            <HudPill onClick={p.onClear} title="Remove every piece (undoable)">
+              Clear
+            </HudPill>
+          ) : null}
+          {!compact ? <PresenceAvatars self={p.self} peers={p.peers} /> : null}
+          {compact ? (
+            <HudPill square onClick={p.onDone} aria-label="Done" title="Done">
+              <Icon.Check size={16} />
+            </HudPill>
+          ) : (
+            <HudPill onClick={p.onDone} icon={<Icon.Check size={14} />} title={`Back to ${p.tourTitle}`}>
+              Done
+            </HudPill>
+          )}
+        </>
+      }
+    />
   );
 }

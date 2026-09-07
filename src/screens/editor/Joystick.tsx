@@ -51,7 +51,7 @@ export function Joystick({ className }: { className?: string }) {
       onPointerCancel={end}
     >
       <div className="glass relative h-full w-full rounded-full">
-        <div className="absolute left-1/2 top-1/2 h-11 w-11 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/50 bg-accent/30" style={{ transform: `translate(calc(-50% + ${knob.x}px), calc(-50% + ${knob.y}px))` }} />
+        <div className="absolute left-1/2 top-1/2 h-11 w-11 -translate-x-1/2 -translate-y-1/2 rounded-full border border-line-2 bg-accent/85" style={{ transform: `translate(calc(-50% + ${knob.x}px), calc(-50% + ${knob.y}px))` }} />
       </div>
     </div>
   );

@@ -114,7 +114,7 @@ export function TourInsights({ tourId, className }: TourInsightsProps) {
                       <span className={cx('mono text-sm', rs.nofits ? 'text-danger' : 'text-ink')}>{rs.nofits}</span> did not fit · <span className="mono text-ink">{rs.tests}</span> {rs.tests === 1 ? 'test' : 'tests'} · <span className="mono text-ink">{rs.walked}</span> walked
                     </div>
                   </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
                     <div className={cx('h-full rounded-full', rs.nofits ? 'bg-danger' : 'bg-ok/50')} style={{ width: `${rs.nofits ? Math.max(4, (rs.nofits / max) * 100) : 2}%` }} />
                   </div>
                   {room ? <AnchorChip anchor={room.anchor} size="sm" className="self-start" /> : null}
@@ -137,7 +137,7 @@ export function TourInsights({ tourId, className }: TourInsightsProps) {
         <Card className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <Icon.Sparkles size={16} className="text-accent-2" />
+              <Icon.Sparkles size={16} className="text-ink" />
               <div className="text-sm font-medium text-ink">What to do about it</div>
             </div>
             <div className="flex items-center gap-2">
@@ -156,7 +156,7 @@ export function TourInsights({ tourId, className }: TourInsightsProps) {
             <ol className="flex flex-col gap-2.5">
               {ai.insights.map((line, i) => (
                 <li key={i} className="flex gap-3 text-sm text-ink-2">
-                  <span className="mono mt-0.5 shrink-0 text-accent-2">{i + 1}</span>
+                  <span className="mono mt-0.5 shrink-0 text-dim">{i + 1}</span>
                   <span>{line}</span>
                 </li>
               ))}

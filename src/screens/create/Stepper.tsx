@@ -1,4 +1,6 @@
+import { useRef } from 'react';
 import { Icon } from '@/components/icons';
+import { RailArrow, useRail } from '@/components/Rail';
 import { cx } from '@/components/ui';
 
 export const WIZARD_STEPS = [
@@ -11,10 +13,21 @@ export const WIZARD_STEPS = [
 ] as const;
 
 export function Stepper({ step, done, onJump }: { step: number; done: boolean[]; onJump: (i: number) => void }) {
+  // Six steps do not fit a 390 px phone at full size: the row scrolls, fades at the live edge and
+  // carries an arrow, rather than clipping "Rooms" mid-word with nothing to say there is more.
+  const railRef = useRef<HTMLOListElement>(null);
+  const rail = useRail(railRef);
   return (
-    // Six steps do not fit a 390 px phone at full size: the row scrolls, fades at the edge, and the
-    // labels tighten rather than pushing the last step off with no way to reach it.
-    <ol className="no-scrollbar -mx-1 flex w-full items-center gap-0.5 overflow-x-auto px-1 sm:gap-1 [mask-image:linear-gradient(to_right,black_calc(100%-20px),transparent)] sm:[mask-image:none]">
+    <div className="relative">
+      <RailArrow dir={-1} show={rail.canLeft} onClick={() => rail.nudge(-1)} label="Earlier steps" className="-left-1" />
+      <RailArrow dir={1} show={rail.canRight} onClick={() => rail.nudge(1)} label="Later steps" className="-right-1" />
+      <ol
+        ref={railRef}
+        className={cx(
+          'no-scrollbar -mx-1 flex w-full items-center gap-0.5 overflow-x-auto px-1 sm:gap-1',
+          rail.canRight && '[mask-image:linear-gradient(to_right,black_calc(100%-28px),transparent)]',
+        )}
+      >
       {WIZARD_STEPS.map((s, i) => {
         const active = i === step;
         const complete = done[i] && i < step;
@@ -27,26 +40,30 @@ export function Stepper({ step, done, onJump }: { step: number; done: boolean[];
               onClick={() => reachable && onJump(i)}
               className={cx(
                 'flex items-center gap-2 rounded-xl px-2 py-2 text-left transition-colors disabled:cursor-not-allowed sm:gap-2.5 sm:px-3',
-                active ? 'bg-surface-2 text-ink' : reachable ? 'text-ink-2 hover:bg-surface-2 hover:text-ink' : 'text-ink-3',
+                /* `--faint` is for "not reported" and fine print, never for the only map of a
+                   six-step flow: an un-reached step name measured 2.52:1 and read as invisible. */
+                active ? 'bg-surface text-ink' : reachable ? 'text-ink-2 hover:bg-surface hover:text-ink' : 'text-dim',
               )}
             >
               <span
                 className={cx(
                   'mono flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[11px]',
-                  active ? 'border-accent bg-accent text-[#1a0f0a]' : complete ? 'border-ok/50 bg-ok/15 text-ok' : 'border-line-2 text-ink-3',
+                  /* Wizard progress is not a fit verdict, so it is ink, not `--ok` green. */
+                  active ? 'border-accent bg-accent text-white' : complete ? 'border-ink/25 bg-surface text-ink' : 'border-line-2 text-dim',
                 )}
               >
                 {complete ? <Icon.Check size={13} /> : i + 1}
               </span>
               <span className="flex flex-col leading-tight">
                 <span className="text-[13px] font-medium whitespace-nowrap sm:text-sm">{s.label}</span>
-                <span className="hidden text-[11px] text-ink-3 sm:block">{s.blurb}</span>
+                <span className="hidden text-[11px] text-dim sm:block">{s.blurb}</span>
               </span>
             </button>
             {i < WIZARD_STEPS.length - 1 ? <span className="mx-1 hidden h-px w-6 bg-line-2 md:block" /> : null}
           </li>
         );
-      })}
-    </ol>
+        })}
+      </ol>
+    </div>
   );
 }

@@ -77,7 +77,7 @@ export function LayersPanel({
     <div className={cx('glass animate-rise relative flex max-h-[46vh] w-[300px] max-w-[86vw] flex-col rounded-2xl sm:max-h-[min(58vh,560px)]', className)}>
       <div ref={scroller} className="flex min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain p-3.5" style={more ? { paddingBottom: 30 } : undefined}>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] uppercase tracking-[0.14em] text-ink-3">Layers</span>
+        <span className="micro">Layers</span>
         {onClose ? (
           <IconButton label="Close the layers panel" onClick={onClose} className="!h-6 !w-6 !border-0 !bg-transparent">
             <Icon.X size={13} />
@@ -119,22 +119,22 @@ export function LayersPanel({
             type="button"
             onClick={onExplode}
             className={cx(
-              'flex items-center justify-between gap-2 rounded-xl border border-line-2 px-3 py-2 text-left text-[13px] transition-colors',
-              exploded ? 'border-accent/50 bg-accent/12 text-accent-2' : 'text-ink-2 hover:border-ink-3/50 hover:text-ink',
+              'flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-[13px] transition-colors duration-200 ease-audora',
+              exploded ? 'border-accent bg-accent text-white' : 'border-line-2 bg-bg text-ink-2 hover:border-ink-2 hover:text-ink',
             )}
             disabled={!layers.furniture}
           >
             <span>
               Exploded preview
-              <span className="block text-[11px] leading-snug text-ink-3">Lift the furniture off the photograph for a moment.</span>
+              <span className="block text-[11px] leading-snug opacity-70">Lift the furniture off the photograph for a moment.</span>
             </span>
             <Icon.Layers size={15} className="shrink-0" />
           </button>
 
           {sun && composited ? (
-            <div className="flex flex-col gap-1 rounded-xl border border-line-2 bg-bg-2/60 px-3 py-2">
+            <div className="flex flex-col gap-1 rounded-xl border border-line bg-surface px-3 py-2">
               <div className="flex items-center gap-1.5 text-[13px] text-ink">
-                <Icon.Sun size={13} className="shrink-0 text-accent-2" />
+                <Icon.Sun size={13} className="shrink-0 text-gold" />
                 <span className="min-w-0 truncate">{sun.phrase}</span>
               </div>
               <div className="flex flex-wrap items-center gap-1">
@@ -142,7 +142,7 @@ export function LayersPanel({
                 {envIntensity != null ? <Chip mono className="!text-[10px]">env ×{envIntensity.toFixed(2)}</Chip> : null}
                 <Chip mono className="!text-[10px]">{Math.round(sun.elevationDeg)}° above</Chip>
               </div>
-              <p className="text-[11px] leading-snug text-ink-3">Read off the panorama's brightest region.</p>
+              <p className="text-[11px] leading-snug text-dim">Read off the panorama's brightest region.</p>
             </div>
           ) : null}
         </>
@@ -173,7 +173,7 @@ export function LayersPanel({
       {world?.metricScaleFactor || world?.groundPlaneOffset != null ? (
         <div className="flex flex-wrap gap-1">
           {world.metricScaleFactor ? (
-            <Chip mono tone="ok" className="!text-[10px]">
+            <Chip mono tone="accent" className="!text-[10px]">
               metric scale {world.metricScaleFactor.toFixed(3)} m/unit
             </Chip>
           ) : null}
@@ -186,7 +186,7 @@ export function LayersPanel({
           type="button"
           onClick={scrollDown}
           aria-label="Scroll down for more layers"
-          className="absolute inset-x-0 bottom-0 flex items-end justify-center rounded-b-2xl bg-gradient-to-t from-bg/95 via-bg/70 to-transparent pb-1 pt-6 text-ink-3 hover:text-ink"
+          className="absolute inset-x-0 bottom-0 flex items-end justify-center rounded-b-2xl bg-gradient-to-t from-bg/95 via-bg/70 to-transparent pb-1 pt-6 text-dim hover:text-ink"
         >
           <Icon.ChevronDown size={14} />
         </button>
@@ -227,8 +227,8 @@ function LayerRow({ checked, onChange, title, body, disabled }: { checked: boole
   return (
     <div className={cx('flex items-start justify-between gap-3', disabled && 'opacity-55')}>
       <div className="min-w-0">
-        <div className="text-[13px] text-ink">{title}</div>
-        <p className="text-[11px] leading-snug text-ink-3">{body}</p>
+        <div className="text-[13px] font-medium text-ink">{title}</div>
+        <p className="text-[11px] leading-snug text-dim">{body}</p>
       </div>
       <div className="shrink-0 pt-0.5">
         <Toggle checked={checked} onChange={onChange} disabled={disabled} />

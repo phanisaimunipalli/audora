@@ -42,12 +42,12 @@ export function TimeOfDay({ lat, lon, heading, date, onChange, onClose, place, c
   return (
     <div className={cx('glass animate-rise flex w-[330px] max-w-[90vw] flex-col gap-3 rounded-2xl p-3.5', className)}>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] uppercase tracking-[0.14em] text-ink-3">Time of day</span>
+        <span className="micro">Time of day</span>
         <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={() => onChange(new Date())}
-            className="chip !py-0.5 !text-[11px] hover:!border-accent/50 hover:!text-accent-2"
+            className="chip !py-0.5 !text-[11px] transition-colors duration-200 ease-audora hover:border-ink-2 hover:text-ink"
           >
             <Icon.Clock size={11} /> Now
           </button>
@@ -67,7 +67,7 @@ export function TimeOfDay({ lat, lon, heading, date, onChange, onClose, place, c
             const d = dateFromInput(e.target.value, date);
             if (d) onChange(d);
           }}
-          className="mono h-8 flex-1 rounded-lg border border-line-2 bg-bg-2 px-2 text-[12px] text-ink outline-none focus:border-accent/60"
+          className="mono h-8 flex-1 rounded-[10px] border border-line-2 bg-bg px-2 text-[12px] text-ink outline-none focus:border-ink focus:ring-[3px] focus:ring-accent-soft"
           aria-label="Date"
         />
         <span className="mono w-12 shrink-0 text-right text-sm text-ink">{clockLabel(date)}</span>
@@ -92,10 +92,10 @@ export function TimeOfDay({ lat, lon, heading, date, onChange, onClose, place, c
         </div>
       </div>
 
-      <div className="text-[12px] leading-snug text-ink-2">{sky.readout}</div>
+      <div className="text-[12px] leading-[1.5] text-ink-2">{sky.readout}</div>
 
       {place ? (
-        <div className="text-[10px] leading-snug text-ink-3">
+        <div className="text-[10px] leading-snug text-faint">
           <span className="line-clamp-1">{place}</span>
           <span className="mono">© OpenStreetMap contributors</span>
         </div>
@@ -107,7 +107,7 @@ export function TimeOfDay({ lat, lon, heading, date, onChange, onClose, place, c
 function Mark({ at, label, align = 'start' }: { at: number; label: string; align?: 'start' | 'end' }) {
   return (
     <span
-      className="mono absolute top-0 whitespace-nowrap text-[10px] text-ink-3"
+      className="mono absolute top-0 whitespace-nowrap text-[10px] text-faint"
       style={{ left: pct(at), transform: align === 'end' ? 'translateX(-100%)' : undefined }}
     >
       {label}

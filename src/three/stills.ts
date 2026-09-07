@@ -302,8 +302,8 @@ export async function watermark(dataUrl: string, lines: string[]): Promise<strin
   const pad = Math.round(img.width * 0.02);
   const fsHead = Math.max(18, Math.round(img.width * 0.019));
   const fsBody = Math.max(15, Math.round(img.width * 0.0145));
-  const headFont = `600 ${fsHead}px Inter, system-ui, sans-serif`;
-  const bodyFont = `500 ${fsBody}px "JetBrains Mono", ui-monospace, Menlo, monospace`;
+  const headFont = `700 ${fsHead}px Manrope, ui-sans-serif, system-ui, sans-serif`;
+  const bodyFont = `500 ${fsBody}px ui-monospace, "SF Mono", Menlo, monospace`;
   const [head, ...rest] = lines;
   ctx.font = headFont;
   const headW = ctx.measureText(head.toUpperCase()).width + fsHead * 1.1; // room for the dot
@@ -314,30 +314,30 @@ export async function watermark(dataUrl: string, lines: string[]): Promise<strin
   const bh = pad * 1.6 + fsHead * 1.2 + rest.length * lineH;
   const bx = pad;
   const by = img.height - bh - pad;
-  // backdrop with a soft shadow, then an accent bar on the left
+  // The glass plate of the design language: 88% white with a soft shadow, then a gold bar on the left.
   ctx.save();
-  ctx.shadowColor = 'rgba(0,0,0,0.45)';
+  ctx.shadowColor = 'rgba(10,10,10,0.28)';
   ctx.shadowBlur = pad;
   ctx.shadowOffsetY = pad * 0.3;
-  ctx.fillStyle = 'rgba(14,13,12,0.82)';
+  ctx.fillStyle = 'rgba(255,255,255,0.88)';
   roundedRect(ctx, bx, by, bw, bh, Math.round(fsHead * 0.6));
   ctx.fill();
   ctx.restore();
-  ctx.fillStyle = '#e8734a';
+  ctx.fillStyle = '#7a6a3f';
   roundedRect(ctx, bx, by, Math.max(4, Math.round(fsHead * 0.22)), bh, 3);
   ctx.fill();
-  // headline: accent dot + small caps
+  // headline: gold dot + small caps in ink
   let y = by + pad * 0.8 + fsHead;
   const x = bx + pad * 1.4;
-  ctx.fillStyle = '#e8734a';
+  ctx.fillStyle = '#7a6a3f';
   ctx.beginPath();
   ctx.arc(x + fsHead * 0.28, y - fsHead * 0.35, fsHead * 0.24, 0, Math.PI * 2);
   ctx.fill();
   ctx.font = headFont;
-  ctx.fillStyle = '#f4eee5';
+  ctx.fillStyle = '#0a0a0a';
   ctx.fillText(head.toUpperCase(), x + fsHead * 0.85, y);
   ctx.font = bodyFont;
-  ctx.fillStyle = 'rgba(244,238,229,0.9)';
+  ctx.fillStyle = 'rgba(10,10,10,0.72)';
   for (const l of rest) {
     y += lineH;
     ctx.fillText(l, x, y);

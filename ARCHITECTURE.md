@@ -20,9 +20,32 @@ Keys live in `.env` server-side only (`server/api.ts` mounts `/api/*` on the Vit
 
 ## Design language (already in `src/index.css` and `src/components/ui.tsx`)
 
-Dark, warm, editorial. Background `bg` #0e0d0c, surfaces `surface`/`surface-2`/`surface-3`, hairlines `line`/`line-2`, ink `ink`/`ink-2`/`ink-3`, accent terracotta `accent` #e8734a (+ `accent-2`, `accent-deep`), `ok` green, `warn` amber, `danger` red, `buyer` blue #62a0ff (**buyer furniture is always blue**, seller staging is never blue). Fonts: `.display` = Instrument Serif for headlines, body Inter, `.mono` = JetBrains Mono for every number / anchor / dimension. Utilities: `.panel`, `.glass`, `.chip`, `.skeleton`, `.grid-bg`, `.animate-rise`, `.animate-fade`. Use `Button`, `Card`, `Chip`, `Stat`, `Field`, `Input`, `Select`, `Toggle`, `Progress`, `Segmented`, `SectionTitle`, `Callout`, `EmptyState`, `StagedLabel`, `Kbd`, `IconButton` from `@/components/ui` and icons from `@/components/icons` (`Icon.Walk`, `Icon.Orbit`, `Icon.Ruler`, `Icon.Door`, ...). Numbers are the product: show real dimensions in cm/m everywhere, in mono.
+Light editorial, adopted from the deployed prototype (**`docs/DESIGN.md` is the contract**; the
+prototype's own source is in `docs/reference/`). White page `bg` #ffffff, surfaces
+`surface`/`surface-2`/`surface-3` (#f7f7f7 / #efefef / #e6e6e6), hairlines `line`/`line-2`, ink
+`ink`/`ink-2`/`ink-3` (#0a0a0a / #454545 / #737373) with `dim`/`faint` as the prototype names them.
+**The ink is the accent**: `accent` #0a0a0a, `accent-deep` #000000, `accent-soft` #f2f2f2, so
+`accent-2` is emphasis ink and never a colour. `gold` #7a6a3f is the one warm accent (anchors,
+"digitally staged"); `buyer` blue #1d63ff belongs to the buyer's furniture and buyer UI and nothing
+else; `ok` #2f7a52 / `danger` #c0392b (+ `danger-soft`, `danger-line`) are the fit verdicts; `warn`
+#8a6a2a is the ochre for a caution. Fonts: `.display` = Gilda Display for headlines, body Manrope,
+`.mono` = system mono (`ui-monospace, SF Mono, Menlo`) for every number / anchor / dimension.
+Utilities: `.micro` (the uppercase 0.16em micro-label used for every section, panel and field
+heading), `.panel`, `.glass` (82% white + blur, for panels over the 3D), `.popover`, `.chip`,
+`.skeleton`, `.grid-bg`, `.ring-accent`, `.animate-rise`, `.animate-fade`. Use `Button`,
+`pillClass` (the same recipe for `<Link>`s that must look like buttons), `Card`, `Chip`, `Stat`,
+`Field`, `Input`, `Select`, `Toggle`, `Progress`, `Segmented`, `SectionTitle`, `Callout`,
+`EmptyState`, `StagedLabel`, `Kbd`, `IconButton` from `@/components/ui`, the HUD set (`Wordmark`,
+`TopBar`, `HudPill`, `HudPanel`, `PanelLabel`, `MetricRow`, `RoomStrip`) from
+`@/screens/viewer/hud`, and icons from `@/components/icons` (`Icon.Walk`, `Icon.Orbit`,
+`Icon.Ruler`, `Icon.Door`, ...). Numbers are the product: show real dimensions in cm/m everywhere,
+in mono. 3D canvases sit on `HOUSE_BG` #f4f4f4, never a dark void.
 
-Feel: confident, quiet, precise. Generous whitespace, 18–26 px radii, soft shadows, subtle motion (rise/fade), no gradients louder than a faint accent glow. Mobile must not break (buyer view is opened from a phone).
+Feel: confident, quiet, precise. Generous whitespace, 10/14/18 px radii and 999px pills for every
+action (primary = black fill / white text, secondary = white + `line-2` hairline, ghost = quiet
+dim text), two shadows only (`shadow-sm`, `shadow-soft`), subtle motion on `ease-audora`
+(`cubic-bezier(.33,1,.68,1)`), nothing louder than a hairline. Mobile must not break (buyer view is
+opened from a phone).
 
 ## Coordinate frame (engine)
 

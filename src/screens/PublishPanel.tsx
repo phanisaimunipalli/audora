@@ -245,7 +245,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
       <Card className="flex flex-col gap-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.14em] text-accent-2">Publish</div>
+            <div className="micro">Publish</div>
             <div className="display mt-1 text-2xl text-ink">{tour.published ? 'Live for buyers' : 'Ready to publish'}</div>
             <div className="mt-1 max-w-xl text-sm text-ink-3">
               {tour.published && tour.publishedAt ? `Published ${timeAgo(tour.publishedAt)}. ` : 'Buyers land standing in the first room at eye height. '}
@@ -263,7 +263,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 rounded-xl border border-line bg-surface-2/50 p-3.5">
+        <div className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-3.5">
           {/* Disabled rather than hidden: the seller should see the offer and why it is off today. */}
           <div className={cx(simulated && 'pointer-events-none opacity-55')} aria-disabled={simulated || undefined}>
             <Toggle
@@ -283,7 +283,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
             <div className="text-xs text-ink-3">
               "Prefer simulated reconstruction" is on, so a full-quality pass would be a mock world rather than a Marble one — and a simulated world never
               replaces a real capture. Turn it off in{' '}
-              <Link to="/settings" className="text-accent-2 hover:text-accent">
+              <Link to="/settings" className="text-ink-2 hover:text-ink">
                 Settings
               </Link>{' '}
               to queue the real thing. Publishing works either way.
@@ -305,7 +305,8 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="primary" size="lg" onClick={onPublish} disabled={tour.published && queueing === 0} className={cx(spends && armedPublish && '!bg-warn')}>
+            <Button variant="primary" size="lg" onClick={onPublish} disabled={tour.published && queueing === 0} /* Armed to spend real, non-refundable credits: the one moment a black pill is not enough. */
+              className={cx(spends && armedPublish && '!bg-danger !text-white hover:!bg-danger')}>
               <Icon.Share size={16} /> {armedPublish ? confirmLabel(cost) : label}
             </Button>
             {armedPublish ? (
@@ -333,7 +334,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
         </div>
 
         {running.length ? <UpgradeBanner jobs={running} rooms={rooms} /> : null}
-        <StagedLabel />
+        <StagedLabel className="self-start" />
       </Card>
 
       {/* share */}
@@ -353,7 +354,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
               to={`/t/${tour.shareId}`}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-line-2 bg-surface-2 px-4 text-sm text-ink hover:bg-surface-3"
+              className="ease-audora inline-flex h-10 items-center gap-2 rounded-full border border-line-2 bg-bg px-4 text-[13.5px] font-semibold text-ink transition-colors duration-200 hover:border-ink-2"
             >
               <Icon.Eye size={16} /> Open
             </Link>
@@ -418,7 +419,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
                     ) : room.full?.provider === 'mock' ? (
                       <Chip mono>simulated full</Chip>
                     ) : (
-                      <Chip tone="ok">Full quality</Chip>
+                      <Chip tone="accent">Full quality</Chip>
                     )
                   ) : (
                     <Button
@@ -459,7 +460,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
                 </div>
                 {job ? <Progress value={job.progress} /> : null}
                 {job && upgrading ? (
-                  <div className="mono text-[11px] text-accent-2">{upgradeLine(jobElapsed(job, now), jobRemaining(job, now), job.status === 'queued')}</div>
+                  <div className="mono text-[11px] text-dim">{upgradeLine(jobElapsed(job, now), jobRemaining(job, now), job.status === 'queued')}</div>
                 ) : null}
                 <ShadowedFullNote room={room} />
                 {isArmed ? (
@@ -476,7 +477,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
                     to={`/t/${tour.shareId}/${room.id}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line-2 bg-surface-2 px-2.5 text-[13px] text-ink hover:bg-surface-3"
+                    className="ease-audora inline-flex h-8 items-center gap-1.5 rounded-full border border-line-2 bg-bg px-3 text-[12.5px] font-semibold text-ink transition-colors duration-200 hover:border-ink-2"
                   >
                     <Icon.Eye size={14} /> Open
                   </Link>
@@ -496,7 +497,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
           </div>
           <CopyButton text={embed} label="Copy snippet" />
         </div>
-        <pre className="mono max-h-40 overflow-auto rounded-xl border border-line bg-bg-2 p-3 text-[11px] leading-relaxed text-ink-2 whitespace-pre-wrap break-all">{embed}</pre>
+        <pre className="mono max-h-40 overflow-auto rounded-xl border border-line bg-surface p-3 text-[11px] leading-relaxed text-ink-2 whitespace-pre-wrap break-all">{embed}</pre>
       </Card>
 
       {/* stills */}
@@ -560,7 +561,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
           onBlur={() => updateTour(tour.id, { copy })}
           rows={6}
           placeholder={writing ? 'Writing…' : 'Real dimensions, no superlatives, and a sentence that says it is digitally staged.'}
-          className="w-full resize-y rounded-xl border border-line-2 bg-bg-2 px-3 py-2.5 text-sm leading-relaxed text-ink outline-none placeholder:text-ink-3 focus:border-accent/60"
+          className="w-full resize-y rounded-[10px] border border-line-2 bg-bg px-3 py-2.5 text-sm leading-relaxed text-ink outline-none placeholder:text-faint focus:border-ink"
         />
       </Card>
     </div>
@@ -588,10 +589,10 @@ function RoomStills({ tour, room, stills, busy, onRender }: { tour: string; room
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           {stills.map((s) => (
             <figure key={s.name} className="group flex flex-col gap-1.5 animate-fade">
-              <div className="relative overflow-hidden rounded-xl border border-line bg-bg-2">
+              <div className="relative overflow-hidden rounded-xl border border-line bg-surface">
                 <img src={s.dataUrl} alt={`${room.name}, ${s.name}`} className="aspect-[16/10] w-full object-cover" />
                 <span className="absolute left-2 top-2">
-                  <StagedLabel className="!bg-bg/70 backdrop-blur" />
+                  <StagedLabel className="!bg-glass backdrop-blur-[10px]" />
                 </span>
               </div>
               <figcaption className="flex items-center justify-between gap-2 text-xs text-ink-3">

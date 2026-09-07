@@ -295,9 +295,9 @@ export function StepSite({ listing, rooms, site, onChange }: StepSiteProps) {
     const group = layersRef.current;
     if (!map || !group || !point) return;
     group.clearLayers();
-    L.circleMarker([point.lat, point.lon], { radius: 5, color: '#e8734a', weight: 2, fillColor: '#e8734a', fillOpacity: 0.9 }).addTo(group);
+    L.circleMarker([point.lat, point.lon], { radius: 5, color: '#0a0a0a', weight: 2, fillColor: '#0a0a0a', fillOpacity: 0.9 }).addTo(group);
     if (footprint?.ring?.length) {
-      const poly = L.polygon(footprint.ring as [number, number][], { color: '#e8734a', weight: 2, fillColor: '#e8734a', fillOpacity: 0.14 }).addTo(group);
+      const poly = L.polygon(footprint.ring as [number, number][], { color: '#0a0a0a', weight: 2, fillColor: '#0a0a0a', fillOpacity: 0.1 }).addTo(group);
       map.fitBounds(poly.getBounds().pad(0.6), { animate: false });
     } else {
       map.setView([point.lat, point.lon], 18, { animate: false });
@@ -309,7 +309,7 @@ export function StepSite({ listing, rooms, site, onChange }: StepSiteProps) {
     const group = layersRef.current;
     if (!group || !samples.length) return;
     const marks = samples.map((s) =>
-      L.circleMarker([s.lat, s.lon], { radius: 4, color: '#62a0ff', weight: 2, fillColor: '#62a0ff', fillOpacity: 0.85 })
+      L.circleMarker([s.lat, s.lon], { radius: 4, color: '#1d63ff', weight: 2, fillColor: '#1d63ff', fillOpacity: 0.85 })
         .bindTooltip(`${s.roomName} · ${s.wall} wall · faces ${compassLabel(s.bearing)}`)
         .addTo(group),
     );
@@ -466,7 +466,7 @@ export function StepSite({ listing, rooms, site, onChange }: StepSiteProps) {
                   }
                 }}
                 placeholder="1247 Oak St, San Francisco, CA 94117"
-                className="h-10 w-full rounded-xl border border-line-2 bg-bg-2 px-3 text-sm text-ink placeholder:text-ink-3 outline-none transition-colors focus:border-accent/60 focus:ring-2 focus:ring-accent/20"
+                className="h-10 w-full rounded-[10px] border border-line-2 bg-bg px-3 text-sm text-ink placeholder:text-faint outline-none transition-colors focus:border-ink focus:ring-[3px] focus:ring-accent-soft"
               />
               <Button variant="secondary" onClick={() => void find(address)} loading={busy === 'geocode' || busy === 'footprint'} className="shrink-0">
                 <Icon.Home size={15} /> Find on the map
@@ -486,7 +486,7 @@ export function StepSite({ listing, rooms, site, onChange }: StepSiteProps) {
 
           {point ? (
             <div className="flex flex-wrap items-center gap-2">
-              <Chip mono tone="ok" className="!text-[11px]">
+              <Chip mono className="!text-[11px]">
                 {point.lat.toFixed(4)}, {point.lon.toFixed(4)}
               </Chip>
               {footprint ? (
@@ -509,13 +509,13 @@ export function StepSite({ listing, rooms, site, onChange }: StepSiteProps) {
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
           <Card className="!p-0 overflow-hidden">
             {/* The map fills its column: the compass and the hour stack beside it and are taller. */}
-            <div ref={mapDiv} className="h-full min-h-[340px] w-full rounded-[18px] bg-bg-2" />
+            <div ref={mapDiv} className="h-full min-h-[340px] w-full rounded-[18px] bg-surface" />
           </Card>
 
           <div className="flex flex-col gap-4">
             <Card>
               <div className="flex flex-col gap-3">
-                <div className="text-[11px] uppercase tracking-[0.14em] text-accent-2">Which way do the windows face?</div>
+                <div className="micro">Which way do the windows face?</div>
                 <Compass heading={facing} principal={footprint?.principalHeading} onChange={setFacing} sunAzimuth={sky && sky.sun.elevation > 0 ? sky.sun.azimuth : null} />
                 <div className="flex flex-wrap items-center gap-2">
                   <Chip mono tone="accent" className="!text-[11px]">
@@ -525,7 +525,7 @@ export function StepSite({ listing, rooms, site, onChange }: StepSiteProps) {
                     {windowWall} wall
                   </Chip>
                   {footprint ? (
-                    <button type="button" className="chip !py-0.5 !text-[11px] hover:!border-accent/50 hover:!text-accent-2" onClick={() => setFacing(defaultHeading(footprint.principalHeading))}>
+                    <button type="button" className="chip !py-0.5 !text-[11px] hover:!border-ink-2 hover:!text-ink" onClick={() => setFacing(defaultHeading(footprint.principalHeading))}>
                       <Icon.Rotate size={11} /> Use the building
                     </button>
                   ) : null}
@@ -539,8 +539,8 @@ export function StepSite({ listing, rooms, site, onChange }: StepSiteProps) {
             <Card>
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] uppercase tracking-[0.14em] text-accent-2">Time of day</span>
-                  <button type="button" className="chip !py-0.5 !text-[11px] hover:!border-accent/50 hover:!text-accent-2" onClick={() => setDate(new Date())}>
+                  <span className="micro">Time of day</span>
+                  <button type="button" className="chip !py-0.5 !text-[11px] hover:!border-ink-2 hover:!text-ink" onClick={() => setDate(new Date())}>
                     <Icon.Clock size={11} /> Now
                   </button>
                 </div>
@@ -552,7 +552,7 @@ export function StepSite({ listing, rooms, site, onChange }: StepSiteProps) {
                       const d = dateFromInput(e.target.value, date);
                       if (d) setDate(d);
                     }}
-                    className="mono h-9 flex-1 rounded-lg border border-line-2 bg-bg-2 px-2 text-[12px] text-ink outline-none focus:border-accent/60"
+                    className="mono h-9 flex-1 rounded-[10px] border border-line-2 bg-bg px-2 text-[12px] text-ink outline-none focus:border-ink"
                     aria-label="Date"
                   />
                   <span className="mono w-12 shrink-0 text-right text-sm text-ink">{clockLabel(date)}</span>
@@ -569,7 +569,7 @@ export function StepSite({ listing, rooms, site, onChange }: StepSiteProps) {
                 />
                 {sky ? <div className="text-[12px] leading-snug text-ink-2">{sky.readout}</div> : null}
                 <div className="flex flex-wrap items-center gap-2">
-                  <Chip mono className={cx('!text-[10px]', shade === 'on' && '!border-ok/40 !text-ok')}>
+                  <Chip mono className={cx('!text-[10px]', shade === 'on' && '!border-ink/30 !text-ink')}>
                     {shade === 'on' ? 'ShadeMap layer on' : shade === 'loading' ? 'ShadeMap loading…' : shade === 'failed' ? 'ShadeMap unavailable' : 'no ShadeMap key'}
                   </Chip>
                   {shade === 'off' ? <span className="text-[11px] text-ink-3">Sun angles still come from Audora's own solar model.</span> : null}
@@ -585,7 +585,7 @@ export function StepSite({ listing, rooms, site, onChange }: StepSiteProps) {
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <div className="text-[11px] uppercase tracking-[0.14em] text-accent-2">Sun on the windows</div>
+                <div className="micro">Sun on the windows</div>
                 <div className="text-xs text-ink-3">
                   {dateInputValue(date)} · hour by hour, at the window's own place on the building.
                 </div>
@@ -685,7 +685,7 @@ function Compass({ heading, principal, onChange, sunAzimuth }: { heading: number
       aria-valuemax={359}
       aria-valuenow={Math.round(norm360(heading))}
       aria-valuetext={`${Math.round(norm360(heading))} degrees, ${compassLabel(heading)}`}
-      className="mx-auto touch-none select-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+      className="mx-auto touch-none select-none rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ink-2/50"
       onPointerDown={(e) => {
         drag.current = true;
         (e.target as Element).setPointerCapture?.(e.pointerId);
@@ -710,30 +710,30 @@ function Compass({ heading, principal, onChange, sunAzimuth }: { heading: number
         }
       }}
     >
-      <circle cx={c} cy={c} r={r + 10} fill="#171412" stroke="#2a2522" />
-      <circle cx={c} cy={c} r={r} fill="none" stroke="#2a2522" strokeDasharray="2 5" />
+      <circle cx={c} cy={c} r={r + 10} fill="var(--color-bg)" stroke="var(--color-line)" />
+      <circle cx={c} cy={c} r={r} fill="none" stroke="var(--color-line-2)" strokeDasharray="2 5" />
       {/* the building's own axes, which the needle snaps to */}
       {axes.map((a) => {
         const p = point(a, r);
-        return <line key={a} x1={c} y1={c} x2={p.x} y2={p.y} stroke="#4a423b" strokeWidth={1} />;
+        return <line key={a} x1={c} y1={c} x2={p.x} y2={p.y} stroke="var(--color-line-2)" strokeWidth={1} />;
       })}
       {(['N', 'E', 'S', 'W'] as const).map((label, i) => {
         const p = point(i * 90, r + 10);
         return (
-          <text key={label} x={p.x} y={p.y + 4} textAnchor="middle" className="mono" fontSize={11} fill={i === 0 ? '#f2a67f' : '#8a807a'}>
+          <text key={label} x={p.x} y={p.y + 4} textAnchor="middle" className="mono" fontSize={11} fill={i === 0 ? 'var(--color-ink)' : 'var(--color-faint)'}>
             {label}
           </text>
         );
       })}
       {sunTip ? (
         <>
-          <line x1={c} y1={c} x2={sunTip.x} y2={sunTip.y} stroke="#ffd08a" strokeWidth={1.5} strokeDasharray="3 3" />
-          <circle cx={sunTip.x} cy={sunTip.y} r={4} fill="#ffd08a" />
+          <line x1={c} y1={c} x2={sunTip.x} y2={sunTip.y} stroke="var(--color-gold)" strokeWidth={1.5} strokeDasharray="3 3" />
+          <circle cx={sunTip.x} cy={sunTip.y} r={4} fill="var(--color-gold)" />
         </>
       ) : null}
-      <line x1={c} y1={c} x2={tip.x} y2={tip.y} stroke="#e8734a" strokeWidth={3} strokeLinecap="round" />
-      <circle cx={tip.x} cy={tip.y} r={7} fill="#e8734a" />
-      <circle cx={c} cy={c} r={4} fill="#e8e2d8" />
+      <line x1={c} y1={c} x2={tip.x} y2={tip.y} stroke="var(--color-ink)" strokeWidth={3} strokeLinecap="round" />
+      <circle cx={tip.x} cy={tip.y} r={7} fill="var(--color-ink)" />
+      <circle cx={c} cy={c} r={4} fill="var(--color-bg)" />
     </svg>
   );
 }
@@ -748,7 +748,7 @@ function SunStrip({ row, assumed }: { row: WindowSunStrip; assumed?: boolean }) 
         <span className="mono text-[11px] text-ink-3">
           {row.wall} wall · faces {compassAbbr(row.bearing)} {Math.round(row.bearing)}°
         </span>
-        <span className="mono text-[11px] text-accent-2">{stripSummary(row.hours)}</span>
+        <span className="mono text-[11px] text-ink">{stripSummary(row.hours)}</span>
         <Chip mono tone={row.source === 'shademap' ? 'ok' : 'neutral'} className="!text-[10px]">
           {row.source === 'shademap' ? 'with neighbours’ shadows' : 'solar model'}
         </Chip>
@@ -759,7 +759,7 @@ function SunStrip({ row, assumed }: { row: WindowSunStrip; assumed?: boolean }) 
           <div
             key={h}
             title={`${String(h).padStart(2, '0')}:30 — ${on ? 'sun on this window' : 'no direct sun'}`}
-            className={cx('h-4 flex-1 rounded-[2px]', on ? 'bg-accent/80' : 'bg-surface-3')}
+            className={cx('h-4 flex-1 rounded-[2px]', on ? 'bg-accent' : 'bg-surface-2')}
           />
         ))}
       </div>

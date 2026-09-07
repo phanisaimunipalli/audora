@@ -49,7 +49,7 @@ export function FurniturePlayground() {
               </label>
               <div className="flex flex-wrap gap-2">
                 {PRESETS.map((p) => (
-                  <button key={p} type="button" onClick={() => setText(p)} className={cx('chip mono transition-colors hover:border-buyer/50 hover:text-ink', text === p && 'border-buyer/50 bg-buyer/10 text-buyer')}>
+                  <button key={p} type="button" onClick={() => setText(p)} className={cx('chip mono transition-colors hover:border-buyer-line hover:text-ink', text === p && 'border-buyer-line bg-buyer-soft text-buyer')}>
                     {p}
                   </button>
                 ))}
@@ -64,7 +64,7 @@ export function FurniturePlayground() {
           </Reveal>
           <Reveal delay={0.15}>
             {result ? (
-              <div className={cx('rounded-2xl border p-5', result.verdict.fits ? 'border-buyer/40 bg-buyer/5' : 'border-danger/40 bg-danger/5')} aria-live="polite">
+              <div className={cx('rounded-2xl border p-5', result.verdict.fits ? 'border-buyer-line bg-buyer-soft' : 'border-danger/40 bg-danger-soft')} aria-live="polite">
                 <div className="mono flex items-center gap-2 text-[11px] text-buyer">
                   <span className="h-2 w-2 rounded-full bg-buyer" /> your {result.piece.name.toLowerCase()} · {cmDims(result.piece.w, result.piece.d)}
                   {result.piece.h > 0.05 && !result.piece.flat ? <span className="text-ink-3">· {Math.round(result.piece.h * 100)} tall</span> : null}
@@ -95,7 +95,7 @@ export function FurniturePlayground() {
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-line pt-4 text-xs text-ink-3">
                 <span className="inline-flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-sm bg-[#8d6e5a]" /> seller staging
+                  <span className="h-2.5 w-2.5 rounded-sm bg-[#8d7b6a]" /> seller staging
                 </span>
                 <span className="inline-flex items-center gap-2">
                   <span className="h-2.5 w-2.5 rounded-sm bg-buyer" /> your piece
@@ -104,7 +104,7 @@ export function FurniturePlayground() {
                   <span className="h-px w-4 border-t border-dashed border-accent" /> nearest walkway
                 </span>
                 <span className="inline-flex items-center gap-2">
-                  <span className="h-2.5 w-4 border-b-2 border-[#dfe9f2]" /> window
+                  <span className="h-2.5 w-4 border-b-2 border-buyer-line" /> window
                 </span>
                 <span className="mono ml-auto">top-down · north up</span>
               </div>

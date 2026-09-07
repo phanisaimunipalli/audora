@@ -17,7 +17,7 @@ export interface SparklineProps {
  * (`preserveAspectRatio="none"`), so no text lives inside the SVG: the day labels and the y-scale hint are
  * HTML, positioned in percent, and keep their real letterforms at any width.
  */
-export function Sparkline({ values, labels = [], width = 320, height = 72, className, unit = 'visits', color = '#e8734a' }: SparklineProps) {
+export function Sparkline({ values, labels = [], width = 320, height = 72, className, unit = 'visits', color = 'var(--color-ink)' }: SparklineProps) {
   const id = useId();
   const [hover, setHover] = useState<number | null>(null);
   const n = values.length;
@@ -56,17 +56,17 @@ export function Sparkline({ values, labels = [], width = 320, height = 72, class
       >
         <defs>
           <linearGradient id={`${id}-g`} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0" stopColor={color} stopOpacity={0.28} />
-            <stop offset="1" stopColor={color} stopOpacity={0.02} />
+            <stop offset="0" stopColor={color} stopOpacity={0.14} />
+            <stop offset="1" stopColor={color} stopOpacity={0.01} />
           </linearGradient>
         </defs>
-        <line x1={padX} x2={width - padX} y1={padTop + innerH} y2={padTop + innerH} stroke="rgba(244,238,229,0.12)" strokeWidth={1} />
+        <line x1={padX} x2={width - padX} y1={padTop + innerH} y2={padTop + innerH} stroke="var(--color-line)" strokeWidth={1} />
         {n > 1 ? <path d={area} fill={`url(#${id}-g)`} /> : null}
         {n > 1 ? <path d={line} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" /> : null}
         {hover !== null ? (
           <g>
-            <line x1={x(hover)} x2={x(hover)} y1={padTop} y2={padTop + innerH} stroke="rgba(244,238,229,0.25)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-            <circle cx={x(hover)} cy={y(values[hover])} r={4} fill={color} stroke="#0e0d0c" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+            <line x1={x(hover)} x2={x(hover)} y1={padTop} y2={padTop + innerH} stroke="var(--color-line-2)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+            <circle cx={x(hover)} cy={y(values[hover])} r={4} fill={color} stroke="var(--color-bg)" strokeWidth={2} vectorEffect="non-scaling-stroke" />
           </g>
         ) : null}
       </svg>

@@ -25,10 +25,10 @@ const TONE_TEXT: Record<Tone, string> = { ok: 'text-ok', warn: 'text-warn', dang
 
 function Metric({ label, value, tone = 'neutral', hint }: { label: string; value: string; tone?: Tone; hint?: string }) {
   return (
-    <div className="flex flex-col gap-0.5 rounded-xl border border-line bg-bg-2/60 px-3 py-2.5">
-      <div className="text-[10px] uppercase tracking-[0.14em] text-ink-3">{label}</div>
+    <div className="flex flex-col gap-0.5 rounded-xl border border-line bg-surface px-3 py-2.5">
+      <div className="micro !text-[10px] !tracking-[0.14em]">{label}</div>
       <div className={cx('mono text-lg leading-tight', TONE_TEXT[tone])}>{value}</div>
-      {hint ? <div className="text-[11px] text-ink-3">{hint}</div> : null}
+      {hint ? <div className="text-[11px] text-dim">{hint}</div> : null}
     </div>
   );
 }
@@ -82,7 +82,7 @@ export function FitReportPanel({ report, names, onFocusPiece, room, anchor, sele
   return (
     <div className={cx('flex flex-col gap-3', className)}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-[11px] uppercase tracking-[0.14em] text-ink-3">Fit report</div>
+        <div className="micro">Fit report</div>
         {anchor ? <AnchorChip anchor={anchor} size="sm" /> : null}
       </div>
 
@@ -96,13 +96,13 @@ export function FitReportPanel({ report, names, onFocusPiece, room, anchor, sele
       {narrowest && report.narrowestWalkway != null ? (
         <p className="text-[13px] leading-snug text-ink-2">
           <span className={cx('mono', TONE_TEXT[walkwayTone(report.narrowestWalkway)])}>{m(report.narrowestWalkway)}</span> between the {narrowest.a} and {narrowest.b}.
-          {report.narrowestWalkway < MIN_WALKWAY_M ? <span className="text-ink-3"> Most people want {m(MIN_WALKWAY_M)}.</span> : null}
+          {report.narrowestWalkway < MIN_WALKWAY_M ? <span className="text-dim"> Most people want {m(MIN_WALKWAY_M)}.</span> : null}
         </p>
       ) : null}
 
       {report.misfits.length ? (
         <section className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] text-danger">
+          <div className="micro flex items-center gap-1.5 text-danger">
             <Icon.Warning size={13} /> Does not fit
           </div>
           <ul className="flex flex-col gap-1">
@@ -112,10 +112,10 @@ export function FitReportPanel({ report, names, onFocusPiece, room, anchor, sele
                   type="button"
                   onClick={() => onFocusPiece?.(id)}
                   disabled={!focusable(id)}
-                  className={cx('flex w-full flex-col items-start gap-0.5 rounded-lg border px-2.5 py-1.5 text-left transition-colors', selectedId === id ? 'border-danger/60 bg-danger/15' : 'border-danger/25 bg-danger/5 hover:bg-danger/10')}
+                  className={cx('flex w-full flex-col items-start gap-0.5 rounded-lg border px-2.5 py-1.5 text-left transition-colors duration-200 ease-audora', selectedId === id ? 'border-danger bg-danger-soft' : 'border-danger-line bg-danger-soft/60 hover:border-danger')}
                 >
                   <span className="text-[13px] text-ink">{name(id)}</span>
-                  <span className="text-[11px] text-danger/90">{reasonsFor(id).join(' · ') || 'does not fit'}</span>
+                  <span className="text-[11px] text-danger">{reasonsFor(id).join(' · ') || 'does not fit'}</span>
                 </button>
               </li>
             ))}
@@ -139,7 +139,7 @@ export function FitReportPanel({ report, names, onFocusPiece, room, anchor, sele
 
       {report.tightSpots.length ? (
         <section className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] text-warn">
+          <div className="micro flex items-center gap-1.5 text-warn">
             <Icon.Ruler size={13} /> Tight spots · under <span className="mono">{m(MIN_WALKWAY_M)}</span>
           </div>
           <ul className="flex flex-col gap-1">
@@ -152,31 +152,31 @@ export function FitReportPanel({ report, names, onFocusPiece, room, anchor, sele
                     type="button"
                     onClick={() => onFocusPiece?.(s.a)}
                     disabled={!focusable(s.a)}
-                    className={cx('flex w-full items-baseline gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors', active ? 'border-warn/50 bg-warn/10' : 'border-line hover:bg-surface-2')}
+                    className={cx('flex w-full items-baseline gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors duration-200 ease-audora', active ? 'border-gold/50 bg-gold/8' : 'border-line hover:bg-surface')}
                   >
                     <span className={cx('mono text-[13px]', walkwayTone(s.gap) === 'danger' ? 'text-danger' : 'text-warn')}>{m(s.gap)}</span>
                     <span className="min-w-0 flex-1 truncate text-[12px] text-ink-2">
-                      {l.a} <span className="text-ink-3">↔</span> {l.b}
+                      {l.a} <span className="text-faint">↔</span> {l.b}
                     </span>
                   </button>
                 </li>
               );
             })}
-            {report.tightSpots.length > 6 ? <li className="px-1 text-[11px] text-ink-3">+{report.tightSpots.length - 6} more</li> : null}
+            {report.tightSpots.length > 6 ? <li className="px-1 text-[11px] text-dim">+{report.tightSpots.length - 6} more</li> : null}
           </ul>
         </section>
       ) : null}
 
       {clean && report.pieces > 0 ? (
-        <div className="flex items-center gap-2 rounded-lg border border-ok/30 bg-ok/10 px-2.5 py-2 text-[12px] text-ok">
+        <div className="flex items-center gap-2 rounded-lg border border-ok/35 bg-ok/6 px-2.5 py-2 text-[12px] text-ok">
           <Icon.Check size={14} /> Everything fits. Walkways are clear.
         </div>
       ) : null}
-      {report.pieces === 0 ? <div className="text-[12px] text-ink-3">Nothing placed yet. Pick a piece from the catalog or auto-stage the room.</div> : null}
+      {report.pieces === 0 ? <div className="text-[12px] text-dim">Nothing placed yet. Pick a piece from the catalog or auto-stage the room.</div> : null}
 
       {warnings.length ? (
         <section className="flex flex-col gap-1.5">
-          <div className="text-[11px] uppercase tracking-[0.14em] text-ink-3">Room plausibility</div>
+          <div className="micro">Room plausibility</div>
           {warnings.map((w) => (
             <Callout key={w.field} tone={w.severity === 'error' ? 'danger' : 'warn'}>
               {w.message}

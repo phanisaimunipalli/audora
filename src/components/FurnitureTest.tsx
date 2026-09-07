@@ -40,7 +40,7 @@ export interface FurnitureTestProps {
   className?: string;
 }
 
-const BUYER_BLUE = '#62a0ff';
+const BUYER_BLUE = '#1d63ff';
 const NUDGE = 0.1;
 
 /** "Living room" → "the living room"; "Bedroom 2" → "the bedroom 2"; leaves a name that already reads as a phrase alone. */
@@ -190,8 +190,8 @@ export function FurnitureTest({ room, buyerPieces, onChange, onClose, staging, p
     <div className={cx('flex h-full flex-col', className)}>
       <div className="flex items-start justify-between gap-3 border-b border-line px-4 pb-3 pt-4">
         <div>
-          <div className="text-[11px] uppercase tracking-[0.14em] text-buyer">Your furniture</div>
-          <div className="display text-2xl leading-tight text-ink">Will it fit in {roomPhrase(room.name)}?</div>
+          <div className="micro text-buyer">Your furniture</div>
+          <div className="display text-[26px] leading-[1.1] text-ink">Will it fit in {roomPhrase(room.name)}?</div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {mode && onModeChange && sheetLayout ? (
@@ -225,7 +225,7 @@ export function FurnitureTest({ room, buyerPieces, onChange, onClose, staging, p
             <div className="text-xs text-danger">{error}</div>
           ) : (
             // How the text was parsed is engineering detail, not a buyer's business: it stays in the tooltip.
-            <div className="text-xs text-ink-3" title={lastMeta ? `Parsed ${lastMeta.source === 'nebius' ? `by ${lastMeta.model ?? 'nebius'}` : 'locally'} in ${lastMeta.ms} ms.` : undefined}>
+            <div className="text-xs text-dim" title={lastMeta ? `Parsed ${lastMeta.source === 'nebius' ? `by ${lastMeta.model ?? 'nebius'}` : 'locally'} in ${lastMeta.ms} ms.` : undefined}>
               Name it and give width by depth, in cm or m; height is optional. {mode === 'orbit' ? 'It appears in the room and on the plan.' : 'It lands in front of you.'}
             </div>
           )}
@@ -240,16 +240,16 @@ export function FurnitureTest({ room, buyerPieces, onChange, onClose, staging, p
               return (
                 <li
                   key={p.id}
-                  className={cx('animate-rise rounded-2xl border p-4 transition-colors', v.fits ? 'border-ok/35 bg-ok/[0.06]' : 'border-danger/35 bg-danger/[0.06]', active && 'ring-2 ring-buyer/40')}
+                  className={cx('animate-rise rounded-2xl border p-4 transition-colors', v.fits ? 'border-ok/35 bg-ok/6' : 'border-danger-line bg-danger-soft', active && 'ring-2 ring-buyer/40')}
                   onClick={() => onSelect?.(p.id)}
                 >
                   <div className="flex items-start gap-3">
-                    <span className={cx('mt-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full', v.fits ? 'bg-ok/20 text-ok' : 'bg-danger/20 text-danger')}>
+                    <span className={cx('mt-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full', v.fits ? 'bg-ok/15 text-ok' : 'bg-danger/15 text-danger')}>
                       {v.fits ? <Icon.Check size={16} /> : <Icon.X size={16} />}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <div className={cx('display text-[22px] leading-tight', v.fits ? 'text-ok' : 'text-danger')}>{v.headline}</div>
-                      <div className="mt-1 text-sm text-ink-2">{v.detail}</div>
+                      <div className={cx('display text-[22px] leading-[1.15]', v.fits ? 'text-ok' : 'text-danger')}>{v.headline}</div>
+                      <div className="mt-1 text-[13.5px] leading-[1.55] text-ink-2">{v.detail}</div>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <Chip tone="buyer" mono>{dimsLabel(p.w, p.d, p.flat ? undefined : p.h)}</Chip>
                         <AnchorChip anchor={room.anchor} size="sm" />
@@ -257,8 +257,8 @@ export function FurnitureTest({ room, buyerPieces, onChange, onClose, staging, p
                     </div>
                   </div>
                   <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                    <div className="inline-flex items-center gap-0.5 rounded-lg border border-line-2 bg-surface-2 p-0.5" role="group" aria-label={`Move or turn the ${p.name.toLowerCase()}`}>
-                      <span className="px-1.5 text-[11px] text-ink-3">Nudge</span>
+                    <div className="inline-flex items-center gap-0.5 rounded-full border border-line-2 bg-bg p-0.5" role="group" aria-label={`Move or turn the ${p.name.toLowerCase()}`}>
+                      <span className="px-1.5 text-[11px] text-dim">Nudge</span>
                       <IconButton label="Move west 10 cm" className="h-7 w-7 border-0 bg-transparent" onClick={(e) => { e.stopPropagation(); nudge(p, -NUDGE, 0); }}><Icon.ArrowLeft size={14} /></IconButton>
                       <IconButton label="Move north 10 cm" className="h-7 w-7 border-0 bg-transparent" onClick={(e) => { e.stopPropagation(); nudge(p, 0, -NUDGE); }}><Icon.ChevronDown size={14} className="rotate-180" /></IconButton>
                       <IconButton label="Move south 10 cm" className="h-7 w-7 border-0 bg-transparent" onClick={(e) => { e.stopPropagation(); nudge(p, 0, NUDGE); }}><Icon.ChevronDown size={14} /></IconButton>
@@ -283,7 +283,7 @@ export function FurnitureTest({ room, buyerPieces, onChange, onClose, staging, p
           </ul>
         ) : null}
 
-        <div className="mt-4 rounded-xl border border-line bg-surface-2/50 px-3 py-2.5 text-xs text-ink-3">
+        <div className="mt-4 rounded-xl border border-line bg-surface px-3 py-2.5 text-xs leading-[1.55] text-dim">
           Drag the blue piece in Dollhouse view, or nudge it here. The verdict follows it, judged against {seller.length ? 'the staged furniture' : 'the bare room'} and the door swing.
         </div>
 
@@ -291,7 +291,7 @@ export function FurnitureTest({ room, buyerPieces, onChange, onClose, staging, p
           <button type="button" onClick={() => setShowStuff((v) => !v)} className="flex w-full items-center justify-between rounded-lg py-1 text-left text-sm text-ink-2 hover:text-ink">
             <span className="flex items-center gap-2">
               <Icon.Sofa size={16} className="text-buyer" /> My Stuff
-              <span className="mono text-[11px] text-ink-3">{myStuff.length}</span>
+              <span className="mono text-[11px] text-dim">{myStuff.length}</span>
             </span>
             <Icon.ChevronDown size={16} className={cx('transition-transform', showStuff && 'rotate-180')} />
           </button>

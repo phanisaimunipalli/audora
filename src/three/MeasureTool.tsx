@@ -35,9 +35,10 @@ function Marker({ p, color, ghost }: { p: P; color: string; ghost?: boolean }) {
         <sphereGeometry args={[ghost ? 0.016 : 0.022, 16, 16]} />
         <meshBasicMaterial color={color} depthTest={false} transparent opacity={ghost ? 0.7 : 1} toneMapped={false} />
       </mesh>
+      {/* A white halo so an ink marker still reads against a dark corner of the photograph. */}
       <mesh renderOrder={19}>
         <sphereGeometry args={[ghost ? 0.035 : 0.05, 16, 16]} />
-        <meshBasicMaterial color={color} depthTest={false} transparent opacity={0.16} toneMapped={false} />
+        <meshBasicMaterial color="#ffffff" depthTest={false} transparent opacity={0.55} toneMapped={false} />
       </mesh>
     </group>
   );
@@ -48,7 +49,7 @@ function Marker({ p, color, ghost }: { p: P; color: string; ghost?: boolean }) {
  * length and the anchor's ± uncertainty. A third click or Escape starts over. The live distance
  * follows the pointer after the first click.
  */
-export function MeasureTool({ enabled, uncertaintyM, color = '#e8734a', onMeasure }: MeasureToolProps) {
+export function MeasureTool({ enabled, uncertaintyM, color = '#0a0a0a', onMeasure }: MeasureToolProps) {
   const { gl, camera, scene } = useThree();
   const [a, setA] = useState<P | null>(null);
   const [b, setB] = useState<P | null>(null);
@@ -57,6 +58,9 @@ export function MeasureTool({ enabled, uncertaintyM, color = '#e8734a', onMeasur
   const dirty = useRef(false);
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
   const setMeasurement = useViewer((s) => s.setMeasurement);
+  /* The HUD's × clears the store; without reading it back this tool kept its own `a`/`b` and left
+     the line, both endpoint markers and the floating label standing in the room for ever. */
+  const measurement = useViewer((s) => s.measurement);
   const onMeasureRef = useRef(onMeasure);
   onMeasureRef.current = onMeasure;
   const stateRef = useRef({ a, b });
@@ -85,6 +89,13 @@ export function MeasureTool({ enabled, uncertaintyM, color = '#e8734a', onMeasur
     setMeasurement(m);
     onMeasureRef.current?.(m);
   };
+
+  useEffect(() => {
+    if (measurement !== null) return;
+    setA(null);
+    setB(null);
+    setHover(null);
+  }, [measurement]);
 
   useEffect(() => {
     if (!enabled) {
@@ -183,10 +194,11 @@ export function MeasureTool({ enabled, uncertaintyM, color = '#e8734a', onMeasur
       ) : null}
       {mid && a && end ? (
         <Html position={mid as [number, number, number]} center zIndexRange={[40, 0]} style={{ pointerEvents: 'none', whiteSpace: 'nowrap' }}>
-          <div className={`glass mono flex items-baseline gap-1.5 rounded-full px-3 py-1.5 text-[13px] text-ink shadow-[0_10px_30px_-10px_rgba(0,0,0,0.8)] ${b ? '' : 'opacity-80'}`} style={{ borderColor: 'rgba(232,115,74,0.5)' }}>
+          {/* A white pill with mono numbers: the same label the HUD prints, standing in the room. */}
+          <div className={`glass mono flex items-baseline gap-1.5 rounded-full px-3 py-1.5 text-[13px] text-ink ${b ? '' : 'opacity-85'}`}>
             <span className="text-[15px]">{metres.toFixed(2)}</span>
             <span className="text-ink-2">m</span>
-            <span className="text-ink-3">±{cm}cm</span>
+            <span className="text-dim">±{cm}cm</span>
           </div>
         </Html>
       ) : null}

@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type SVGProps } from 'react';
 import type { CatalogCategory, CatalogItem, ProceduralKind, RoomType } from '@/engine/types';
 import { CATALOG, CATEGORY_LABELS, catalogFor } from '@/engine/catalog';
-import { Chip, Input, Segmented, cx } from './ui';
+import { Input, Segmented, cx } from './ui';
 
 export interface CatalogRailProps {
   roomType: RoomType;
@@ -12,6 +12,8 @@ export interface CatalogRailProps {
   activeId?: string | null;
   /** Start with the whole catalog rather than the room-type subset. */
   defaultAll?: boolean;
+  /** The micro-label over the list. "Or add one" inside the staging panel. */
+  label?: string;
   className?: string;
 }
 
@@ -50,11 +52,9 @@ export function KindGlyph({ kind, size, ...p }: P & { kind: ProceduralKind }) {
   );
 }
 
-/** "220 × 95 × 85 cm", or "240 × 170 cm" for flat pieces. */
+/** "220×95" — the footprint in centimetres, the way the prototype's list prints it. */
 function itemDims(item: Pick<CatalogItem, 'w' | 'd' | 'h' | 'flat'>): string {
-  const w = Math.round(item.w * 100);
-  const d = Math.round(item.d * 100);
-  return item.flat ? `${w} × ${d} cm` : `${w} × ${d} × ${Math.round(item.h * 100)} cm`;
+  return `${Math.round(item.w * 100)}×${Math.round(item.d * 100)}`;
 }
 
 const ROOM_LABEL: Record<RoomType, string> = {
@@ -110,20 +110,17 @@ function CatalogCard({ item, active, onAdd, onDragStart }: { item: CatalogItem; 
         onAdd();
       }}
       className={cx(
-        'group flex w-full items-center gap-3 rounded-xl border px-2.5 py-2 text-left transition-colors select-none',
-        active ? 'border-accent/60 bg-accent/10' : 'border-transparent hover:border-line-2 hover:bg-surface-2',
+        // The prototype's `.sp-one`: a coloured swatch, the name, and the real dimensions in mono.
+        'group flex w-full select-none items-center gap-2.5 rounded-lg border px-2 py-1.5 text-left transition-colors duration-200 ease-audora',
+        active ? 'border-line-2 bg-accent-soft' : 'border-transparent hover:border-line hover:bg-surface',
       )}
     >
-      <span className={cx('flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border', active ? 'border-accent/50 bg-accent/15 text-accent-2' : 'border-line-2 bg-surface-2 text-ink-2 group-hover:text-ink')}>
-        <KindGlyph kind={item.kind} size={20} />
+      <span className="h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ background: item.color }} aria-hidden />
+      <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink" title={item.name}>
+        {item.name}
       </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-[13px] font-medium text-ink" title={item.name}>{item.name}</span>
-        <span className="mono text-[11px] text-ink-3">{itemDims(item)}</span>
-      </span>
-      <Chip tone={item.verified ? 'ok' : 'neutral'} className="!px-1.5 !py-0.5 !text-[10px] uppercase tracking-wider">
-        {item.verified ? 'verified' : 'reference'}
-      </Chip>
+      {item.verified ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ink" title="Verified dimensions" aria-label="verified" /> : null}
+      <span className="mono shrink-0 text-[10.5px] text-dim">{itemDims(item)}</span>
     </button>
   );
 }
@@ -133,7 +130,7 @@ function CatalogCard({ item, active, onAdd, onDragStart }: { item: CatalogItem; 
  * SKU or reference dimensions for the category. Click to place (a ghost follows the pointer), or drag a
  * card onto the floor.
  */
-export function CatalogRail({ roomType, onAdd, onDragStart, activeId, defaultAll = false, className }: CatalogRailProps) {
+export function CatalogRail({ roomType, onAdd, onDragStart, activeId, defaultAll = false, label = 'Catalog', className }: CatalogRailProps) {
   const [scope, setScope] = useState<'room' | 'all'>(defaultAll ? 'all' : 'room');
   const [category, setCategory] = useState<CatalogCategory | 'all'>('all');
   const [q, setQ] = useState('');
@@ -148,18 +145,18 @@ export function CatalogRail({ roomType, onAdd, onDragStart, activeId, defaultAll
   return (
     <div className={cx('flex h-full min-h-0 flex-col', className)}>
       <div className="flex flex-col gap-2.5 px-3 pt-3 pb-2">
-        <div className="flex items-center justify-between">
-          <div className="text-[11px] uppercase tracking-[0.14em] text-ink-3">Catalog</div>
-          <span className="mono text-[11px] text-ink-3">{items.length} pieces</span>
+        <div className="flex items-center justify-between gap-2">
+          <div className="micro">{label}</div>
+          <span className="mono text-[11px] text-dim">{items.length} pieces</span>
         </div>
         <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search sofa, bed, desk…" className="!h-9 !text-[13px]" aria-label="Search the catalog" />
         <Segmented size="sm" value={scope} onChange={setScope} options={[{ value: 'room', label: `For ${ROOM_LABEL[roomType]}` }, { value: 'all', label: 'All' }]} />
         <div className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5 [mask-image:linear-gradient(to_right,black_calc(100%-28px),transparent)]">
-          <button type="button" onClick={() => setCategory('all')} className={cx('chip shrink-0 transition-colors', category === 'all' && 'border-accent/40 bg-accent/10 text-accent-2')}>
+          <button type="button" onClick={() => setCategory('all')} className={cx('chip shrink-0 !py-1 !text-[11.5px] transition-colors duration-200 ease-audora', category === 'all' ? 'border-accent bg-accent text-white' : 'hover:border-ink-2 hover:text-ink')}>
             All
           </button>
           {categories.map((c) => (
-            <button key={c} type="button" onClick={() => setCategory(category === c ? 'all' : c)} className={cx('chip shrink-0 transition-colors', category === c && 'border-accent/40 bg-accent/10 text-accent-2')}>
+            <button key={c} type="button" onClick={() => setCategory(category === c ? 'all' : c)} className={cx('chip shrink-0 !py-1 !text-[11.5px] transition-colors duration-200 ease-audora', category === c ? 'border-accent bg-accent text-white' : 'hover:border-ink-2 hover:text-ink')}>
               {CATEGORY_LABELS[c]}
             </button>
           ))}
@@ -167,7 +164,7 @@ export function CatalogRail({ roomType, onAdd, onDragStart, activeId, defaultAll
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3">
         {items.length === 0 ? (
-          <div className="px-3 py-8 text-center text-sm text-ink-3">Nothing matches. Try “All” or a shorter search.</div>
+          <div className="px-3 py-8 text-center text-[13px] text-dim">Nothing matches. Try “All” or a shorter search.</div>
         ) : (
           <div className="flex flex-col gap-0.5">
             {items.map((item) => (
@@ -176,7 +173,7 @@ export function CatalogRail({ roomType, onAdd, onDragStart, activeId, defaultAll
           </div>
         )}
       </div>
-      <div className="border-t border-line px-3 py-2 text-[11px] text-ink-3">Click a piece, then click the floor to place it. Or drag it straight onto the floor.</div>
+      <div className="border-t border-line px-3 py-2 text-[11px] leading-[1.45] text-dim">Click a piece, then click the floor to place it. Or drag it straight onto the floor.</div>
     </div>
   );
 }

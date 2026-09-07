@@ -40,22 +40,22 @@ export function Thesis() {
         </div>
         <div className="lg:col-span-7">
           <Reveal delay={0.12}>
-            <div className="panel overflow-hidden">
-              <div className="hidden grid-cols-[1.1fr_1.4fr_1.6fr] gap-4 border-b border-line px-5 py-3 text-[11px] uppercase tracking-[0.14em] text-ink-3 md:grid">
+            <div className="panel overflow-hidden shadow-sm">
+              <div className="hidden grid-cols-[1.1fr_1.4fr_1.6fr] gap-4 border-b border-line px-5 py-3 micro md:grid">
                 <div />
                 <div>Virtual staging</div>
-                <div className="text-accent-2">Audora</div>
+                <div className="font-semibold text-ink">Audora</div>
               </div>
               {ROWS.map((r, i) => (
                 <div key={r.label} className={cx('grid gap-2 px-5 py-4 md:grid-cols-[1.1fr_1.4fr_1.6fr] md:gap-4', i < ROWS.length - 1 && 'border-b border-line')}>
                   <div className="text-sm font-medium text-ink">{r.label}</div>
                   <div className="grid grid-cols-2 gap-3 md:contents">
                     <div className={cx('text-sm text-ink-3', r.mono && 'mono')}>
-                      <span className="mb-1 block text-[10px] uppercase tracking-[0.12em] text-ink-3 md:hidden">Virtual staging</span>
+                      <span className="mb-1 block micro md:hidden">Virtual staging</span>
                       {r.staging}
                     </div>
                     <div className={cx('text-sm text-ink', r.mono && 'mono')}>
-                      <span className="mb-1 block text-[10px] uppercase tracking-[0.12em] text-accent-2 md:hidden">Audora</span>
+                      <span className="mb-1 block micro md:hidden">Audora</span>
                       {r.audora}
                     </div>
                   </div>

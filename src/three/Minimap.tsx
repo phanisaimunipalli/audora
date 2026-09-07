@@ -24,15 +24,20 @@ export interface MinimapProps {
   selectedId?: string | null;
 }
 
+/* A white card with ink lines: the plan is a drawing, not a screen. Seller staging keeps the warm
+   neutral of the catalogue's dots; the buyer's own pieces are the one blue; the anchor's ± is gold. */
 const PAD = 0.55;
 const SELLER = '#8d7b6a';
-const BUYER = '#62a0ff';
-const INK = '#f4eee5';
-const INK3 = '#7f7468';
-const LINE2 = '#3d362f';
-const ACCENT = '#e8734a';
-const GLASS = '#9cc3e6';
-const FLOOR = '#1b1816';
+const BUYER = '#1d63ff';
+const INK = '#0a0a0a';
+const INK3 = '#737373';
+const LINE2 = '#e6e6e6';
+const ACCENT = '#0a0a0a';
+const GOLD = '#7a6a3f';
+const GLASS = '#1d63ff';
+const FLOOR = '#ffffff';
+const WALL = '#0a0a0a';
+const MONO = 'ui-monospace, SF Mono, Menlo, monospace';
 const WALL_W = 0.14;
 
 function fmt(n: number) {
@@ -127,8 +132,8 @@ export function Minimap({ room, pieces, buyerPieces = [], className, style, onCl
     const fz = p.z + Math.cos(p.rot) * (p.d / 2);
     return (
       <g key={p.id}>
-        <polygon points={pts} fill={fill} fillOpacity={p.flat ? 0.14 : owner === 'buyer' ? 0.5 : 0.55} stroke={isSel ? ACCENT : fill} strokeWidth={isSel ? 0.06 : 0.025} strokeDasharray={p.flat ? '0.12 0.08' : undefined} strokeLinejoin="round" />
-        {!p.flat ? <circle cx={fx} cy={fz} r={0.045} fill={owner === 'buyer' ? '#dbeafe' : '#f4eee5'} fillOpacity={0.7} /> : null}
+        <polygon points={pts} fill={fill} fillOpacity={p.flat ? 0.12 : owner === 'buyer' ? 0.4 : 0.45} stroke={isSel ? ACCENT : fill} strokeWidth={isSel ? 0.06 : 0.025} strokeDasharray={p.flat ? '0.12 0.08' : undefined} strokeLinejoin="round" />
+        {!p.flat ? <circle cx={fx} cy={fz} r={0.045} fill="#ffffff" fillOpacity={0.85} /> : null}
       </g>
     );
   };
@@ -154,7 +159,7 @@ export function Minimap({ room, pieces, buyerPieces = [], className, style, onCl
         {/* floor */}
         <rect x={-room.width / 2} y={-room.depth / 2} width={room.width} height={room.depth} fill={FLOOR} />
         {/* metre grid */}
-        <g stroke={LINE2} strokeWidth={0.012} strokeOpacity={0.7}>
+        <g stroke={LINE2} strokeWidth={0.012} strokeOpacity={1}>
           {Array.from({ length: Math.floor(room.width) }, (_, i) => -room.width / 2 + i + 1).map((x) => (
             <line key={`gx${x}`} x1={x} y1={-room.depth / 2} x2={x} y2={room.depth / 2} />
           ))}
@@ -168,7 +173,7 @@ export function Minimap({ room, pieces, buyerPieces = [], className, style, onCl
         {showSeller ? pieces.filter((p) => !p.flat).map((p) => footprint(p, 'seller')) : null}
         {buyerPieces.filter((p) => !p.flat).map((p) => footprint(p, 'buyer'))}
         {/* walls */}
-        <rect x={-room.width / 2 - WALL_W / 2} y={-room.depth / 2 - WALL_W / 2} width={room.width + WALL_W} height={room.depth + WALL_W} fill="none" stroke="#bfb3a3" strokeWidth={WALL_W} />
+        <rect x={-room.width / 2 - WALL_W / 2} y={-room.depth / 2 - WALL_W / 2} width={room.width + WALL_W} height={room.depth + WALL_W} fill="none" stroke={WALL} strokeWidth={WALL_W} />
         {features.map((f, i) =>
           f.kind === 'door' ? (
             <line key={i} x1={f.x1} y1={f.z1} x2={f.x2} y2={f.z2} stroke={FLOOR} strokeWidth={WALL_W + 0.02} />
@@ -177,26 +182,26 @@ export function Minimap({ room, pieces, buyerPieces = [], className, style, onCl
           ),
         )}
         {/* door swing */}
-        <path d={`M ${doorHinge.x} ${doorHinge.z} L ${doorTip.x} ${doorTip.z} A ${room.door.width} ${room.door.width} 0 0 ${sweep} ${doorArcEnd.x} ${doorArcEnd.z}`} fill="none" stroke="#bfb3a3" strokeWidth={0.025} strokeDasharray="0.06 0.05" />
+        <path d={`M ${doorHinge.x} ${doorHinge.z} L ${doorTip.x} ${doorTip.z} A ${room.door.width} ${room.door.width} 0 0 ${sweep} ${doorArcEnd.x} ${doorArcEnd.z}`} fill="none" stroke={INK3} strokeWidth={0.025} strokeDasharray="0.06 0.05" />
         {/* viewer */}
         {showViewer ? (
           <g opacity={walkable ? 1 : 0.45} clipPath={`url(#${clipId})`}>
-            <polygon points={cone} fill={ACCENT} fillOpacity={0.2} stroke={ACCENT} strokeOpacity={0.35} strokeWidth={0.02} strokeLinejoin="round" />
+            <polygon points={cone} fill={ACCENT} fillOpacity={0.12} stroke={ACCENT} strokeOpacity={0.3} strokeWidth={0.02} strokeLinejoin="round" />
             <circle cx={pose.x} cy={pose.z} r={0.17} fill={ACCENT} />
-            <circle cx={pose.x} cy={pose.z} r={0.07} fill={INK} />
+            <circle cx={pose.x} cy={pose.z} r={0.07} fill="#ffffff" />
           </g>
         ) : null}
         {/* compass */}
-        <text x={-W / 2 + 0.16} y={-H / 2 + 0.36} fontSize={0.3} fill={INK3} fontFamily="JetBrains Mono, ui-monospace, monospace">
+        <text x={-W / 2 + 0.16} y={-H / 2 + 0.36} fontSize={0.3} fill={INK3} fontFamily={MONO}>
           N
         </text>
-        <text x={W / 2 - 0.16} y={H / 2 - 0.14} fontSize={0.24} fill={INK3} textAnchor="end" fontFamily="JetBrains Mono, ui-monospace, monospace">
+        <text x={W / 2 - 0.16} y={H / 2 - 0.14} fontSize={0.24} fill={INK3} textAnchor="end" fontFamily={MONO}>
           {fmt(Math.round(room.width * 100) / 100)} × {fmt(Math.round(room.depth * 100) / 100)} m
         </text>
       </svg>
-      <div className="mono" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#bfb3a3', lineHeight: 1 }}>
+      <div className="mono" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: INK3, lineHeight: 1, whiteSpace: 'nowrap' }}>
         <div style={{ position: 'relative', height: 8, width: barPx, borderLeft: `1px solid ${INK}`, borderRight: `1px solid ${INK}`, borderBottom: `1px solid ${INK}` }} aria-hidden>
-          {uncPx ? <div style={{ position: 'absolute', right: -uncPx / 2, top: -3, width: uncPx, height: 14, background: ACCENT, opacity: 0.35, borderRadius: 2 }} /> : null}
+          {uncPx ? <div style={{ position: 'absolute', right: -uncPx / 2, top: -3, width: uncPx, height: 14, background: GOLD, opacity: 0.4, borderRadius: 2 }} /> : null}
         </div>
         <span>
           {fmt(barM)} m{uncertaintyM ? <span style={{ color: INK3 }}> · ±{Math.max(1, Math.round(uncertaintyM * 100))} cm</span> : null}

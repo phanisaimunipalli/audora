@@ -40,15 +40,15 @@ const LIMITS: Limit[] = [
 
 export function Limits() {
   return (
-    <Section id="limits" className="bg-bg-2/60">
+    <Section id="limits" className="border-y border-line bg-surface">
       <Reveal>
         <SectionTitle eyebrow="Honest limits" title="What this is not." body="You will hear these from a sceptical buyer eventually. Better to hear them from us first." />
       </Reveal>
       <div className="mt-10 grid gap-4 md:grid-cols-2">
         {LIMITS.map((l, i) => (
           <Reveal key={l.title} delay={i * 0.05} className="h-full">
-            <div className="panel flex h-full gap-4 p-5 md:p-6">
-              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-warn/40 bg-warn/10 text-warn">{l.icon}</span>
+            <div className="panel flex h-full gap-4 bg-bg p-5 shadow-sm md:p-6">
+              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-line bg-bg text-ink shadow-sm">{l.icon}</span>
               <div>
                 <div className="display text-xl text-ink md:text-2xl">{l.title}</div>
                 <p className="mt-2 text-sm leading-relaxed text-ink-2">{l.body}</p>

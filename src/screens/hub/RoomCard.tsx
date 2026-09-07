@@ -17,7 +17,7 @@ import { aiAutoStage } from '@/services/ai';
 import { clock, usd as fmtUsd } from '@/lib/format';
 import { AnchorChip } from '@/components/AnchorChip';
 import { FloorOffset } from '@/components/FloorOffset';
-import { Button, Callout, Chip, Field, Input, Select, StagedLabel, cx } from '@/components/ui';
+import { Button, Callout, Chip, Field, Input, Select, StagedLabel, cx, pillClass } from '@/components/ui';
 import { Icon } from '@/components/icons';
 import { ROOM_TYPES, ROOM_TYPE_LABELS } from '@/screens/create/types';
 import { FloorPlanSvg } from './FloorPlanSvg';
@@ -95,7 +95,7 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
   return (
     <div className="panel flex flex-col gap-4 p-4">
       <div className="grid gap-4 sm:grid-cols-[180px_1fr]">
-        <div className="flex items-center justify-center rounded-xl border border-line bg-bg-2 p-2">
+        <div className="flex items-center justify-center rounded-xl border border-line bg-surface p-2">
           <FloorPlanSvg geometry={g} pieces={room.staging} className="max-h-44" />
         </div>
         <div className="flex min-w-0 flex-col gap-2">
@@ -124,9 +124,9 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
             {report.misfits.length ? ` · ${report.misfits.length} misfit` : ''}
           </div>
           {site ? (
-            <div className="flex flex-col gap-1 rounded-xl border border-line bg-bg-2 px-3 py-2">
+            <div className="flex flex-col gap-1 rounded-xl border border-line bg-surface px-3 py-2">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] uppercase tracking-[0.14em] text-ink-3">{g.windows.length ? `${windowWall} windows face` : 'Far wall faces'}</span>
+                <span className="micro">{g.windows.length ? `${windowWall} windows face` : 'Far wall faces'}</span>
                 <span className="mono text-xs text-ink">
                   {Math.round(facing)}° · {compassLabel(facing)}
                 </span>
@@ -146,7 +146,7 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
                   {overridden ? 'this room only' : `from the building · ${Math.round(headingToFacing(site.heading, windowWall))}°`}
                 </span>
                 {overridden ? (
-                  <button type="button" className="text-[10px] text-accent-2 hover:text-accent" onClick={() => setRoomHeading(room.id, undefined)}>
+                  <button type="button" className="text-[10px] text-ink-2 hover:text-ink" onClick={() => setRoomHeading(room.id, undefined)}>
                     Use the building
                   </button>
                 ) : null}
@@ -154,7 +154,7 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
             </div>
           ) : null}
           <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
-            <Link to={`/tours/${tour.id}/stage/${room.id}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-accent px-3 text-[13px] font-medium text-[#1a0f0a] hover:bg-accent-2">
+            <Link to={`/tours/${tour.id}/stage/${room.id}`} className={pillClass('primary', 'sm')}>
               <Icon.Sofa size={14} /> Open editor
             </Link>
             <Button size="sm" variant="secondary" loading={staging} onClick={autoStage}>

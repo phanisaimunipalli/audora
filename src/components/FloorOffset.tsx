@@ -42,7 +42,7 @@ export function FloorOffset({ roomId, className, compact, showAnchor = true, hin
   return (
     <div className={cx('flex flex-col gap-2', className)}>
       <div className="flex items-center justify-between gap-3">
-        <span className={cx('uppercase tracking-[0.14em] text-ink-3', compact ? 'text-[10px]' : 'text-[11px]')}>Floor height</span>
+        <span className={cx('micro', compact && '!text-[10px] !tracking-[0.14em]')}>Floor height</span>
         <span className="flex items-center gap-2">
           <span className={cx('mono tabular-nums', value === 0 ? 'text-ink-3' : 'text-ink', compact ? 'text-[12px]' : 'text-[13px]')}>{formatFloorOffset(value)}</span>
           {value !== 0 ? (
@@ -64,7 +64,7 @@ export function FloorOffset({ roomId, className, compact, showAnchor = true, hin
           step={FLOOR_NUDGE_STEP_M}
           value={value}
           onChange={(e) => set(Number(e.target.value))}
-          className="w-full accent-[#e8734a]"
+          className="w-full accent-accent"
           aria-label="Floor height in metres"
         />
         <NudgeButton label="Raise the floor by one centimetre" onClick={() => set(value + FLOOR_NUDGE_STEP_M)}>

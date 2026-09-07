@@ -29,7 +29,9 @@ export interface FurniturePieceProps {
   onClick?: (e: ThreeEvent<MouseEvent>) => void;
 }
 
-const STATUS_RING: Record<PieceStatus, string | null> = { ok: null, overlap: '#e05d5d', outside: '#e05d5d', door: '#e6b450' };
+/* The verdict colours: red does not fit, gold blocks the door. They are the only colours a piece
+   ever takes on besides its own — the buyer's blue is never recoloured (see palette). */
+const STATUS_RING: Record<PieceStatus, string | null> = { ok: null, overlap: '#c0392b', outside: '#c0392b', door: '#8a6a2a' };
 
 /** Flat halo + hairline outline on the floor around a footprint. Never catches pointer events. */
 function FootprintRing({ w, d, color, opacity, pad = 0.08, thickness = 0.018, y = 0 }: { w: number; d: number; color: string; opacity: number; pad?: number; thickness?: number; y?: number }) {

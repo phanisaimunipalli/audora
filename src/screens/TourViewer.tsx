@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Vector3 } from 'three';
 import type { Object3D, PerspectiveCamera, Texture } from 'three';
@@ -26,7 +25,7 @@ import { TouchJoystick } from '@/three/TouchJoystick';
 import { StagingLayer } from '@/three/furniture/StagingLayer';
 import { AnchorChip } from '@/components/AnchorChip';
 import { FurnitureTest } from '@/components/FurnitureTest';
-import { Button, IconButton, Kbd, Segmented, Spinner, StagedLabel, cx } from '@/components/ui';
+import { Kbd, Spinner, StagedLabel, cx } from '@/components/ui';
 import { Icon } from '@/components/icons';
 import { isTouchDevice, sessionOnce, trackEvent } from './viewer/analytics';
 import { copyText, publicUrl } from './viewer/share';
@@ -35,6 +34,8 @@ import { ExplodedLayer } from './viewer/ExplodedLayer';
 import { LayersPanel } from './viewer/LayersPanel';
 import { usePortraitLayers, type PortraitLayers } from './viewer/layers';
 import { freeSpawn } from './viewer/spawn';
+import { HudPill, HudPillLink, PillDivider, RoomStrip, TierTag, TopBar, Wordmark, tierWord } from './viewer/hud';
+import { MeasuredPanel } from './viewer/MeasuredPanel';
 import { MODE_LABEL, allowedMode, defaultMode, floorOffsetOf, hasPano, isReal, layerLoading, layerReady, loadPill, type MarbleStatusMap } from './viewer/marble';
 
 export interface TourViewerProps {
@@ -119,10 +120,12 @@ interface SceneProps {
   geometryView: GeometryView;
   /** What the photograph turned out to be lighting the room with — for the Layers panel. */
   onCaptureLight: (info: { light: PanoramaLight; budget: LightBudget } | null) => void;
+  /** The panorama's pixel size, for "WHAT THE MODEL MEASURED". */
+  onPanoSize: (size: { w: number; h: number } | null) => void;
   editable: boolean;
 }
 
-function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus, splatReady, panoReady, sky, layers, exploded, geometryView, onCaptureLight, editable }: SceneProps) {
+function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus, splatReady, panoReady, sky, layers, exploded, geometryView, onCaptureLight, onPanoSize, editable }: SceneProps) {
   const mode = useViewer((s) => s.mode);
   const tool = useViewer((s) => s.tool);
   const showStaging = useViewer((s) => s.showStaging);
@@ -169,6 +172,15 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
   useEffect(() => {
     onCaptureLight(light && budget ? { light, budget } : null);
   }, [light, budget, onCaptureLight]);
+  /* The panorama's own pixels, straight off the texture — the measurements panel prints them. */
+  const takePano = useCallback(
+    (t: Texture | null) => {
+      setPanoTex(t);
+      const img = t?.image as { width?: number; height?: number } | undefined;
+      onPanoSize(img?.width && img?.height ? { w: img.width, h: img.height } : null);
+    },
+    [onPanoSize],
+  );
 
   // The minimap and "test my furniture" ask where the viewer stands; in photo view that is the
   // capture point, which never moves.
@@ -291,7 +303,7 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
           showOccluder={layers.occluder && composite && Boolean(real.colliderUrl)}
           onStatus={onMarbleStatus}
           onCollider={setCollider}
-          onPanoTexture={setPanoTex}
+          onPanoTexture={takePano}
         />
       ) : null}
       {layers.furniture ? (
@@ -416,6 +428,11 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
 
   const [testOpen, setTestOpen] = useState(false);
   const [layersOpen, setLayersOpen] = useState(false);
+  /* "What the model measured" is up by default on a laptop and behind its pill on a phone, where it
+     would otherwise cover the room it is describing. */
+  const [measuredOpen, setMeasuredOpen] = useState(() => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(min-width: 1024px)').matches : true));
+  const [panoSize, setPanoSize] = useState<{ w: number; h: number } | null>(null);
+  const onPanoSize = useCallback((s: { w: number; h: number } | null) => setPanoSize(s), []);
   /* The portrait stack: photo, furniture, shadows, occluder — plus the exploded preview. Local to
      this screen on purpose (see ./layers): it is an inspection control, not a preference. */
   const { layers, setLayer, reset: resetLayers, exploded, explode } = usePortraitLayers();
@@ -477,6 +494,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
     st.setTool('select');
     st.setSelectedId(null);
     setMarbleStatus({});
+    setPanoSize(null);
     resetLayers();
     const legal = allowedMode(st.mode, world);
     if (legal !== st.mode) st.setMode(legal);
@@ -522,8 +540,8 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   /* The card sits in the middle of the frame; a panel opening under it would be half hidden behind
      it with nothing to say so. Opening one is also proof the hint has been read. */
   useEffect(() => {
-    if (layersOpen || testOpen || timeOpen) setHint(false);
-  }, [layersOpen, testOpen, timeOpen]);
+    if (layersOpen || testOpen || timeOpen || (narrow && measuredOpen)) setHint(false);
+  }, [layersOpen, testOpen, timeOpen, narrow, measuredOpen]);
 
   /* keyboard: Esc closes tools and panels */
   useEffect(() => {
@@ -636,10 +654,10 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   };
 
   // Photo is offered only where there is a photograph to stand in.
-  const modeOptions = [
-    ...(hasPano(world) ? [{ value: 'photo' as ViewMode, label: <span className="hidden sm:inline">Photo</span>, icon: <Icon.Camera size={15} /> }] : []),
-    { value: 'walk' as ViewMode, label: <span className="hidden sm:inline">Walk</span>, icon: <Icon.Walk size={15} /> },
-    { value: 'orbit' as ViewMode, label: <span className="hidden sm:inline">Dollhouse</span>, icon: <Icon.Orbit size={15} /> },
+  const modeOptions: { value: ViewMode; label: string; title: string; icon: ReactNode }[] = [
+    ...(hasPano(world) ? [{ value: 'photo' as ViewMode, label: 'Photo', title: 'Stand where the photo was taken', icon: <Icon.Camera size={14} /> }] : []),
+    { value: 'walk' as ViewMode, label: 'Walk', title: 'Walk the room at 1.60 m eye height', icon: <Icon.Walk size={14} /> },
+    { value: 'orbit' as ViewMode, label: 'Dollhouse', title: 'Look down into the measured room', icon: <Icon.Orbit size={14} /> },
   ];
 
   const toggleMeasure = () => {
@@ -689,6 +707,8 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   const stagingForVerdict = showStaging ? room.staging : [];
   // Anything real enough to have layers worth switching: the panel also carries the floor nudge.
   const layerWorld = world && (world.panoUrl || world.spzUrl || world.colliderUrl) ? world : undefined;
+  /** "Draft" / "Full" / "Simulated" — the quiet tag beside the wordmark, as in the prototype. */
+  const tier = tierWord(room);
 
   return (
     <div ref={wrapRef} className={cx('relative isolate overflow-hidden bg-bg', className)}>
@@ -699,6 +719,8 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
         onPointerMissed={() => setSelectedId(null)}
         // The HUD owns the loading line; without a HUD (thumbnails, embeds) the canvas shows it itself.
         busy={hideHud ? panoLoading : false}
+        /* Even before the first frame the card says what is actually coming down ("Loading the real
+           capture · 100k splats · 62%") instead of a static "Building the room…" for half a minute. */
         busyLabel={pill?.label}
         busyProgress={pill?.progress ?? null}
         loadingLabel={mode === 'photo' ? 'Developing the photograph…' : 'Building the room…'}
@@ -718,6 +740,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
           exploded={exploded}
           geometryView={geometryView}
           onCaptureLight={onCaptureLight}
+          onPanoSize={onPanoSize}
           editable={buyerPieces.length > 0}
         />
       </SceneCanvas>
@@ -729,78 +752,113 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
           {captureOnScreen ? (
             <div
               className="pointer-events-none absolute inset-0 z-[5]"
-              style={{ background: 'radial-gradient(ellipse 78% 78% at 50% 48%, rgba(0,0,0,0) 45%, rgba(0,0,0,0.34) 100%)' }}
+              style={{ background: 'radial-gradient(ellipse 80% 80% at 50% 46%, rgba(10,10,10,0) 52%, rgba(10,10,10,0.16) 100%)' }}
               aria-hidden
             />
           ) : null}
 
-          {/* HUD */}
-          <div className={cx('pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-3 transition-[right] duration-300 md:p-4', testOpen && 'md:right-[400px]')}>
-            {/* top row */}
-            <div className="flex flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
-              {/* Wide enough for six room chips at desktop width: a buyer who cannot see that the
-                  photoreal rooms exist will never open one. It still scrolls on a phone. */}
-              <div className="pointer-events-auto glass max-w-full rounded-2xl px-3.5 py-2.5 sm:max-w-[min(70vw,760px)]">
-                <div className="flex items-baseline gap-2">
-                  <div className="display truncate text-lg leading-tight text-ink md:text-xl">{tour.title}</div>
-                  {/* The price is the second thing a buyer looks for; hiding it on a phone left the
-                      panel top-heavy over the one screen size it matters most on. */}
-                  {tour.price ? <div className="mono shrink-0 text-xs text-ink-3">{tour.price}</div> : null}
+          {/* ---- top bar: the wordmark and the tier on the left, the pill group on the right ---- */}
+          <TopBar
+            left={
+              <>
+                <Wordmark to={publicMode ? '/' : null} />
+                {tier ? <TierTag>{tier}</TierTag> : null}
+                <span className="hidden h-4 w-px shrink-0 bg-line-2 sm:block" aria-hidden />
+                <div className="flex min-w-0 items-baseline gap-2">
+                  <span className="display min-w-0 truncate text-[17px] leading-none text-ink">{tour.title}</span>
+                  {tour.price ? <span className="mono shrink-0 text-[11.5px] text-dim">{tour.price}</span> : null}
                 </div>
-                {/* `overflow-x-auto` also clips vertically (a scroll container has no `visible`
-                    axis), and the mask paints only inside the border box — so the row needs slack
-                    above and below the pills or their descenders and lower border are shaved off.
-                    The negative margin keeps the panel's own spacing unchanged. */}
-                <div ref={pillsRef} className="no-scrollbar -my-0.5 mt-1 flex gap-1 overflow-x-auto py-0.5 [mask-image:linear-gradient(to_right,black_calc(100%-18px),transparent)]">
-                  {rooms.map((r) => {
-                    const active = r.id === room.id;
-                    const job = jobFor(r.id);
-                    const ready = r.status === 'ready';
-                    return (
-                      <button
-                        key={r.id}
-                        type="button"
-                        disabled={!ready}
-                        data-active={active}
-                        onClick={() => switchRoom(r.id)}
-                        className={cx(
-                          'chip max-w-[11rem] shrink-0 whitespace-nowrap !py-1 transition-colors',
-                          active ? '!border-accent/50 !bg-accent/15 !text-accent-2' : ready ? 'hover:!border-ink-3/50 hover:!text-ink' : '!text-ink-3 opacity-80',
-                        )}
-                        title={ready ? r.name : job ? `${r.name} · ${job.step} · ${job.progress}%` : `${r.name} · ${r.status}`}
-                      >
-                        {r.status === 'generating' || job ? <Spinner size={11} className="text-accent-2" /> : r.status === 'failed' ? <span className="h-1.5 w-1.5 rounded-full bg-danger" /> : null}
-                        <span className="min-w-0 truncate">{r.name}</span>
-                        {job ? <span className="mono text-[10px] text-ink-3">{job.progress}%</span> : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="pointer-events-auto flex max-w-full flex-wrap items-center gap-1.5 sm:flex-col sm:items-end">
-                <AnchorChip anchor={room.anchor} size="sm" className="max-w-full whitespace-nowrap !bg-surface/80 backdrop-blur-md" />
-                <div className="flex items-center gap-1.5">
-                  <StagedLabel className="!bg-surface/80 backdrop-blur-md" />
-                  <IconButton label={copied ? 'Copied' : 'Copy share link'} onClick={share} active={copied} className="!bg-surface/80 backdrop-blur-md">
-                    {copied ? <Icon.Check size={16} /> : <Icon.Share size={16} />}
-                  </IconButton>
-                </div>
-                {publicMode ? (
-                  <Link to="/" target="_blank" rel="noreferrer" className="chip !bg-surface/80 !py-1 !text-[11px] backdrop-blur-md hover:!text-ink">
-                    <span className="text-accent"><Icon.Logo size={12} /></span> Made with Audora
-                  </Link>
+              </>
+            }
+            right={
+              <>
+                {/* The words stay on a phone. Nine identical 44 px circles told a first-time buyer
+                    nothing about which one measures and which one tests furniture; the row scrolls
+                    (with a fade and an arrow, see TopBar) rather than dropping every label. */}
+                {modeOptions.map((o) => (
+                  <HudPill key={o.value} active={mode === o.value} onClick={() => changeMode(o.value)} icon={o.icon} title={o.title}>
+                    {o.label}
+                  </HudPill>
+                ))}
+                <PillDivider />
+                <HudPill active={measuredOpen} onClick={() => setMeasuredOpen((v) => !v)} icon={<Icon.Info size={14} />} title="What the model measured">
+                  <span className="hidden lg:inline">Measurements</span>
+                </HudPill>
+                {layerWorld ? (
+                  <HudPill active={layersOpen || showGeometry} onClick={() => setLayersOpen((v) => !v)} icon={<Icon.Layers size={14} />} title="Layers · the photograph, the furniture and its shadow">
+                    <span className="hidden lg:inline">Layers</span>
+                  </HudPill>
                 ) : null}
-              </div>
+                <HudPill active={tool === 'measure'} onClick={toggleMeasure} icon={<Icon.Ruler size={14} />} title={tool === 'measure' ? 'Stop measuring' : 'Measure anything'}>
+                  Measure
+                </HudPill>
+                {/* Black, not blue: this is a chrome toggle sitting beside four black/white siblings.
+                    The buyer's blue belongs to the piece, its dimension chip and the verdict card. */}
+                <HudPill active={testOpen} onClick={() => setTestOpen((v) => !v)} icon={<Icon.Sofa size={14} />} title="Test your own furniture in this room">
+                  {testOpen ? 'Close' : 'Test my furniture'}
+                  {buyerPieces.length ? <span className="mono text-[11px] opacity-70">{buyerPieces.length}</span> : null}
+                </HudPill>
+                <PillDivider />
+                <HudPill square active={!showStaging} onClick={toggleStaging} aria-label={showStaging ? 'See it bare' : 'Show staging'} title={showStaging ? 'See it bare' : 'Show staging'}>
+                  {showStaging ? <Icon.EyeOff size={15} /> : <Icon.Eye size={15} />}
+                </HudPill>
+                {site ? (
+                  <HudPill square active={timeOpen} onClick={() => setTimeOpen((v) => !v)} aria-label="Time of day" title={timeOpen ? 'Close the time of day' : 'Time of day · the real sun'}>
+                    <Icon.Sun size={15} />
+                  </HudPill>
+                ) : null}
+                <HudPill square active={copied} onClick={share} aria-label={copied ? 'Copied' : 'Copy share link'} title={copied ? 'Copied' : 'Copy share link'}>
+                  {copied ? <Icon.Check size={15} /> : <Icon.Share size={15} />}
+                </HudPill>
+                <HudPill square active={fullscreen} onClick={toggleFullscreen} aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'} title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
+                  <Icon.Fullscreen size={15} />
+                </HudPill>
+                {publicMode ? (
+                  <HudPillLink to="/" external icon={<Icon.Logo size={12} />} title="Made with Audora" className="hidden xl:inline-flex">
+                    Made with Audora
+                  </HudPillLink>
+                ) : null}
+              </>
+            }
+          />
+
+          {/* ---- left: what the model measured ---- */}
+          {measuredOpen ? (
+            <div
+              className="pointer-events-none absolute z-20 flex justify-start"
+              style={narrow ? { left: 12, right: 12, bottom: 92 } : { left: 14, top: 'calc(var(--hud-top, 52px) + 6px)' }}
+            >
+              <MeasuredPanel
+                room={room}
+                world={world}
+                cameraHeight={realWorld ? captureFrame.position[1] : null}
+                pano={panoSize}
+                status={marbleStatus}
+                onClose={() => setMeasuredOpen(false)}
+                className="max-h-[52vh] sm:max-h-[calc(100vh_-_var(--hud-top,52px)_-_120px)]"
+              />
             </div>
+          ) : null}
 
-            {/* bottom row */}
-            <div className="grid grid-cols-[auto_auto] items-end justify-between gap-2 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-3">
-              <div className="pointer-events-auto glass justify-self-start rounded-2xl p-2" style={{ width: plan.w + 16 }}>
-                <Minimap room={room.geometry} pieces={room.staging} buyerPieces={buyerPieces} showSeller={showStaging} selectedId={selectedId} uncertaintyM={room.anchor.uncertaintyM} onClick={teleportTo} style={{ height: plan.h + 22 }} className="w-full" />
+          {/* ---- HUD, above the room strip ---- */}
+          {/* `mt-auto` rather than `justify-end`: a flex column that justifies to the end overflows
+              past its own start, so with the Layers panel and Time of day both open the top panel's
+              heading slid up under the top bar and could not be scrolled back. An auto margin puts
+              the stack on the floor when it fits and lets it scroll when it does not. */}
+          <div className={cx('pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col overflow-y-auto no-scrollbar p-3 pb-[86px] transition-[right] duration-300 md:p-4 md:pb-[88px]', testOpen && 'md:right-[356px]')} style={{ top: 'calc(var(--hud-top, 52px) + 6px)' }}>
+            <div className="mt-auto grid grid-cols-[auto_auto] items-end justify-between gap-2 sm:h-full sm:max-h-full sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:grid-rows-[minmax(0,1fr)] sm:gap-3">
+              {/* the plan, the anchor and the disclosure — the three things that must never leave the screen */}
+              <div className="flex flex-col items-start gap-1.5 justify-self-start">
+                <div className="glass pointer-events-auto hidden rounded-2xl p-2 sm:block" style={{ width: plan.w + 16 }}>
+                  <Minimap room={room.geometry} pieces={room.staging} buyerPieces={buyerPieces} showSeller={showStaging} selectedId={selectedId} uncertaintyM={room.anchor.uncertaintyM} onClick={teleportTo} style={{ height: plan.h + 22 }} className="w-full" />
+                </div>
+                <div className="pointer-events-auto flex max-w-[60vw] flex-wrap items-center gap-1.5">
+                  <AnchorChip anchor={room.anchor} size="sm" className="max-w-full bg-[color:var(--color-glass)] backdrop-blur-md" />
+                  <StagedLabel className="bg-[color:var(--color-glass)] backdrop-blur-md" />
+                </div>
               </div>
 
-              <div className="pointer-events-auto order-last col-span-2 flex min-w-0 max-w-full flex-col items-center gap-2 justify-self-center sm:order-none sm:col-span-1">
+              <div className="no-scrollbar pointer-events-auto order-last col-span-2 flex max-h-full min-h-0 min-w-0 max-w-full flex-col items-center gap-2 justify-self-center overflow-y-auto sm:order-none sm:col-span-1">
                 {timeOpen && site ? (
                   <TimeOfDay
                     lat={site.lat}
@@ -839,57 +897,25 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
                   <div className={cx('flex items-center justify-center', layersOpen && 'min-h-[30px]')}>
                     {measurement?.metres != null ? (
                       <div className="glass animate-rise flex items-center gap-2 rounded-full px-3 py-1.5">
-                        <Icon.Ruler size={14} className="text-accent-2" />
+                        <Icon.Ruler size={14} className="text-gold" />
                         <span className="mono text-sm text-ink">{measurement.metres.toFixed(2)} m</span>
-                        <span className="mono text-xs text-ink-3">± {cmUncertainty}cm</span>
-                        <button type="button" className="text-ink-3 hover:text-ink" onClick={() => setMeasurement(null)} aria-label="Clear measurement">
+                        <span className="mono text-xs text-dim">± {cmUncertainty}cm</span>
+                        <button type="button" className="text-faint hover:text-ink" onClick={() => setMeasurement(null)} aria-label="Clear measurement">
                           <Icon.X size={14} />
                         </button>
                       </div>
                     ) : tool === 'measure' ? (
                       <div className="glass animate-fade rounded-full px-3 py-1.5 text-xs text-ink-2">
-                        Click two points to measure. <span className="mono text-ink-3">± {cmUncertainty}cm</span>
+                        Click two points to measure. <span className="mono text-dim">± {cmUncertainty}cm</span>
                       </div>
                     ) : pill ? (
                       <div className={cx('glass animate-fade flex items-center gap-2 rounded-full px-3 py-1.5 text-xs', pill.tone === 'error' ? 'text-warn' : 'text-ink-2')}>
-                        {pill.tone === 'loading' ? <Spinner size={12} /> : pill.tone === 'error' ? <Icon.Warning size={12} /> : <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-hidden />}
+                        {pill.tone === 'loading' ? <Spinner size={12} /> : pill.tone === 'error' ? <Icon.Warning size={12} /> : <span className="h-1.5 w-1.5 rounded-full bg-ink" aria-hidden />}
                         <span className={pill.tone === 'info' ? 'mono text-[11px]' : undefined}>{pill.label}</span>
                       </div>
                     ) : null}
                   </div>
                 ) : null}
-
-                {/* On a phone this row is wider than the space beside the minimap; it scrolls, and the
-                    faded edge is the affordance that says so. */}
-                <div className="no-scrollbar glass flex max-w-full items-center gap-1.5 overflow-x-auto rounded-2xl p-1.5 [mask-image:linear-gradient(to_right,black_calc(100%-22px),transparent)] sm:[mask-image:none]">
-                  <Segmented size="sm" value={mode} onChange={changeMode} options={modeOptions} />
-                  <IconButton label={showStaging ? 'See it bare' : 'Show staging'} active={!showStaging} onClick={toggleStaging} className="h-8 w-8 shrink-0">
-                    {showStaging ? <Icon.EyeOff size={15} /> : <Icon.Eye size={15} />}
-                  </IconButton>
-                  <IconButton label={tool === 'measure' ? 'Stop measuring' : 'Measure'} active={tool === 'measure'} onClick={toggleMeasure} className="h-8 w-8 shrink-0">
-                    <Icon.Ruler size={15} />
-                  </IconButton>
-                  {layerWorld ? (
-                    <IconButton label={layersOpen ? 'Close the layers' : 'Layers · the photograph, the furniture and its shadow'} active={layersOpen || showGeometry} onClick={() => setLayersOpen((v) => !v)} className="h-8 w-8 shrink-0">
-                      <Icon.Layers size={15} />
-                    </IconButton>
-                  ) : null}
-                  {/* The sun that will actually be in this room, at the hour the buyer picks. */}
-                  {site ? (
-                    <IconButton label={timeOpen ? 'Close the time of day' : 'Time of day · the real sun'} active={timeOpen} onClick={() => setTimeOpen((v) => !v)} className="h-8 w-8 shrink-0">
-                      <Icon.Sun size={15} />
-                    </IconButton>
-                  ) : null}
-                  <Button size="sm" variant={testOpen ? 'secondary' : 'buyer'} onClick={() => setTestOpen((v) => !v)} className="shrink-0">
-                    <Icon.Sofa size={15} />
-                    <span className="hidden sm:inline">{testOpen ? 'Close' : 'Test my furniture'}</span>
-                    <span className="sm:hidden">{testOpen ? 'Close' : 'My furniture'}</span>
-                    {buyerPieces.length ? <span className="mono rounded-full bg-black/20 px-1.5 text-[11px]">{buyerPieces.length}</span> : null}
-                  </Button>
-                  <IconButton label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'} active={fullscreen} onClick={toggleFullscreen} className="h-8 w-8 shrink-0">
-                    <Icon.Fullscreen size={15} />
-                  </IconButton>
-                </div>
               </div>
 
               <div className="pointer-events-auto flex flex-col items-end gap-2 justify-self-end">
@@ -898,38 +924,52 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
             </div>
           </div>
 
+          {/* ---- the rooms in this tour ---- */}
+          <RoomStrip
+            rooms={rooms}
+            activeId={room.id}
+            onPick={switchRoom}
+            progressFor={(r) => {
+              const j = jobFor(r.id);
+              return j ? j.progress : null;
+            }}
+          />
+
           {/* first-time hint */}
           {hint && mode !== 'orbit' ? (
             <button
               type="button"
               onClick={() => setHint(false)}
-              className="pointer-events-auto absolute left-1/2 top-1/2 z-20 flex -translate-x-1/2 -translate-y-1/2 animate-rise flex-col items-center gap-2 rounded-2xl border border-line-2 bg-bg/80 px-5 py-4 text-center backdrop-blur-md"
+              /* `left-1/2` leaves an absolutely positioned card only half the viewport to grow into,
+                 which on a phone turned one sentence into five lines; `w-max` takes the width the
+                 sentence needs and the max clamps it back inside the screen. */
+              className="glass pointer-events-auto absolute left-1/2 top-1/2 z-20 flex w-max max-w-[min(92vw,560px)] -translate-x-1/2 -translate-y-1/2 animate-rise flex-col items-center gap-2 rounded-2xl px-6 py-5 text-center"
             >
-              <div className="display text-xl text-ink">
+              <div className="display text-2xl leading-tight text-ink">
                 {mode === 'photo' ? `You are standing where the photo was taken.` : `You are standing in the ${room.name.toLowerCase()}.`}
               </div>
               {mode === 'photo' ? (
-                <div className="text-sm text-ink-2">{touch ? 'Drag to look around · pinch to zoom' : 'Drag to look around · scroll to zoom · Walk to move'}</div>
+                <div className="text-sm text-dim">{touch ? 'Drag to look around · pinch to zoom' : 'Drag to look around · scroll to zoom · Walk to move'}</div>
               ) : touch ? (
-                <div className="text-sm text-ink-2">Drag to look · use the stick or tap the floor to move</div>
+                <div className="text-sm text-dim">Drag to look · use the stick or tap the floor to move</div>
               ) : (
-                <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm text-ink-2">
+                <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm text-dim">
                   <span>Drag to look</span>
-                  <span className="text-ink-3">·</span>
+                  <span className="text-dim">·</span>
                   <span className="inline-flex items-center gap-1"><Kbd>W</Kbd><Kbd>A</Kbd><Kbd>S</Kbd><Kbd>D</Kbd> or click the floor to move</span>
-                  <span className="text-ink-3">·</span>
+                  <span className="text-dim">·</span>
                   <span className="inline-flex items-center gap-1">double-click for mouse look, <Kbd>Esc</Kbd> releases</span>
                 </div>
               )}
-              <div className="mono text-[11px] text-ink-3">
+              <div className="mono text-[11px] text-dim">
                 {mode === 'photo' ? 'capture point' : 'eye height 1.60 m'} · {room.geometry.width.toFixed(2)} × {room.geometry.depth.toFixed(2)} m
               </div>
             </button>
           ) : null}
 
-          {/* furniture test drawer */}
+          {/* the buyer's own furniture: the prototype's right-hand glass panel, a bottom sheet on a phone */}
           {testOpen ? (
-            <div className="glass animate-rise absolute inset-x-0 bottom-0 z-30 max-h-[64vh] rounded-t-2xl md:inset-y-0 md:left-auto md:right-0 md:w-[400px] md:max-h-none md:rounded-none md:border-y-0 md:border-r-0">
+            <div className="glass animate-rise absolute inset-x-0 bottom-0 z-40 max-h-[70vh] rounded-t-2xl md:inset-x-auto md:bottom-[92px] md:right-3.5 md:top-[var(--hud-top,52px)] md:max-h-none md:w-[340px] md:rounded-2xl">
               <FurnitureTest
                 room={room}
                 buyerPieces={buyerPieces}
@@ -942,7 +982,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
                 mode={mode}
                 onModeChange={changeMode}
                 analytics={publicMode}
-                className="max-h-[64vh] md:max-h-none"
+                className="max-h-[70vh] md:max-h-none"
               />
             </div>
           ) : null}

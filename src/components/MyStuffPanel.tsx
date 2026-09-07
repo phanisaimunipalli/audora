@@ -15,7 +15,7 @@ export interface MyStuffPanelProps {
   pickLabel?: string;
 }
 
-const BUYER_BLUE = '#62a0ff';
+const BUYER_BLUE = '#1d63ff';
 
 const KIND_OPTIONS: { value: ProceduralKind; label: string }[] = [
   { value: 'sofa', label: 'Sofa' },
@@ -164,21 +164,21 @@ export function MyStuffPanel({ onPick, compact, className, pickLabel = 'Test her
     <div className={cx('flex flex-col gap-3', className)}>
       {!compact ? (
         <div className="flex items-baseline justify-between">
-          <div className="text-sm font-medium text-ink">My Stuff</div>
-          <div className="mono text-[11px] text-ink-3">{items.length} piece{items.length === 1 ? '' : 's'}</div>
+          <div className="micro">My Stuff</div>
+          <div className="mono text-[11px] text-dim">{items.length} piece{items.length === 1 ? '' : 's'}</div>
         </div>
       ) : null}
 
       {items.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-line-2 px-4 py-5 text-center">
-          <div className="display text-lg text-ink">Measure your furniture once.</div>
-          <p className="mt-1 text-xs text-ink-3">Every listing you visit is evaluated against it.</p>
+        <div className="rounded-[10px] border border-dashed border-line-2 bg-surface px-4 py-5 text-center">
+          <div className="display text-xl text-ink">Measure your furniture once.</div>
+          <p className="mt-1 text-xs text-dim">Every listing you visit is evaluated against it.</p>
         </div>
       ) : (
         <ul className="flex flex-col gap-1.5">
           {items.map((it) =>
             editingId === it.id ? (
-              <li key={it.id} className="rounded-xl border border-buyer/40 bg-buyer/5 p-3">
+              <li key={it.id} className="rounded-xl border border-buyer-line bg-buyer-soft p-3">
                 <DraftFields draft={editDraft} onChange={setEditDraft} />
                 <div className="mt-2 flex justify-end gap-2">
                   <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>Cancel</Button>
@@ -186,11 +186,11 @@ export function MyStuffPanel({ onPick, compact, className, pickLabel = 'Test her
                 </div>
               </li>
             ) : (
-              <li key={it.id} className="group flex items-center gap-2.5 rounded-xl border border-line bg-surface-2/60 px-2.5 py-2">
+              <li key={it.id} className="group flex items-center gap-2.5 rounded-xl border border-line bg-bg px-2.5 py-2">
                 <KindGlyph kind={it.kind} color={it.color} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm text-ink">{it.name}</div>
-                  <div className="mono text-[11px] text-ink-3">{dimsLabel(it.w, it.d, it.flat ? undefined : it.h)}</div>
+                  <div className="mono text-[11px] text-dim">{dimsLabel(it.w, it.d, it.flat ? undefined : it.h)}</div>
                 </div>
                 <span className="h-3 w-3 shrink-0 rounded-full border border-line-2" style={{ background: it.color }} title={it.color} />
                 <Button size="sm" variant="buyer" onClick={() => onPick(it)} className="shrink-0">
@@ -244,13 +244,13 @@ export function MyStuffPanel({ onPick, compact, className, pickLabel = 'Test her
           </Button>
         </div>
         {textError ? <div className="text-xs text-danger">{textError}</div> : null}
-        <button type="button" onClick={() => setShowFields((v) => !v)} className="self-start text-xs text-ink-3 hover:text-ink-2">
+        <button type="button" onClick={() => setShowFields((v) => !v)} className="self-start text-xs text-dim underline decoration-line-2 underline-offset-2 hover:text-ink">
           {showFields ? 'Hide fields' : 'Or enter width, depth and height'}
         </button>
       </form>
 
       {showFields ? (
-        <form onSubmit={submitFields} className="rounded-xl border border-line bg-surface-2/60 p-3">
+        <form onSubmit={submitFields} className="rounded-xl border border-line bg-surface p-3">
           <DraftFields draft={draft} onChange={setDraft} />
           <div className="mt-2 flex justify-end">
             <Button type="submit" size="sm" variant="buyer" disabled={!readDraft(draft)}>

@@ -44,7 +44,8 @@ export interface SceneCanvasProps {
   onReady?: () => void;
 }
 
-export const HOUSE_BG = '#0e0d0c';
+/** The house background: a near-white ground, so the dollhouse sits on the page rather than in a void. */
+export const HOUSE_BG = '#f4f4f4';
 
 declare global {
   interface Window {
@@ -80,8 +81,8 @@ function FirstFrame({ onFrame }: { onFrame: () => void }) {
 
 /**
  * The house look for every 3D surface in Audora: soft (PCF, radius-filtered) shadows, ACES tone mapping, sRGB output,
- * the warm dark background and a whisper of fog so the dollhouse recedes at the edges. Until the first frame lands the
- * viewport shows a quiet placeholder instead of a black void.
+ * the near-white background and a whisper of fog so the dollhouse recedes at the edges. Until the first frame lands the
+ * viewport shows a quiet placeholder instead of an empty void.
  */
 export function SceneCanvas({
   children,
@@ -113,7 +114,13 @@ export function SceneCanvas({
   const readyCb = useRef(onReady);
   readyCb.current = onReady;
   const showLoading = !hideLoading && frameloop !== 'never' && (!ready || busy);
-  const label = busy && busyLabel ? busyLabel : loadingLabel;
+  /* A real Marble room can take half a minute to its first frame, and "Building the room…" for
+     thirty seconds is indistinguishable from a hang. Whenever the caller knows what is actually
+     downloading, that line — and its progress bar — wins over the generic one, before the first
+     frame as well as after it. */
+  const informative = (busy || !ready) && busyLabel ? busyLabel : null;
+  const label = informative ?? loadingLabel;
+  const progress = (busy || !ready) && busyProgress != null ? busyProgress : null;
   // `h-full w-full` is the default so a canvas dropped into a sized parent fills it. Without it the
   // wrapper collapses (its only child is absolutely positioned) and the viewport is a black void.
   return (
@@ -156,11 +163,11 @@ export function SceneCanvas({
           ) : null}
           <div className="glass animate-fade relative flex min-w-[190px] flex-col gap-1.5 rounded-2xl px-3.5 py-2">
             <div className="flex items-center gap-2 text-xs text-ink-2">
-              <Spinner size={12} className="text-accent-2" /> {label}
+              <Spinner size={12} className="text-dim" /> {label}
             </div>
-            {busyProgress != null ? (
-              <div className="h-[3px] w-full overflow-hidden rounded-full bg-line-2">
-                <div className="h-full rounded-full bg-accent transition-[width] duration-200" style={{ width: `${Math.round(Math.min(1, Math.max(0, busyProgress)) * 100)}%` }} />
+            {progress != null ? (
+              <div className="h-[3px] w-full overflow-hidden rounded-full bg-surface-2">
+                <div className="h-full rounded-full bg-accent transition-[width] duration-200" style={{ width: `${Math.round(Math.min(1, Math.max(0, progress)) * 100)}%` }} />
               </div>
             ) : null}
           </div>

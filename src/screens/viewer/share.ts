@@ -33,7 +33,7 @@ export async function copyText(text: string): Promise<boolean> {
 export function embedSnippet(shareId: string, title: string): string {
   const src = publicUrl(shareId);
   return [
-    `<iframe src="${src}" title="${title.replace(/"/g, '&quot;')} · 3D tour" width="100%" height="640" style="border:0;border-radius:18px;overflow:hidden" allow="fullscreen; xr-spatial-tracking" allowfullscreen loading="lazy"></iframe>`,
-    `<p style="font:12px/1.5 system-ui,sans-serif;color:#7f7468;margin:8px 0 0">Digitally staged. Furniture is virtual and shown for scale; every dimension carries its measurement anchor. Made with Audora.</p>`,
+    `<iframe src="${src}" title="${title.replace(/"/g, '&quot;')} · 3D tour" width="100%" height="640" style="border:0;border-radius:14px;overflow:hidden" allow="fullscreen; xr-spatial-tracking" allowfullscreen loading="lazy"></iframe>`,
+    `<p style="font:12px/1.5 system-ui,sans-serif;color:#737373;margin:8px 0 0">Digitally staged. Furniture is virtual and shown for scale; every dimension carries its measurement anchor. Made with Audora.</p>`,
   ].join('\n');
 }

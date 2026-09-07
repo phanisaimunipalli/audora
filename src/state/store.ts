@@ -114,7 +114,7 @@ const DEFAULT_SETTINGS: Settings = {
   mockFullSeconds: 90,
   sound: true,
   agentName: 'Priya Natarajan',
-  brandColor: '#e8734a',
+  brandColor: '#0a0a0a',
 };
 
 export const STORE_KEY = 'audora-v1';

@@ -21,12 +21,12 @@ export function BottomSheet({ open, onClose, title, children, height = 'half' }:
   }, [open, onClose]);
   return (
     <>
-      <div className={cx('fixed inset-0 z-40 bg-black/50 transition-opacity', open ? 'opacity-100' : 'pointer-events-none opacity-0')} onClick={onClose} aria-hidden />
+      <div className={cx('fixed inset-0 z-40 bg-ink/25 backdrop-blur-[2px] transition-opacity', open ? 'opacity-100' : 'pointer-events-none opacity-0')} onClick={onClose} aria-hidden />
       <section
         role="dialog"
         aria-hidden={!open}
         className={cx(
-          'fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-3xl border-t border-line-2 bg-surface shadow-soft transition-transform duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]',
+          'fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-2xl border-t border-line bg-bg shadow-soft transition-transform duration-300 ease-audora',
           height === 'tall' ? 'h-[78dvh]' : 'h-[58dvh]',
           open ? 'translate-y-0' : 'translate-y-full',
         )}
@@ -35,8 +35,8 @@ export function BottomSheet({ open, onClose, title, children, height = 'half' }:
           <span className="mx-auto h-1 w-10 rounded-full bg-line-2" />
         </div>
         <div className="flex items-center justify-between px-4 pb-2">
-          <div className="text-sm font-medium text-ink">{title}</div>
-          <button type="button" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 hover:bg-surface-2 hover:text-ink" aria-label="Close">
+          <div className="micro">{title}</div>
+          <button type="button" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-full text-ink-2 hover:bg-surface hover:text-ink" aria-label="Close">
             <Icon.X size={16} />
           </button>
         </div>

@@ -499,7 +499,7 @@ export default function NewTour() {
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 md:px-6 md:py-10">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <div className="text-[11px] uppercase tracking-[0.16em] text-accent-2">New tour{demo ? ' · demo' : ''}</div>
+          <div className="micro">New tour{demo ? ' · demo' : ''}</div>
           <h1 className="display mt-1 text-3xl text-ink md:text-4xl">
             {step === 0
               ? 'Where is the listing?'
@@ -517,7 +517,7 @@ export default function NewTour() {
         <div className="flex items-center gap-4 text-sm">
           {!demo && step === 0 && rooms.length === 0 ? (
             <Link to="/new?demo=1" className="text-ink-3 hover:text-ink">
-              No photos handy? <span className="text-accent-2">Try the demo →</span>
+              No photos handy? <span className="font-semibold text-ink">Try the demo →</span>
             </Link>
           ) : null}
           {restored || step > 0 || rooms.length > 0 ? (

@@ -31,7 +31,7 @@ export function StepListing({ listing, onChange }: { listing: DraftListing; onCh
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="panel flex flex-col gap-6 p-5 shadow-sm md:p-6">
       <Segmented
         value={listing.mode}
         onChange={(mode) => onChange({ mode, inferred: mode === 'url' ? listing.inferred : false })}
@@ -121,7 +121,7 @@ export function StepListing({ listing, onChange }: { listing: DraftListing; onCh
             onChange={(e) => onChange({ summary: e.target.value })}
             rows={2}
             placeholder="Top-floor flat, empty since June."
-            className="w-full resize-y rounded-xl border border-line-2 bg-bg-2 px-3 py-2 text-sm text-ink placeholder:text-ink-3 outline-none transition-colors focus:border-accent/60 focus:ring-2 focus:ring-accent/20"
+            className="w-full resize-y rounded-[10px] border border-line-2 bg-bg px-3 py-2 text-sm text-ink placeholder:text-faint outline-none transition-colors focus:border-ink focus:ring-[3px] focus:ring-accent-soft"
           />
         </Field>
       </div>

@@ -51,7 +51,7 @@ export function UpgradeBanner({ jobs, rooms, compact, className }: UpgradeBanner
     <div className={cx('panel flex flex-col gap-3 p-4', className)}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm text-ink">
-          <span className="text-accent-2">
+          <span className="text-ink">
             <Icon.Zap size={16} />
           </span>
           <span className="mono">{upgradeLine(elapsed, remaining, allQueued)}</span>
@@ -76,7 +76,7 @@ export function UpgradeBanner({ jobs, rooms, compact, className }: UpgradeBanner
             <Icon.Bell size={14} /> Notify me
           </Button>
         ) : (
-          <span className="mono text-[11px] text-ok">{perm === 'granted' ? 'browser notifications on' : ''}</span>
+          <span className="mono text-[11px] text-dim">{perm === 'granted' ? 'browser notifications on' : ''}</span>
         )}
       </div>
     </div>

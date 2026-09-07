@@ -70,10 +70,10 @@ export function StepAnchor({ rooms, activeId, onActive, onRecipe, onMeasured, re
                   onClick={() => onActive(r.id)}
                   className={cx(
                     'flex w-full items-center gap-3 rounded-xl border px-3 py-2 text-left transition-colors',
-                    r.id === active.id ? 'border-accent/50 bg-accent/10' : 'border-line bg-surface hover:bg-surface-2',
+                    r.id === active.id ? 'border-accent bg-accent/5' : 'border-line bg-surface hover:bg-surface-2',
                   )}
                 >
-                  <span className={cx('flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[11px]', ok ? 'border-ok/50 bg-ok/15 text-ok' : 'border-line-2 text-ink-3')}>
+                  <span className={cx('flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[11px]', ok ? 'border-ink/25 bg-surface text-ink' : 'border-line-2 text-ink-3')}>
                     {ok ? <Icon.Check size={13} /> : <span className="mono">{i + 1}</span>}
                   </span>
                   <span className="min-w-0">
@@ -278,9 +278,9 @@ function PhotoPanel({ room, onRecipe }: { room: DraftRoom; onRecipe: (r: AnchorR
                 <button
                   type="button"
                   onClick={() => choose(m.value)}
-                  className={cx('flex w-full items-start gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors', on ? 'border-accent/50 bg-accent/10' : 'border-line bg-surface hover:bg-surface-2')}
+                  className={cx('flex w-full items-start gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors', on ? 'border-accent bg-accent/5' : 'border-line bg-surface hover:bg-surface-2')}
                 >
-                  <span className={cx('mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border', on ? 'border-accent/40 text-accent-2' : 'border-line-2 text-ink-3')}>
+                  <span className={cx('mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border', on ? 'border-accent text-ink' : 'border-line-2 text-ink-3')}>
                     <I size={15} />
                   </span>
                   <span className="min-w-0">
@@ -409,7 +409,7 @@ function DerivedPanel({ anchor, declared, g, warnings }: { anchor: ReturnType<ty
   return (
     <div className={cx('panel flex flex-col gap-3 p-4', declared && 'ring-accent')}>
       <div className="flex items-center justify-between">
-        <div className="text-[11px] uppercase tracking-[0.12em] text-ink-3">Derived dimensions</div>
+        <div className="micro">Derived dimensions</div>
         <span className="mono text-[11px] text-ink-3">W × D × H</span>
       </div>
       <div className={cx('mono flex flex-wrap items-baseline gap-x-2 gap-y-1 text-3xl leading-none', declared ? 'text-ink' : 'text-ink-3')}>
@@ -472,7 +472,7 @@ function TapImage({
   const prompt = !tapping ? 'Typed measurement: no taps needed' : taps.length === 0 ? `Tap the top of the ${kind}` : taps.length === 1 ? `Now tap the bottom of the ${kind}` : `${kind} spans ${Math.round((f ?? 0) * 100)}% of the frame · tap again to redo`;
   return (
     <div className="flex flex-col gap-2">
-      <div ref={ref} onClick={click} className={cx('relative select-none overflow-hidden rounded-2xl border border-line bg-bg-2', tapping && 'cursor-crosshair')}>
+      <div ref={ref} onClick={click} className={cx('relative select-none overflow-hidden rounded-2xl border border-line bg-surface shadow-soft', tapping && 'cursor-crosshair')}>
         <img src={photo.dataUrl} alt="" draggable={false} className="block w-full" />
         <svg viewBox={`0 0 ${W} ${H}`} className="pointer-events-none absolute inset-0 h-full w-full">
           {suggestion && tapping ? (
@@ -482,7 +482,7 @@ function TapImage({
               width={suggestion.w * W}
               height={suggestion.h * H}
               rx={W * 0.004}
-              fill="rgba(111,191,138,0.08)"
+              fill="color-mix(in srgb, var(--color-ok) 10%, transparent)"
               stroke="var(--color-ok)"
               strokeWidth={Math.max(2, W * 0.0028)}
               strokeDasharray={`${W * 0.012} ${W * 0.008}`}
@@ -493,8 +493,8 @@ function TapImage({
           ) : null}
           {taps.map((t, i) => (
             <g key={i}>
-              <circle cx={t.x * W} cy={t.y * H} r={r * 2} fill="rgba(232,115,74,0.22)" />
-              <circle cx={t.x * W} cy={t.y * H} r={r} fill="var(--color-accent)" stroke="#1a0f0a" strokeWidth={r * 0.35} />
+              <circle cx={t.x * W} cy={t.y * H} r={r * 2} fill="rgb(10 10 10 / 0.18)" />
+              <circle cx={t.x * W} cy={t.y * H} r={r} fill="var(--color-accent)" stroke="var(--color-bg)" strokeWidth={r * 0.35} />
               <line x1={t.x * W - r * 3} y1={t.y * H} x2={t.x * W + r * 3} y2={t.y * H} stroke="var(--color-accent)" strokeWidth={Math.max(1.5, W * 0.002)} />
             </g>
           ))}
@@ -513,7 +513,7 @@ function TapImage({
               e.stopPropagation();
               onUseSuggestion();
             }}
-            className="chip absolute border-ok/50 bg-bg/85 text-ok hover:bg-ok/15"
+            className="chip absolute border-ink/25 bg-bg/85 text-ink hover:bg-surface"
             style={{ left: `${Math.min(suggestion.x, 0.7) * 100}%`, top: `${suggestion.y * 100}%`, transform: 'translate(0, -120%)' }}
           >
             <Icon.Sparkles size={12} /> AI found a door here · use it
@@ -590,7 +590,7 @@ function MeasuredPanel({ room, onMeasured }: { room: DraftRoom; onMeasured: (m: 
             The floor plan named this room but printed no dimensions for it, so every number below is a ±30 cm guess. Type the far wall and the rest becomes real by construction.
           </Callout>
         ) : (
-          <Callout tone="ok" title="Already anchored">
+          <Callout tone="info" title="Already anchored">
             The far wall <span className="mono">{g.width.toFixed(2)} m</span> is the reference, so every other number is real by construction.{' '}
             {room.planRoom && anchor.method === 'floorplan' ? 'It came off the plan, which carries ±5 cm. Typing it yourself with a tape is tighter.' : 'How it was measured sets the ±.'}
           </Callout>

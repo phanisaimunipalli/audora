@@ -55,7 +55,7 @@ export function GeneratingView({
       <div className="panel flex flex-col gap-4 p-5">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.16em] text-accent-2">Generating</div>
+            <div className="micro">Generating</div>
             <div className="display mt-1 text-2xl text-ink md:text-3xl">
               {status.ready} of {status.total} room{status.total === 1 ? '' : 's'} ready
             </div>
@@ -83,7 +83,7 @@ export function GeneratingView({
                 <span className="mono text-[11px] text-ink-3">status: {perm}</span>
               </div>
             ) : perm === 'granted' ? (
-              <span className="mono text-[11px] text-ok">browser notifications on{tour.notify.email ? ` · email ${tour.notify.email}` : ''}</span>
+              <span className="mono text-[11px] text-dim">browser notifications on{tour.notify.email ? ` · email ${tour.notify.email}` : ''}</span>
             ) : null}
           </div>
         </Callout>

@@ -32,29 +32,29 @@ function ScaleFigure() {
   const total = x - gap + 12;
   return (
     <svg viewBox={`0 0 ${total} 262`} className="block h-auto w-full" role="img" aria-label="The same room drawn at three scales next to a person of fixed height">
-      <line x1={0} y1={base + 0.5} x2={total} y2={base + 0.5} stroke="#3d362f" strokeWidth={1} />
+      <line x1={0} y1={base + 0.5} x2={total} y2={base + 0.5} stroke="var(--color-line-2)" strokeWidth={1} />
       {items.map((it) => {
         const px = it.px;
         const head = base - person + 5;
         const label = (it.x + it.w + 28) / 2 + it.x / 2;
         return (
           <g key={it.caption}>
-            <rect x={it.x} y={base - it.h} width={it.w} height={it.h} fill="#1b1816" stroke="#bfb3a3" strokeWidth={1.2} />
-            <rect x={it.x + Math.max(4, it.w * 0.12)} y={base - it.doorH} width={it.doorW} height={it.doorH} fill="rgba(232,115,74,0.18)" stroke="#e8734a" strokeWidth={1.2} />
-            <g stroke="#f4eee5" strokeWidth={1.6} strokeLinecap="round" fill="none">
-              <circle cx={px} cy={head} r={5} fill="#f4eee5" stroke="none" />
+            <rect x={it.x} y={base - it.h} width={it.w} height={it.h} fill="var(--color-surface)" stroke="var(--color-ink)" strokeWidth={1.2} />
+            <rect x={it.x + Math.max(4, it.w * 0.12)} y={base - it.doorH} width={it.doorW} height={it.doorH} fill="rgba(122,106,63,0.14)" stroke="var(--color-gold)" strokeWidth={1.2} />
+            <g stroke="var(--color-ink)" strokeWidth={1.6} strokeLinecap="round" fill="none">
+              <circle cx={px} cy={head} r={5} fill="var(--color-ink)" stroke="none" />
               <line x1={px} y1={head + 6} x2={px} y2={base - person * 0.42} />
               <line x1={px - 9} y1={head + 22} x2={px + 9} y2={head + 22} />
               <line x1={px} y1={base - person * 0.42} x2={px - 7} y2={base} />
               <line x1={px} y1={base - person * 0.42} x2={px + 7} y2={base} />
             </g>
-            <text x={label} y={base + 18} textAnchor="middle" fontSize={11} fill="#bfb3a3" style={{ fontFamily: 'var(--font-sans)' }}>
+            <text x={label} y={base + 18} textAnchor="middle" fontSize={11} fill="var(--color-dim)" style={{ fontFamily: 'var(--font-sans)' }}>
               {it.caption}
             </text>
-            <text x={label} y={base + 32} textAnchor="middle" fontSize={10} fill={it.s === 1 ? '#f2a67f' : '#7f7468'} style={{ fontFamily: 'var(--font-mono)' }}>
+            <text x={label} y={base + 32} textAnchor="middle" fontSize={10} fill={it.s === 1 ? 'var(--color-gold)' : 'var(--color-faint)'} style={{ fontFamily: 'var(--font-mono)' }}>
               door {(g.door.height * it.s).toFixed(2)} m
             </text>
-            <text x={label} y={base + 45} textAnchor="middle" fontSize={10} fill={it.s === 1 ? '#f2a67f' : '#7f7468'} style={{ fontFamily: 'var(--font-mono)' }}>
+            <text x={label} y={base + 45} textAnchor="middle" fontSize={10} fill={it.s === 1 ? 'var(--color-gold)' : 'var(--color-faint)'} style={{ fontFamily: 'var(--font-mono)' }}>
               ceiling {(g.height * it.s).toFixed(2)} m
             </text>
           </g>
@@ -68,7 +68,7 @@ export function AnchorMoment() {
   const g = HERO_ROOM.geometry;
   const worst = MISTAP.warnings.find((w) => w.field === 'height') ?? MISTAP.warnings[0];
   return (
-    <Section id="anchor" className="bg-bg-2/60">
+    <Section id="anchor" className="border-y border-line bg-surface">
       <div className="grid gap-12 lg:grid-cols-12 lg:gap-10">
         <div className="lg:col-span-5">
           <Reveal>
@@ -116,7 +116,7 @@ export function AnchorMoment() {
                       <div className="text-base font-medium text-ink">{m.title}</div>
                       <div className="mt-0.5 text-xs text-ink-3">{m.how}</div>
                     </div>
-                    <div className="mono text-2xl leading-none text-accent-2">±{Math.round(m.anchor.uncertaintyM * 100)}<span className="text-sm text-ink-3">cm</span></div>
+                    <div className="mono text-2xl leading-none text-gold">±{Math.round(m.anchor.uncertaintyM * 100)}<span className="text-sm text-ink-3">cm</span></div>
                   </div>
                   <AnchorChip anchor={m.anchor} size="sm" className="self-start" />
                   <p className="text-sm leading-relaxed text-ink-2">{m.why}</p>

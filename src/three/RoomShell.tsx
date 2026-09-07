@@ -92,7 +92,7 @@ export function wallFrame(wall: WallSide): { rotY: number; alongSign: 1 | -1 } {
 
 type Registry = { sky: THREE.Object3D[]; hallCeiling: THREE.Object3D[] };
 
-const TRIM = '#ece6da';
+const TRIM = '#ffffff';
 const WALLS: WallSide[] = ['north', 'south', 'east', 'west'];
 
 function Window({ w, alongSign, room, opacity, windowLight, glow, registry }: { w: WindowSpec; alongSign: 1 | -1; room: RoomGeometry; opacity: number; windowLight: boolean; glow: boolean; registry: Registry }) {
@@ -271,15 +271,15 @@ function Wall({ room, wall, color, opacity, hallway, windowLight, glow, visibleR
               </mesh>
               <mesh rotation={[0, Math.PI / 2, 0]} position={[-hw / 2, H / 2, -T / 2 - hd / 2]}>
                 <planeGeometry args={[hd, H]} />
-                <meshStandardMaterial color="#d8cfc2" roughness={0.95} />
+                <meshStandardMaterial color="#e4e2de" roughness={0.95} />
               </mesh>
               <mesh rotation={[0, -Math.PI / 2, 0]} position={[hw / 2, H / 2, -T / 2 - hd / 2]}>
                 <planeGeometry args={[hd, H]} />
-                <meshStandardMaterial color="#d8cfc2" roughness={0.95} />
+                <meshStandardMaterial color="#e4e2de" roughness={0.95} />
               </mesh>
               <mesh position={[0, H / 2, -T / 2 - hd]}>
                 <planeGeometry args={[hw, H]} />
-                <meshStandardMaterial color="#cfc5b7" roughness={0.95} />
+                <meshStandardMaterial color="#dcd9d4" roughness={0.95} />
               </mesh>
               {/* a second doorway down the hall, for depth */}
               <mesh position={[hw * 0.18, 1.0, -T / 2 - hd + 0.01]} userData={{ measureIgnore: true }}>
@@ -288,14 +288,14 @@ function Wall({ room, wall, color, opacity, hallway, windowLight, glow, visibleR
               </mesh>
               <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, H, -T / 2 - hd / 2]} ref={hallCeilingRef}>
                 <planeGeometry args={[hw, hd]} />
-                <meshStandardMaterial color="#e6e0d5" roughness={1} />
+                <meshStandardMaterial color="#efeeea" roughness={1} />
               </mesh>
               <pointLight position={[0, H - 0.25, -T / 2 - hd * 0.5]} intensity={5} distance={6} decay={2} color="#ffd8ac" />
               {/* the door leaf, swung open into the hall */}
               <group position={[-door.width / 2, 0, -T / 2]} rotation={[0, 1.72, 0]}>
                 <mesh position={[door.width / 2, door.height / 2, -0.02]} castShadow>
                   <boxGeometry args={[door.width, door.height - 0.01, 0.04]} />
-                  <meshStandardMaterial color="#efe9df" roughness={0.45} />
+                  <meshStandardMaterial color="#f6f5f2" roughness={0.45} />
                 </mesh>
                 <mesh position={[door.width - 0.07, 1.0, -0.055]}>
                   <sphereGeometry args={[0.022, 12, 12]} />
@@ -343,7 +343,7 @@ export function RoomShell({
   showCeiling = true,
   showGrid = false,
   floorColor,
-  wallColor = '#e7dfd2',
+  wallColor = '#f1f0ed',
   opacity = 1,
   floorStyle = 'oak',
   hallway = true,
@@ -414,14 +414,14 @@ export function RoomShell({
         <meshStandardMaterial
           map={floor.map}
           roughnessMap={floor.roughnessMap}
-          color={floorColor ?? (floorStyle === 'plain' ? '#b89a7a' : '#ffffff')}
+          color={floorColor ?? (floorStyle === 'plain' ? '#cdbba4' : '#ffffff')}
           roughness={floor.roughness}
           metalness={0.02}
           transparent={opacity < 1}
           opacity={opacity}
         />
       </mesh>
-      {showGrid ? <gridHelper args={[Math.max(room.width, room.depth), Math.round(Math.max(room.width, room.depth)), '#5a4d40', '#3a322b']} position={[0, 0.003, 0]} /> : null}
+      {showGrid ? <gridHelper args={[Math.max(room.width, room.depth), Math.round(Math.max(room.width, room.depth)), '#c4c4c4', '#dcdcdc']} position={[0, 0.003, 0]} /> : null}
       {showCeiling ? (
         /* A ceiling plane faces down, so it catches the hemisphere's *ground* colour and none of the
            sun: left to the lights alone it renders near-black, and standing in the room you see a
@@ -429,7 +429,7 @@ export function RoomShell({
            anyway — it is lit by everything the room bounces up at it. */
         <mesh ref={ceiling} rotation={[Math.PI / 2, 0, 0]} position={[0, room.height, 0]} userData={{ audoraCeiling: room.height }}>
           <planeGeometry args={[room.width, room.depth]} />
-          <meshStandardMaterial color="#f3eee6" roughness={1} emissive="#e9dcc9" emissiveIntensity={0.42} transparent={opacity < 1} opacity={opacity} />
+          <meshStandardMaterial color="#fafafa" roughness={1} emissive="#f0efec" emissiveIntensity={0.42} transparent={opacity < 1} opacity={opacity} />
         </mesh>
       ) : null}
       {WALLS.map((w) => (

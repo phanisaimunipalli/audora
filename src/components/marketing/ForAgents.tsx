@@ -69,7 +69,7 @@ function DashboardMock({ demo }: { demo: Demo }) {
   const { summary } = demo;
   const maxWalked = Math.max(1, ...summary.rooms.map((r) => r.walked));
   return (
-    <div className="panel overflow-hidden">
+    <div className="panel overflow-hidden shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
         <div>
           <div className="text-sm font-medium text-ink">{demo.title}</div>
@@ -91,14 +91,14 @@ function DashboardMock({ demo }: { demo: Demo }) {
         />
       </div>
       <div className="border-t border-line px-5 py-5">
-        <div className="mb-3 text-[11px] uppercase tracking-[0.12em] text-ink-3">Per room</div>
+        <div className="mb-3 micro">Per room</div>
         <div className="flex flex-col gap-3">
           {summary.rooms.map((r) => (
             <div key={r.roomId} className="grid grid-cols-[1fr_auto] items-center gap-3 sm:grid-cols-[150px_1fr_auto]">
               <div className="truncate text-sm text-ink" title={r.name}>
                 {r.name}
               </div>
-              <div className="col-span-2 flex h-2 overflow-hidden rounded-full bg-surface-3 sm:col-span-1">
+              <div className="col-span-2 flex h-2 overflow-hidden rounded-full bg-surface-2 sm:col-span-1">
                 <div className="h-full bg-ink-3/70" style={{ width: `${(r.walked / maxWalked) * 100}%` }} />
               </div>
               <div className="mono flex items-center gap-3 text-xs sm:justify-self-end">
@@ -112,7 +112,7 @@ function DashboardMock({ demo }: { demo: Demo }) {
       </div>
       {demo.pieces.length ? (
         <div className="border-t border-line px-5 py-5">
-          <div className="mb-3 text-[11px] uppercase tracking-[0.12em] text-ink-3">Most tested pieces</div>
+          <div className="mb-3 micro">Most tested pieces</div>
           <div className="flex flex-col gap-2">
             {demo.pieces.map((p) => (
               <div key={p.name} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -172,8 +172,8 @@ export function ForAgents() {
           <div className="mt-8 flex flex-col gap-3">
             {changes(demo).map((c, i) => (
               <Reveal key={c.title} delay={0.06 * i}>
-                <div className="flex gap-4 rounded-2xl border border-line bg-surface/60 p-4">
-                  <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-accent/40 bg-accent/10 text-accent-2">
+                <div className="flex gap-4 rounded-2xl border border-line bg-surface p-4">
+                  <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-bg text-ink shadow-sm">
                     <Icon.Chart size={16} />
                   </span>
                   <div>

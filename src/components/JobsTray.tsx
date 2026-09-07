@@ -69,20 +69,20 @@ export function JobsTray() {
         aria-label="Generation jobs"
         aria-expanded={open}
         title={active.length ? `${active.length} generating` : unseen.length ? `${unseen.length} finished` : 'Generation jobs'}
-        className={cx('relative inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-colors', open ? 'border-accent/50 bg-accent/10 text-accent-2' : 'border-line-2 bg-surface-2 text-ink-2 hover:text-ink')}
+        className={cx('relative inline-flex h-9 w-9 items-center justify-center rounded-full border transition-colors duration-200 ease-audora', open ? 'border-accent bg-accent text-white' : 'border-line-2 bg-bg text-ink-2 hover:border-ink-2 hover:text-ink')}
       >
-        {active.length > 0 ? <span className="absolute inset-0 animate-pulse-soft rounded-lg ring-2 ring-accent/50" /> : null}
+        {active.length > 0 ? <span className="absolute -inset-px animate-pulse-soft rounded-full ring-2 ring-ink/25" /> : null}
         <Icon.Bell size={17} />
         {badge > 0 ? (
-          <span className={cx('mono absolute -right-1 -top-1 h-4 min-w-4 rounded-full px-1 text-[10px] font-semibold leading-4', active.length > 0 ? 'bg-accent text-[#1a0f0a]' : 'bg-ok text-[#08131f]')}>{badge}</span>
+          <span className={cx('mono absolute -right-1 -top-1 h-4 min-w-4 rounded-full px-1 text-[10px] font-semibold leading-4 text-white', active.length > 0 ? 'bg-accent' : 'bg-ink')}>{badge}</span>
         ) : null}
       </button>
 
       {open ? (
-        <div className="popover animate-rise fixed inset-x-3 top-16 z-50 flex flex-col gap-3 rounded-2xl p-3 shadow-soft sm:absolute sm:inset-x-auto sm:right-0 sm:top-11 sm:w-[420px]">
+        <div className="popover animate-rise fixed inset-x-3 top-16 z-50 flex flex-col gap-3 rounded-2xl p-3.5 sm:absolute sm:inset-x-auto sm:right-0 sm:top-11 sm:w-[420px]">
           <div className="flex items-center justify-between px-1">
-            <span className="text-sm font-medium text-ink">Generation</span>
-            <span className="mono text-[11px] text-ink-3">
+            <span className="micro">Generation</span>
+            <span className="mono text-[11px] text-faint">
               {active.length} running · {recent.length} recent
             </span>
           </div>
@@ -93,21 +93,21 @@ export function JobsTray() {
                 const n = name(j);
                 const remaining = jobRemaining(j, now);
                 return (
-                  <li key={j.id} className="rounded-xl border border-line bg-surface p-3">
+                  <li key={j.id} className="rounded-xl border border-line bg-bg p-3 shadow-sm">
                     <Link to={`/tours/${j.tourId}`} onClick={() => setOpen(false)} className="flex flex-col gap-1.5">
                       <div className="flex items-start justify-between gap-2">
                         <span className="min-w-0 text-sm text-ink">
                           <span className="flex items-center gap-1.5">
                             <span className="truncate" title={n.room}>{n.room}</span>
                             {/* The tier is the money question, so it is a chip, not a footnote. */}
-                            <Chip mono tone={j.tier === 'full' ? 'ok' : 'neutral'} className="!text-[10px]">
+                            <Chip mono tone={j.tier === 'full' ? 'accent' : 'neutral'} className="!text-[10px] !px-2 !py-0.5">
                               {j.tier}
                             </Chip>
                           </span>
-                          <span className="block truncate text-xs text-ink-3" title={n.tour}>{n.tour}</span>
+                          <span className="block truncate text-xs text-dim" title={n.tour}>{n.tour}</span>
                           {j.upgrade ? (
                             <span
-                              className="block truncate text-xs text-accent-2"
+                              className="block truncate text-xs text-gold"
                               title={upgradeLine(jobElapsed(j, now), remaining, j.status === 'queued')}
                             >
                               Upgrading to full quality
@@ -117,7 +117,7 @@ export function JobsTray() {
                         <span className="mono shrink-0 text-xs text-ink-2">{clock(jobElapsed(j, now))}</span>
                       </div>
                       <Progress value={j.progress} />
-                      <div className="mono flex items-center justify-between gap-2 text-[11px] text-ink-3">
+                      <div className="mono flex items-center justify-between gap-2 text-[11px] text-dim">
                         {/* The step is the long part and the only one worth eliding: "simulated" is
                             the line that says no credits are being spent, so it stays whole. */}
                         <span className="flex min-w-0 items-center gap-1">
@@ -132,12 +132,12 @@ export function JobsTray() {
               })}
             </ul>
           ) : (
-            <div className="px-1 text-xs text-ink-3">Nothing is generating right now.</div>
+            <div className="px-1 text-xs text-dim">Nothing is generating right now.</div>
           )}
 
           {recent.length ? (
             <>
-              <div className="px-1 text-[11px] uppercase tracking-[0.12em] text-ink-3">Recently finished</div>
+              <div className="micro px-1">Recently finished</div>
               <ul className="flex flex-col gap-1">
                 {recent.map((j) => {
                   const n = name(j);
@@ -147,16 +147,16 @@ export function JobsTray() {
                       <Link
                         to={`/tours/${j.tourId}`}
                         onClick={() => setOpen(false)}
-                        className={cx('flex items-center gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-surface-2', hot && 'bg-ok/10')}
+                        className={cx('flex items-center gap-2.5 rounded-[10px] px-2 py-1.5 transition-colors hover:bg-surface', hot && 'bg-surface-2')}
                       >
-                        <span className={cx('flex h-5 w-5 shrink-0 items-center justify-center rounded-full', j.status === 'done' ? 'bg-ok/15 text-ok' : 'bg-danger/15 text-danger')}>
+                        <span className={cx('flex h-5 w-5 shrink-0 items-center justify-center rounded-full', j.status === 'done' ? 'bg-surface-2 text-ink' : 'bg-danger-soft text-danger')}>
                           {j.status === 'done' ? <Icon.Check size={12} /> : <Icon.Warning size={12} />}
                         </span>
                         <span className="min-w-0 flex-1 text-sm text-ink" title={`${n.room} · ${n.tour}`}>
                           <span className="block truncate">{n.room}</span>
-                          <span className="block truncate text-[11px] text-ink-3">{n.tour}</span>
+                          <span className="block truncate text-[11px] text-dim">{n.tour}</span>
                         </span>
-                        <span className="mono shrink-0 text-[11px] text-ink-3">
+                        <span className="mono shrink-0 text-[11px] text-faint">
                           {/* Only "full quality ready" when the buyer is actually getting it: a simulated full
                               never displaces a real capture, and the tray must not claim otherwise. */}
                           {j.status === 'done' && j.upgrade ? (fullIsShadowed(rooms[j.roomId]) ? 'simulated full attached' : 'full quality ready') : j.tier} ·{' '}
@@ -170,7 +170,7 @@ export function JobsTray() {
             </>
           ) : null}
 
-          <Link to="/tours" onClick={() => setOpen(false)} className="px-1 text-xs text-accent-2 hover:text-accent">
+          <Link to="/tours" onClick={() => setOpen(false)} className="px-1 text-xs font-semibold text-ink underline decoration-line-2 underline-offset-4 hover:decoration-ink">
             All tours →
           </Link>
         </div>

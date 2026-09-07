@@ -95,20 +95,20 @@ function TourRow({ tour, roomCount, readyCount, summary }: { tour: ReturnType<ty
     <Card className="grid gap-5 lg:grid-cols-[1.2fr_1.6fr_1fr] lg:items-center">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <Link to={`/tours/${tour.id}`} className="display truncate text-2xl text-ink hover:text-accent-2">
+          <Link to={`/tours/${tour.id}`} className="display truncate text-2xl text-ink hover:text-ink-2">
             {tour.title}
           </Link>
-          {tour.published ? <Chip tone="ok">Published</Chip> : <Chip>Draft</Chip>}
+          {tour.published ? <Chip tone="accent">Published</Chip> : <Chip>Draft</Chip>}
         </div>
         <div className="mt-0.5 truncate text-sm text-ink-3">{tour.address}</div>
         <div className="mono mt-2 text-[11px] text-ink-3">
           {readyCount}/{roomCount} {roomCount === 1 ? 'room' : 'rooms'} ready · {tour.price ?? '—'} · updated {timeAgo(tour.updatedAt)}
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
-          <Link to={`/tours/${tour.id}?tab=insights`} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line-2 bg-surface-2 px-3 text-[13px] text-ink hover:bg-surface-3">
+          <Link to={`/tours/${tour.id}?tab=insights`} className="ease-audora inline-flex h-8 items-center gap-1.5 rounded-full border border-line-2 bg-bg px-3.5 text-[12.5px] font-semibold text-ink transition-colors duration-200 hover:border-ink-2">
             <Icon.Chart size={14} /> Open insights
           </Link>
-          <Link to={`/t/${tour.shareId}`} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] text-ink-2 hover:bg-surface-2 hover:text-ink">
+          <Link to={`/t/${tour.shareId}`} target="_blank" rel="noreferrer" className="ease-audora inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-[12.5px] font-semibold text-dim transition-colors duration-200 hover:bg-surface hover:text-ink">
             <Icon.Walk size={14} /> Buyer view
           </Link>
         </div>

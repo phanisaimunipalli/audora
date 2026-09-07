@@ -49,12 +49,12 @@ export function SiteCard({ tour, rooms = [], className }: { tour: Tour; rooms?: 
 
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] uppercase tracking-[0.16em] text-accent-2">Site</span>
+          <span className="micro">Site</span>
           <Chip mono className="!text-[10px]">
             {site.lat.toFixed(4)}, {site.lon.toFixed(4)}
           </Chip>
           {site.footprint ? (
-            <Chip mono tone="ok" className="!text-[10px]">
+            <Chip mono className="!text-[10px]">
               OSM footprint
             </Chip>
           ) : (
@@ -68,10 +68,10 @@ export function SiteCard({ tour, rooms = [], className }: { tour: Tour; rooms?: 
         </div>
         <div className="mono flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-2">
           <span className="inline-flex items-center gap-1">
-            <Icon.Cursor size={12} className="text-accent-2" /> windows face {Math.round(facing)}° · {compassLabel(facing)}
+            <Icon.Cursor size={12} className="text-dim" /> windows face {Math.round(facing)}° · {compassLabel(facing)}
           </span>
           <span className="inline-flex items-center gap-1">
-            <Icon.Sun size={12} className="text-accent-2" />
+            <Icon.Sun size={12} className="text-dim" />
             {times?.sunrise ? clockLabel(times.sunrise) : '—'} → {times?.sunset ? clockLabel(times.sunset) : '—'}
             {upFor ? ` · ${upFor}` : ''}
           </span>
@@ -99,13 +99,13 @@ function Rose({ heading, sunAzimuth }: { heading: number; sunAzimuth: number | n
   const sun = sunAzimuth == null ? null : at(sunAzimuth, r - 3);
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden className="shrink-0">
-      <circle cx={c} cy={c} r={r + 5} fill="#171412" stroke="#2a2522" />
-      <text x={c} y={10} textAnchor="middle" fontSize={8} fill="#8a807a" className="mono">
+      <circle cx={c} cy={c} r={r + 5} fill="var(--color-bg)" stroke="var(--color-line)" />
+      <text x={c} y={10} textAnchor="middle" fontSize={8} fill="var(--color-faint)" className="mono">
         N
       </text>
-      {sun ? <circle cx={sun.x} cy={sun.y} r={3} fill="#ffd08a" /> : null}
-      <line x1={c} y1={c} x2={tip.x} y2={tip.y} stroke="#e8734a" strokeWidth={2.5} strokeLinecap="round" />
-      <circle cx={c} cy={c} r={2.5} fill="#e8e2d8" />
+      {sun ? <circle cx={sun.x} cy={sun.y} r={3} fill="var(--color-gold)" /> : null}
+      <line x1={c} y1={c} x2={tip.x} y2={tip.y} stroke="var(--color-ink)" strokeWidth={2.5} strokeLinecap="round" />
+      <circle cx={c} cy={c} r={2.5} fill="var(--color-bg)" />
     </svg>
   );
 }

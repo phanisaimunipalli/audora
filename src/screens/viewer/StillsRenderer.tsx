@@ -13,6 +13,7 @@ import { StagingLayer } from '@/three/furniture/StagingLayer';
 import { useViewer } from '@/three/viewerStore';
 import { captureStills, compositeSpecs, stillSpecs, type StillSpec } from '@/three/stills';
 import * as THREE from 'three';
+import { HOUSE_BG } from '@/three/SceneCanvas';
 import { floorOffsetOf, isReal } from './marble';
 
 export interface Still {
@@ -200,7 +201,8 @@ export function StillsRenderer({ room, width = 1600, height = 1000, specs, sun, 
   return (
     <div aria-hidden style={{ position: 'fixed', left: -4200, top: 0, width: 840, height: 525, pointerEvents: 'none' }}>
       <Canvas shadows={{ type: THREE.PCFShadowMap }} dpr={1} frameloop="never" gl={{ antialias: true, preserveDrawingBuffer: true }} camera={{ fov: 60, near: 0.05, far: 200, position: [3, 2, 4] }}>
-        <color attach="background" args={['#0e0d0c']} />
+        {/* The house ground: a listing still of a simulated room is a white-page picture, not a night shot. */}
+        <color attach="background" args={[HOUSE_BG]} />
         {real ? (
           <MarbleWorld
             world={real}

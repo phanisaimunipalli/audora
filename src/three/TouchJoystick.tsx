@@ -125,8 +125,8 @@ export function TouchJoystick({ className, size = 128, deadZone = 0.14, onChange
         touchAction: 'none',
         userSelect: 'none',
         WebkitUserSelect: 'none',
-        background: 'radial-gradient(circle, rgba(27,24,22,0.55) 0%, rgba(27,24,22,0.25) 70%, rgba(27,24,22,0) 100%)',
-        border: '1px solid rgba(61,54,47,0.7)',
+        background: 'radial-gradient(circle, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0.4) 70%, rgba(255,255,255,0) 100%)',
+        border: '1px solid rgba(10,10,10,0.1)',
         backdropFilter: 'blur(10px)',
         WebkitBackdropFilter: 'blur(10px)',
       }}
@@ -142,11 +142,11 @@ export function TouchJoystick({ className, size = 128, deadZone = 0.14, onChange
           borderRadius: '50%',
           transform: `translate(calc(-50% + ${knob.x * (size / 2 - k / 2)}px), calc(-50% + ${knob.y * (size / 2 - k / 2)}px))`,
           transition: active.current === null ? 'transform 160ms cubic-bezier(0.2,0.8,0.2,1)' : 'none',
-          background: 'rgba(244,238,229,0.92)',
-          boxShadow: '0 6px 20px -6px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.6)',
+          background: 'rgba(10,10,10,0.86)',
+          boxShadow: '0 6px 20px -8px rgba(10,10,10,0.45), inset 0 1px 0 rgba(255,255,255,0.22)',
         }}
       />
-      <div aria-hidden style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '1px dashed rgba(191,179,163,0.25)', margin: size * 0.18 }} />
+      <div aria-hidden style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '1px dashed rgba(10,10,10,0.16)', margin: size * 0.18 }} />
     </div>
   );
 }

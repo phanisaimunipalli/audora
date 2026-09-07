@@ -32,7 +32,7 @@ export function JobCard({ room, job, now, onPeek, onGenerate }: { room: Room; jo
   return (
     <div className={cx('panel animate-rise flex flex-col gap-4 p-4', running && 'ring-accent')}>
       <div className="flex items-start gap-3">
-        <div className="h-16 w-20 shrink-0 overflow-hidden rounded-xl border border-line bg-bg-2">
+        <div className="h-16 w-20 shrink-0 overflow-hidden rounded-xl border border-line bg-surface">
           {room.photo ? <img src={room.photo.dataUrl} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center p-1"><FloorPlanSvg geometry={room.geometry} showDims={false} className="max-h-full" /></div>}
         </div>
         <div className="min-w-0 flex-1">
@@ -48,7 +48,7 @@ export function JobCard({ room, job, now, onPeek, onGenerate }: { room: Room; jo
             {status === 'queued' ? 'Queued · starts in a moment' : status === 'running' ? `${job?.step} · ${remaining > 0 ? `${eta(remaining)} left` : 'any moment now'}` : status === 'done' ? `Ready in ${clock(elapsed)}` : status === 'failed' ? 'Failed' : 'Not generated yet'}
           </div>
           {upgrade ? (
-            <div className="mt-1 text-xs text-accent-2">Upgrading to full quality · buyers keep walking the draft until it lands.</div>
+            <div className="mt-1 text-xs text-dim">Upgrading to full quality · buyers keep walking the draft until it lands.</div>
           ) : null}
         </div>
         <div className="shrink-0 text-right">
@@ -67,7 +67,7 @@ export function JobCard({ room, job, now, onPeek, onGenerate }: { room: Room; jo
             const detail = stepDetail(s.label, room);
             return (
               <li key={s.label} className={cx('flex items-center gap-2.5 text-sm', done ? 'text-ink-2' : current ? 'text-ink' : 'text-ink-3/70')}>
-                <span className={cx('flex h-5 w-5 shrink-0 items-center justify-center rounded-full border', done ? 'border-ok/50 bg-ok/15 text-ok' : current ? 'border-accent/60 text-accent-2' : 'border-line-2')}>
+                <span className={cx('flex h-5 w-5 shrink-0 items-center justify-center rounded-full border', done ? 'border-ink/25 bg-surface text-ink' : current ? 'border-accent text-ink' : 'border-line-2')}>
                   {done ? <Icon.Check size={12} /> : current ? <Spinner size={11} /> : <span className="h-1 w-1 rounded-full bg-line-2" />}
                 </span>
                 <span>{s.label}</span>

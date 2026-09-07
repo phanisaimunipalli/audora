@@ -28,7 +28,7 @@ export function Bars({ rows, max, unit, className, empty = 'Nothing yet.' }: { r
               {r.note ? <span className="ml-2">{r.note}</span> : null}
             </span>
           </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
             <div className={cx('h-full rounded-full transition-[width] duration-500', TONES[r.tone ?? 'accent'])} style={{ width: `${Math.max(2, (r.value / top) * 100)}%` }} />
           </div>
         </li>

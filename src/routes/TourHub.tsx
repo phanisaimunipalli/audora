@@ -55,7 +55,7 @@ export default function TourHub() {
           title="Tour not found"
           body="It may have been deleted, or it lives in another browser's storage."
           action={
-            <Link to="/tours" className="text-sm text-accent-2 hover:text-accent">
+            <Link to="/tours" className="text-sm text-ink-2 hover:text-ink">
               All tours →
             </Link>
           }
@@ -85,7 +85,7 @@ export default function TourHub() {
           title="This tour has no rooms"
           body="Add rooms from a new tour, or delete this one from the tours list."
           action={
-            <Link to="/new" className="text-sm text-accent-2 hover:text-accent">
+            <Link to="/new" className="text-sm text-ink-2 hover:text-ink">
               Start a new tour →
             </Link>
           }
@@ -98,7 +98,7 @@ export default function TourHub() {
             <Callout tone="info" title={`${status.label} · ${status.progress}%`}>
               <div className="flex flex-wrap items-center gap-2">
                 <span>Rooms still generating will appear here as they land.</span>
-                <button type="button" onClick={() => setShowTabs(false)} className="text-accent-2 hover:text-accent">
+                <button type="button" onClick={() => setShowTabs(false)} className="text-ink-2 hover:text-ink">
                   Back to progress →
                 </button>
               </div>
@@ -142,7 +142,7 @@ export default function TourHub() {
           {tab === 'tour' ? (
             <div className="flex flex-col gap-3">
               {/* Not keyed by room: switching rooms keeps the viewer mounted, so Walk stays Walk and the buyer's test pieces survive. */}
-              <TourViewer tourId={tour.id} roomId={selected?.id} onRoomChange={(id) => setQuery({ room: id })} className="h-[70vh] overflow-hidden rounded-2xl border border-line bg-bg-2" />
+              <TourViewer tourId={tour.id} roomId={selected?.id} onRoomChange={(id) => setQuery({ room: id })} className="h-[70vh] overflow-hidden rounded-2xl border border-line bg-surface" />
               {selected?.status !== 'ready' ? (
                 <Callout tone="warn">
                   {selected?.name} has no reconstruction yet: this is the anchored room shell with the staging. {selected?.status === 'generating' ? 'The splat world will replace it when the job lands.' : ''}

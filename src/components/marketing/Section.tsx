@@ -11,9 +11,9 @@ export function Section({ id, children, className, inner, bleed }: { id?: string
 }
 
 export function Eyebrow({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cx('text-[11px] font-medium uppercase tracking-[0.18em] text-accent-2', className)}>{children}</div>;
+  return <div className={cx('micro', className)}>{children}</div>;
 }
 
 export function Hairline({ className }: { className?: string }) {
-  return <div className={cx('mx-auto h-px max-w-7xl bg-gradient-to-r from-transparent via-line-2 to-transparent', className)} />;
+  return <div className={cx('mx-auto h-px max-w-7xl bg-line', className)} />;
 }

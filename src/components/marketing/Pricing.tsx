@@ -64,8 +64,8 @@ export function Pricing() {
       <div className="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {PLANS.map((p, i) => (
           <Reveal key={p.name} delay={i * 0.06} className="h-full">
-            <div className={cx('panel relative flex h-full flex-col gap-5 p-6', p.highlight && 'ring-accent', p.buyer && 'border-buyer/30')}>
-              {p.highlight ? <span className="chip absolute -top-3 left-5 border-accent/40 bg-accent/15 text-accent-2">Most listings</span> : null}
+            <div className={cx('panel relative flex h-full flex-col gap-5 p-6', p.highlight && 'ring-accent', p.buyer && 'border-buyer-line')}>
+              {p.highlight ? <span className="chip absolute -top-3 left-5 border-accent bg-accent font-semibold text-white">Most listings</span> : null}
               <div>
                 <div className={cx('text-sm font-medium', p.buyer ? 'text-buyer' : 'text-ink-2')}>{p.name}</div>
                 <div className="mt-2 flex items-baseline gap-2">
@@ -77,7 +77,7 @@ export function Pricing() {
               <ul className="flex flex-col gap-2 text-sm text-ink-2">
                 {p.features.map((f) => (
                   <li key={f} className="flex gap-2.5">
-                    <Icon.Check size={16} className={cx('mt-0.5 shrink-0', p.buyer ? 'text-buyer' : 'text-ok')} /> {f}
+                    <Icon.Check size={16} className={cx('mt-0.5 shrink-0', p.buyer ? 'text-buyer' : 'text-ink-2')} /> {f}
                   </li>
                 ))}
               </ul>
@@ -92,7 +92,7 @@ export function Pricing() {
         ))}
       </div>
       <Reveal delay={0.1}>
-        <div className="mt-8 flex flex-col gap-4 rounded-2xl border border-line bg-bg-2/60 p-5 md:flex-row md:items-center md:justify-between">
+        <div className="mt-8 flex flex-col gap-4 rounded-2xl border border-line bg-surface p-5 md:flex-row md:items-center md:justify-between">
           <div className="text-sm text-ink-2">
             <span className="font-medium text-ink">Unit economics.</span> A draft world costs about <span className="mono text-ink">${TIER_INFO.draft.usd.toFixed(2)}</span> to make and a full one about <span className="mono text-ink">${TIER_INFO.full.usd.toFixed(2)}</span>. Traditional staging costs hundreds of dollars a room. That gap is the margin, and it is why the free tier exists.
           </div>

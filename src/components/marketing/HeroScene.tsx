@@ -57,7 +57,7 @@ function Plinth({ room }: { room: RoomGeometry }) {
   return (
     <mesh position={[0, -0.07, 0]} receiveShadow>
       <boxGeometry args={[room.width + 0.7, 0.14, room.depth + 0.7]} />
-      <meshStandardMaterial color="#151210" roughness={1} />
+      <meshStandardMaterial color="#ececec" roughness={1} />
     </mesh>
   );
 }

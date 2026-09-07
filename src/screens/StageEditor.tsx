@@ -28,12 +28,13 @@ import { buildWalkMask, type WalkMask } from '@/three/walkMask';
 import { StagingLayer } from '@/three/furniture/StagingLayer';
 import { PeerCursors } from '@/three/furniture/PeerCursors';
 import { inTextField, throttle } from '@/three/furniture/floor';
-import { CatalogRail } from '@/components/CatalogRail';
 import { FitReportPanel } from '@/components/FitReportPanel';
 import { AnchorChip } from '@/components/AnchorChip';
 import { Icon } from '@/components/icons';
 import { Button, Chip, EmptyState, IconButton, Kbd, Segmented, StagedLabel } from '@/components/ui';
+import { HudPill, RoomStrip } from './viewer/hud';
 import { TopBar, type AutoStageMeta } from './editor/TopBar';
+import { StagePanel } from './editor/StagePanel';
 import { Inspector } from './editor/Inspector';
 import { ShortcutLegend } from './editor/ShortcutLegend';
 import { BottomSheet } from './editor/BottomSheet';
@@ -483,281 +484,294 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
       onEndGesture={stack.endGesture}
     />
   ) : (
-    <div className="rounded-xl border border-dashed border-line-2 px-3 py-4 text-[12px] leading-relaxed text-ink-3">
+    <div className="rounded-xl border border-dashed border-line-2 bg-surface px-3 py-4 text-[12px] leading-relaxed text-dim">
       Select a piece to see its dimensions, turn it, or remove it. Drag it anywhere on the floor; it snaps to walls within <span className="mono">12 cm</span> and turns red the moment it overlaps.
     </div>
   );
 
+  /* The layers and the hour of the day ride in the top bar's pill group, exactly as they do in the
+     buyer's viewer; their panels open in the centre column above the room strip. */
+  const extraPills = real || site ? (
+    <>
+      {real ? (
+        <HudPill active={layersOpen || showGeometry} onClick={() => setLayersOpen((v) => !v)} icon={<Icon.Layers size={14} />} title="Layers · the photograph, the furniture and its shadow">
+          <span className="hidden lg:inline">Layers</span>
+        </HudPill>
+      ) : null}
+      {site ? (
+        <HudPill square active={timeOpen} onClick={() => setTimeOpen((v) => !v)} aria-label="Time of day" title="Time of day · the real sun">
+          <Icon.Sun size={15} />
+        </HudPill>
+      ) : null}
+    </>
+  ) : null;
+
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-bg text-ink">
-      <TopBar
-        tourId={tourId}
-        tourTitle={tour.title}
-        room={room}
-        rooms={rooms}
-        mode={mode}
-        onMode={changeMode}
-        canUndo={stack.canUndo}
-        canRedo={stack.canRedo}
-        onUndo={doUndo}
-        onRedo={doRedo}
-        style={style}
-        autoStaging={autoBusy}
-        autoMeta={autoMeta}
-        onAutoStage={runAutoStage}
-        onClear={clear}
-        onDone={done}
-        peers={collab.peers}
-        self={collab.self}
-        compact={isMobile}
-        hasPhoto={hasPano(real)}
-      />
+    <div className="relative flex h-dvh flex-col overflow-hidden bg-bg text-ink">
+      <main className="relative min-h-0 flex-1 bg-bg">
+        <SceneCanvas
+          className="absolute inset-0"
+          camera={{ fov: 50, near: 0.05, far: 200 }}
+          style={{ touchAction: 'none' }}
+          /* Any capture layer still coming down, not just the panorama: decoding half a million
+             splats blocks the main thread before the first frame lands, and "Building the room…"
+             for half a minute is the canvas describing the wrong wait. The pill says which layer
+             and how far along it is. */
+          busy={Boolean(pill)}
+          busyLabel={pill?.label}
+          busyProgress={pill?.progress ?? null}
+          loadingLabel={photo ? 'Developing the photograph…' : 'Building the room…'}
+        >
+          {/* The seller stages against exactly what the buyer will see: the room's own light. */}
+          {composite ? (
+            <CaptureLight
+              texture={panoTex}
+              groupRotationY={marbleFrame.rotationY}
+              span={Math.max(geometry.width, geometry.depth)}
+              floor={{ width: geometry.width, depth: geometry.depth }}
+              shadows={!sunUp}
+              catcher={layers.shadows}
+              onLight={setCaptureSun}
+              onBudget={setBudget}
+            />
+          ) : null}
+          {sky ? (
+            <SunLight
+              room={geometry}
+              sun={sky}
+              composite={composite}
+              intensity={composite ? externalSunScale(budget, sky.intensity) : 1}
+              shadows={layers.shadows}
+              shadowOpacity={composite ? budget?.shadowOpacity : undefined}
+            />
+          ) : null}
+          {shell ? (
+            <RoomShell
+              room={geometry}
+              cullNearWalls={mode === 'orbit'}
+              showGrid={mode === 'orbit'}
+              showCeiling={mode === 'walk'}
+              lights={!composite}
+              externalSun={Boolean(sky)}
+              sunWalls={sky?.walls}
+            />
+          ) : null}
+          {real ? (
+            /* Keyed on the world so a different capture is a teardown, not a re-point: the
+               panorama is deliberately kept mounted across prop changes and would otherwise
+               linger from the world it belonged to. */
+            <MarbleWorld
+              key={real.worldId || real.panoUrl || real.spzUrl}
+              world={real}
+              metresPerUnit={room.anchor.metresPerUnit}
+              floorOffset={floorOffsetOf(room)}
+              showPano={(photo || wantSplat) && showPhotoLayer}
+              showSplat={wantSplat}
+              showGeometry={showGeometry && Boolean(real.colliderUrl)}
+              geometryView={geometryView}
+              showOccluder={layers.occluder && composite && Boolean(real.colliderUrl)}
+              onStatus={onMarbleStatus}
+              onCollider={setCollider}
+              onPanoTexture={setPanoTex}
+            />
+          ) : null}
+          {layers.furniture ? (
+            /* The furniture layer, liftable off the photograph for a moment. Dragging is off while
+               it is in the air: the piece the seller would be dropping is 40 cm above the floor. */
+            <ExplodedLayer active={exploded}>
+              <StagingLayer
+                room={geometry}
+                pieces={present}
+                contactShadows={composite && layers.shadows}
+                editable={editable && !exploded}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                onHover={setHoverId}
+                onChange={handleChange}
+                onFloorPointer={handleFloorPointer}
+                placing={editable && !exploded ? placing : null}
+                placeOnRelease={placeOnRelease}
+                onPlaced={() => setPlacing(null)}
+                onCancelPlacing={() => setPlacing(null)}
+                onGestureStart={stack.beginGesture}
+                onGestureEnd={stack.endGesture}
+              />
+            </ExplodedLayer>
+          ) : null}
+          <PeerCursors peers={collab.peers} />
+          {photo ? (
+            <PhotoRig origin={marbleFrame.position} initialYaw={captureFacing} fov={photoFov} onFov={setPhotoFov} resetKey={roomId} />
+          ) : mode === 'orbit' ? (
+            <OrbitRig room={geometry} resetKey={roomId} />
+          ) : (
+            <WalkControls room={geometry} pieces={present} spawn={walkSpawn} mask={real ? walkMask : null} collider={real ? collider : null} home={real ? walkHome : undefined} />
+          )}
+        </SceneCanvas>
 
-      <div className="flex min-h-0 flex-1">
+        <TopBar
+          tourId={tourId}
+          tourTitle={tour.title}
+          room={room}
+          rooms={rooms}
+          mode={mode}
+          onMode={changeMode}
+          canUndo={stack.canUndo}
+          canRedo={stack.canRedo}
+          onUndo={doUndo}
+          onRedo={doRedo}
+          style={style}
+          autoStaging={autoBusy}
+          autoMeta={autoMeta}
+          onAutoStage={runAutoStage}
+          onClear={clear}
+          onDone={done}
+          peers={collab.peers}
+          self={collab.self}
+          compact={isMobile}
+          hasPhoto={hasPano(real)}
+          extraPills={extraPills}
+        />
+
+        {/* left: what this room measures — the fit report and the selected piece */}
         {!isMobile ? (
-          <aside className="w-72 shrink-0 border-r border-line bg-surface/50">
-            <CatalogRail roomType={room.type} onAdd={addFromCatalog} onDragStart={dragFromCatalog} activeId={placing?.id ?? null} />
-          </aside>
-        ) : null}
-
-        <main className="relative min-w-0 flex-1 bg-bg">
-          <SceneCanvas
-            className="absolute inset-0"
-            camera={{ fov: 50, near: 0.05, far: 200 }}
-            style={{ touchAction: 'none' }}
-            /* Any capture layer still coming down, not just the panorama: decoding half a million
-               splats blocks the main thread before the first frame lands, and "Building the room…"
-               for half a minute is the canvas describing the wrong wait. The pill says which layer
-               and how far along it is. */
-            busy={Boolean(pill)}
-            busyLabel={pill?.label}
-            busyProgress={pill?.progress ?? null}
-            loadingLabel={photo ? 'Developing the photograph…' : 'Building the room…'}
-          >
-            {/* The seller stages against exactly what the buyer will see: the room's own light. */}
-            {composite ? (
-              <CaptureLight
-                texture={panoTex}
-                groupRotationY={marbleFrame.rotationY}
-                span={Math.max(geometry.width, geometry.depth)}
-                floor={{ width: geometry.width, depth: geometry.depth }}
-                shadows={!sunUp}
-                catcher={layers.shadows}
-                onLight={setCaptureSun}
-                onBudget={setBudget}
-              />
-            ) : null}
-            {sky ? (
-              <SunLight
-                room={geometry}
-                sun={sky}
-                composite={composite}
-                intensity={composite ? externalSunScale(budget, sky.intensity) : 1}
-                shadows={layers.shadows}
-                shadowOpacity={composite ? budget?.shadowOpacity : undefined}
-              />
-            ) : null}
-            {shell ? (
-              <RoomShell
-                room={geometry}
-                cullNearWalls={mode === 'orbit'}
-                showGrid={mode === 'orbit'}
-                showCeiling={mode === 'walk'}
-                lights={!composite}
-                externalSun={Boolean(sky)}
-                sunWalls={sky?.walls}
-              />
-            ) : null}
-            {real ? (
-              /* Keyed on the world so a different capture is a teardown, not a re-point: the
-                 panorama is deliberately kept mounted across prop changes and would otherwise
-                 linger from the world it belonged to. */
-              <MarbleWorld
-                key={real.worldId || real.panoUrl || real.spzUrl}
-                world={real}
-                metresPerUnit={room.anchor.metresPerUnit}
-                floorOffset={floorOffsetOf(room)}
-                showPano={(photo || wantSplat) && showPhotoLayer}
-                showSplat={wantSplat}
-                showGeometry={showGeometry && Boolean(real.colliderUrl)}
-                geometryView={geometryView}
-                showOccluder={layers.occluder && composite && Boolean(real.colliderUrl)}
-                onStatus={onMarbleStatus}
-                onCollider={setCollider}
-                onPanoTexture={setPanoTex}
-              />
-            ) : null}
-            {layers.furniture ? (
-              /* The furniture layer, liftable off the photograph for a moment. Dragging is off while
-                 it is in the air: the piece the seller would be dropping is 40 cm above the floor. */
-              <ExplodedLayer active={exploded}>
-                <StagingLayer
-                  room={geometry}
-                  pieces={present}
-                  contactShadows={composite && layers.shadows}
-                  editable={editable && !exploded}
-                  selectedId={selectedId}
-                  onSelect={setSelectedId}
-                  onHover={setHoverId}
-                  onChange={handleChange}
-                  onFloorPointer={handleFloorPointer}
-                  placing={editable && !exploded ? placing : null}
-                  placeOnRelease={placeOnRelease}
-                  onPlaced={() => setPlacing(null)}
-                  onCancelPlacing={() => setPlacing(null)}
-                  onGestureStart={stack.beginGesture}
-                  onGestureEnd={stack.endGesture}
-                />
-              </ExplodedLayer>
-            ) : null}
-            <PeerCursors peers={collab.peers} />
-            {photo ? (
-              <PhotoRig origin={marbleFrame.position} initialYaw={captureFacing} fov={photoFov} onFov={setPhotoFov} resetKey={roomId} />
-            ) : mode === 'orbit' ? (
-              <OrbitRig room={geometry} resetKey={roomId} />
-            ) : (
-              <WalkControls room={geometry} pieces={present} spawn={walkSpawn} mask={real ? walkMask : null} collider={real ? collider : null} home={real ? walkHome : undefined} />
-            )}
-          </SceneCanvas>
-
-          {/* overlays */}
-          <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-3">
-            {/* Real-reconstruction layers and the hour of the day. Kept out of the top bar so the
-                room's own controls stay put. */}
-            {real || site ? (
-              <div className="pointer-events-auto absolute left-3 top-3 flex flex-col items-start gap-2">
-                <div className="flex items-center gap-1.5">
-                  {real ? (
-                    <IconButton
-                      label={layersOpen ? 'Close the layers' : 'Layers · the photograph, the furniture and its shadow'}
-                      active={layersOpen || showGeometry}
-                      onClick={() => setLayersOpen((v) => !v)}
-                      className="glass !h-8 !w-8"
-                    >
-                      <Icon.Layers size={15} />
-                    </IconButton>
-                  ) : null}
-                  {site ? (
-                    <IconButton
-                      label={timeOpen ? 'Close the time of day' : 'Time of day · the real sun'}
-                      active={timeOpen}
-                      onClick={() => setTimeOpen((v) => !v)}
-                      className="glass !h-8 !w-8"
-                    >
-                      <Icon.Sun size={15} />
-                    </IconButton>
-                  ) : null}
-                  {pill?.tone === 'error' ? <span className="glass rounded-full px-2.5 py-1 text-[11px] text-warn">{pill.label}</span> : null}
+          <div className="absolute bottom-[92px] left-3.5 z-20 flex w-[288px] flex-col" style={{ top: 'calc(var(--hud-top, 52px) + 6px)' }}>
+            <div className="glass flex min-h-0 flex-col overflow-hidden rounded-2xl">
+              <div className="flex min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain p-3.5">
+                {fitPanel}
+                <div className="h-px w-full bg-line" />
+                <div className="flex flex-col gap-2">
+                  <div className="micro">{selPiece ? 'Selected piece' : 'Inspector'}</div>
+                  {inspector}
                 </div>
-                {timeOpen && site ? (
-                  <TimeOfDay
-                    lat={site.lat}
-                    lon={site.lon}
-                    heading={heading}
-                    date={new Date(previewTime)}
-                    onChange={(d) => setLocalPreviewTime(d.getTime())}
-                    onClose={() => setTimeOpen(false)}
-                    place={site.displayName}
-                  />
-                ) : null}
-                {layersOpen && real ? (
-                  <LayersPanel
-                    roomId={roomId}
-                    world={real}
-                    layers={layers}
-                    onLayer={onLayerChange}
-                    exploded={exploded}
-                    onExplode={explode}
-                    showGeometry={showGeometry}
-                    onGeometry={setShowGeometry}
-                    geometryView={geometryView}
-                    onGeometryView={setGeometryView}
-                    sun={sunDescription}
-                    envIntensity={budget?.envMapIntensity ?? null}
-                    hasCapture
-                    photoHint={mode === 'orbit' ? 'The dollhouse draws the measured room; walk or switch to Photo to stand in the capture.' : undefined}
-                    onClose={() => setLayersOpen(false)}
-                  />
-                ) : null}
-              </div>
-            ) : null}
-            {/* The layers button is pinned to the top-left corner; leaving room for it on both sides
-                keeps this row centred and keeps the button clickable on a narrow screen. */}
-            <div className="flex items-start justify-center px-11">
-              {placing && editable ? (
-                <div className="glass animate-rise pointer-events-auto flex items-center gap-3 rounded-full py-1.5 pr-1.5 pl-4 text-[13px] text-ink-2">
-                  <span>
-                    Placing <span className="text-ink">{placing.name}</span> · <span className="mono">{Math.round(placing.w * 100)} × {Math.round(placing.d * 100)} cm</span>
-                  </span>
-                  {!touch ? (
-                    <span className="hidden items-center gap-1 text-ink-3 sm:flex">
-                      click the floor · <Kbd>R</Kbd> turn · <Kbd>Esc</Kbd>
-                    </span>
-                  ) : (
-                    <span className="text-ink-3">tap the floor</span>
-                  )}
-                  <button type="button" onClick={() => setPlacing(null)} className="flex h-7 w-7 items-center justify-center rounded-full bg-surface-2 text-ink-2 hover:text-ink" aria-label="Cancel placing">
-                    <Icon.X size={14} />
-                  </button>
-                </div>
-              ) : mode === 'walk' ? (
-                <div className="glass animate-fade flex items-center gap-2 rounded-full px-4 py-1.5 text-[12px] text-ink-2">
-                  <Icon.Walk size={14} className="text-accent-2" />
-                  <span>
-                    Eye height <span className="mono">1.60 m</span> ·{' '}
-                    {touch ? 'drag to look, joystick to move' : (
-                      <>
-                        click to look · <Kbd>W</Kbd>
-                        <Kbd>A</Kbd>
-                        <Kbd>S</Kbd>
-                        <Kbd>D</Kbd> move · <Kbd>Esc</Kbd> release
-                      </>
-                    )}
-                  </span>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="flex items-end justify-between gap-3">
-              <div className="flex items-end gap-3">
-                {mode === 'walk' && touch ? <Joystick className="pointer-events-auto" /> : null}
-                {!isMobile && mode === 'orbit' ? <ShortcutLegend /> : null}
-              </div>
-              <div className="flex items-center gap-2">
-                {isMobile && selPiece && editable ? (
-                  <div className="glass pointer-events-auto flex items-center gap-1 rounded-full p-1 pl-3">
-                    <span className="mr-1 max-w-[30vw] truncate text-[12px] text-ink">{selPiece.name}</span>
-                    <IconButton label="Rotate 90°" className="!h-8 !w-8" onClick={() => updatePiece(clampToRoom({ ...selPiece, rot: selPiece.rot + Math.PI / 2 }, geometry) as PlacedPiece)}>
-                      <Icon.Rotate size={15} />
-                    </IconButton>
-                    <IconButton label="Duplicate" className="!h-8 !w-8" onClick={() => duplicatePiece(selPiece)}>
-                      <Icon.Copy size={15} />
-                    </IconButton>
-                    <IconButton label="Delete" className="!h-8 !w-8 text-danger" onClick={() => deletePiece(selPiece.id)}>
-                      <Icon.Trash size={15} />
-                    </IconButton>
-                    <IconButton label="Deselect" className="!h-8 !w-8" onClick={() => setSelectedId(null)}>
-                      <Icon.X size={15} />
-                    </IconButton>
-                  </div>
-                ) : null}
-                <StagedLabel className="glass" />
               </div>
             </div>
           </div>
-        </main>
-
-        {!isMobile ? (
-          <aside className="flex w-80 shrink-0 flex-col gap-5 overflow-y-auto border-l border-line bg-surface/50 p-4">
-            {fitPanel}
-            <div className="h-px w-full bg-line" />
-            <div className="flex flex-col gap-2">
-              <div className="text-[11px] uppercase tracking-[0.14em] text-ink-3">{selPiece ? 'Selected piece' : 'Inspector'}</div>
-              {inspector}
-            </div>
-          </aside>
         ) : null}
-      </div>
+
+        {/* right: stage a room, add one piece, nudge the floor */}
+        {!isMobile ? (
+          <div className="absolute bottom-[92px] right-3.5 z-20 flex w-[268px] flex-col" style={{ top: 'calc(var(--hud-top, 52px) + 6px)' }}>
+            <StagePanel
+              room={room}
+              style={style}
+              autoStaging={autoBusy}
+              onAutoStage={runAutoStage}
+              onAdd={addFromCatalog}
+              onDragStart={dragFromCatalog}
+              activeId={placing?.id ?? null}
+              onClear={clear}
+              showFloorHeight={Boolean(real)}
+              pieces={present.length}
+              className="min-h-0 flex-1"
+            />
+          </div>
+        ) : null}
+
+        {/* centre column: the hint, the layers and the hour — above the room strip */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col justify-between p-3 pb-[88px]" style={{ top: 'calc(var(--hud-top, 52px) + 6px)' }}>
+          <div className="flex items-start justify-center px-2">
+            {placing && editable ? (
+              <div className="glass animate-rise pointer-events-auto flex items-center gap-3 rounded-full py-1.5 pl-4 pr-1.5 text-[13px] text-ink-2">
+                <span>
+                  Placing <span className="text-ink">{placing.name}</span> · <span className="mono">{Math.round(placing.w * 100)} × {Math.round(placing.d * 100)} cm</span>
+                </span>
+                {!touch ? (
+                  <span className="hidden items-center gap-1 text-dim sm:flex">
+                    click the floor · <Kbd>R</Kbd> turn · <Kbd>Esc</Kbd>
+                  </span>
+                ) : (
+                  <span className="text-dim">tap the floor</span>
+                )}
+                <button type="button" onClick={() => setPlacing(null)} className="flex h-7 w-7 items-center justify-center rounded-full bg-surface text-ink-2 hover:bg-surface-2 hover:text-ink" aria-label="Cancel placing">
+                  <Icon.X size={14} />
+                </button>
+              </div>
+            ) : mode === 'walk' ? (
+              <div className="glass animate-fade flex items-center gap-2 rounded-full px-4 py-1.5 text-[12px] text-ink-2">
+                <Icon.Walk size={14} className="text-dim" />
+                <span>
+                  Eye height <span className="mono">1.60 m</span> ·{' '}
+                  {touch ? 'drag to look, joystick to move' : (
+                    <>
+                      click to look · <Kbd>W</Kbd>
+                      <Kbd>A</Kbd>
+                      <Kbd>S</Kbd>
+                      <Kbd>D</Kbd> move · <Kbd>Esc</Kbd> release
+                    </>
+                  )}
+                </span>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="flex items-end justify-between gap-3">
+            <div className="flex items-end gap-3">
+              {mode === 'walk' && touch ? <Joystick className="pointer-events-auto" /> : null}
+              {!isMobile && mode === 'orbit' ? <ShortcutLegend /> : null}
+            </div>
+
+            <div className="pointer-events-auto flex min-w-0 flex-col items-center gap-2">
+              {timeOpen && site ? (
+                <TimeOfDay
+                  lat={site.lat}
+                  lon={site.lon}
+                  heading={heading}
+                  date={new Date(previewTime)}
+                  onChange={(d) => setLocalPreviewTime(d.getTime())}
+                  onClose={() => setTimeOpen(false)}
+                  place={site.displayName}
+                />
+              ) : null}
+              {layersOpen && real ? (
+                <LayersPanel
+                  roomId={roomId}
+                  world={real}
+                  layers={layers}
+                  onLayer={onLayerChange}
+                  exploded={exploded}
+                  onExplode={explode}
+                  showGeometry={showGeometry}
+                  onGeometry={setShowGeometry}
+                  geometryView={geometryView}
+                  onGeometryView={setGeometryView}
+                  sun={sunDescription}
+                  envIntensity={budget?.envMapIntensity ?? null}
+                  hasCapture
+                  photoHint={mode === 'orbit' ? 'The dollhouse draws the measured room; walk or switch to Photo to stand in the capture.' : undefined}
+                  onClose={() => setLayersOpen(false)}
+                />
+              ) : null}
+              {pill?.tone === 'error' ? <span className="glass rounded-full px-2.5 py-1 text-[11px] text-warn">{pill.label}</span> : null}
+            </div>
+
+            <div className="flex items-center gap-2">
+              {isMobile && selPiece && editable ? (
+                <div className="glass pointer-events-auto flex items-center gap-1 rounded-full p-1 pl-3">
+                  <span className="mr-1 max-w-[30vw] truncate text-[12px] text-ink">{selPiece.name}</span>
+                  <IconButton label="Rotate 90°" className="!h-8 !w-8" onClick={() => updatePiece(clampToRoom({ ...selPiece, rot: selPiece.rot + Math.PI / 2 }, geometry) as PlacedPiece)}>
+                    <Icon.Rotate size={15} />
+                  </IconButton>
+                  <IconButton label="Duplicate" className="!h-8 !w-8" onClick={() => duplicatePiece(selPiece)}>
+                    <Icon.Copy size={15} />
+                  </IconButton>
+                  <IconButton label="Delete" className="!h-8 !w-8 !text-danger" onClick={() => deletePiece(selPiece.id)}>
+                    <Icon.Trash size={15} />
+                  </IconButton>
+                  <IconButton label="Deselect" className="!h-8 !w-8" onClick={() => setSelectedId(null)}>
+                    <Icon.X size={15} />
+                  </IconButton>
+                </div>
+              ) : null}
+              <StagedLabel className="pointer-events-auto bg-[color:var(--color-glass)] backdrop-blur-md" />
+            </div>
+          </div>
+        </div>
+
+        {/* the rooms in this tour, as tiles */}
+        {!isMobile ? (
+          <RoomStrip rooms={rooms} activeId={roomId} onPick={(id) => navigate(`/tours/${tourId}/stage/${id}`)} />
+        ) : null}
+      </main>
 
       {isMobile ? (
         <>
@@ -779,7 +793,7 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
               ]}
             />
             <Button size="sm" variant={sheet === 'catalog' ? 'primary' : 'secondary'} onClick={() => setSheet('catalog')} className="shrink-0">
-              <Icon.Plus size={14} /> Catalog
+              <Icon.Plus size={14} /> Stage
             </Button>
             <Button size="sm" variant={sheet === 'fit' ? 'primary' : 'secondary'} onClick={() => setSheet('fit')} className="shrink-0">
               <Icon.Ruler size={14} /> Fit
@@ -792,8 +806,20 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
             </div>
             <AnchorChip anchor={room.anchor} size="sm" className="w-full" />
           </nav>
-          <BottomSheet open={sheet === 'catalog'} onClose={() => setSheet(null)} title="Catalog" height="tall">
-            <CatalogRail roomType={room.type} onAdd={addFromCatalog} activeId={placing?.id ?? null} />
+          <BottomSheet open={sheet === 'catalog'} onClose={() => setSheet(null)} title="Stage a room" height="tall">
+            <StagePanel
+              room={room}
+              style={style}
+              autoStaging={autoBusy}
+              onAutoStage={runAutoStage}
+              onAdd={addFromCatalog}
+              activeId={placing?.id ?? null}
+              onClear={clear}
+              showFloorHeight={Boolean(real)}
+              pieces={present.length}
+              hideLabel
+              className="h-full !border-0 !bg-transparent !shadow-none !backdrop-blur-none"
+            />
           </BottomSheet>
           <BottomSheet open={sheet === 'fit'} onClose={() => setSheet(null)} title="Fit report" height="tall">
             <div className="flex flex-col gap-5 px-4 pb-6">

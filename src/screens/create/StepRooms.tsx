@@ -95,7 +95,7 @@ export function StepRooms({ rooms, loading, onAddFiles, onAddMeasured, onUpdate,
       <div className="panel p-5">
         <button type="button" onClick={() => setShowMeasured((v) => !v)} className="flex w-full items-center justify-between text-left">
           <div className="flex items-center gap-3">
-            <span className="text-accent-2">
+            <span className="text-ink">
               <Icon.Ruler size={18} />
             </span>
             <div>
@@ -135,16 +135,16 @@ function DropZone({ onFiles, loading }: { onFiles: (files: File[]) => void; load
       onDragLeave={() => setOver(false)}
       onDrop={onDrop}
       className={cx(
-        'grid-bg relative flex flex-col items-center justify-center gap-4 rounded-2xl border border-dashed px-6 py-10 text-center transition-colors',
-        over ? 'border-accent bg-accent/5' : 'border-line-2 bg-surface',
+        'ease-audora relative flex flex-col items-center justify-center gap-3 rounded-[10px] border border-dashed px-6 py-11 text-center transition-colors duration-200',
+        over ? 'border-ink-2 bg-surface-2' : 'border-line-2 bg-surface',
       )}
     >
-      <span className={cx('flex h-12 w-12 items-center justify-center rounded-2xl border border-line-2 bg-surface-2', over ? 'text-accent' : 'text-ink-2')}>
+      <span className={cx('grid h-[52px] w-[52px] place-items-center rounded-full bg-bg shadow-sm', over ? 'text-ink' : 'text-ink-2')}>
         {loading > 0 ? <Spinner size={20} /> : <Icon.Upload size={22} />}
       </span>
       <div>
-        <div className="text-base text-ink">{loading > 0 ? `Reading ${loading} photo${loading === 1 ? '' : 's'}…` : 'Drop room photos here'}</div>
-        <div className="mt-1 text-sm text-ink-3">One photo per room. Doorway, phone sideways, far corner in shot. JPEG or HEIC-converted, any size.</div>
+        <div className="text-[15.5px] font-semibold text-ink">{loading > 0 ? `Reading ${loading} photo${loading === 1 ? '' : 's'}…` : 'Drop room photos here'}</div>
+        <div className="mt-1 text-[12.5px] text-dim">One photo per room. Doorway, phone sideways, far corner in shot. JPEG or HEIC-converted, any size.</div>
       </div>
       <div className="flex flex-wrap items-center justify-center gap-2">
         <Button variant="secondary" onClick={() => fileRef.current?.click()}>
@@ -227,7 +227,7 @@ function DraftRoomCard({
       className={cx('panel animate-rise grid gap-4 p-4 transition-all md:grid-cols-[220px_1fr]', dragging && 'opacity-50', over && 'border-accent/60')}
     >
       <div className="flex flex-col gap-2">
-        <div className="relative overflow-hidden rounded-xl border border-line bg-bg-2">
+        <div className="relative overflow-hidden rounded-xl border border-line bg-surface">
           {room.photo ? (
             <img src={room.photo.dataUrl} alt="" className="aspect-[4/3] w-full object-cover" draggable={false} />
           ) : (
@@ -273,7 +273,7 @@ function DraftRoomCard({
             <IconButton label="Move down" disabled={index === count - 1} onClick={() => onMove(index + 1)} className="disabled:opacity-40">
               <Icon.ChevronDown size={16} />
             </IconButton>
-            <IconButton label="Remove room" onClick={onRemove} className="hover:border-danger/50 hover:text-danger">
+            <IconButton label="Remove room" onClick={onRemove} className="hover:border-danger/40 hover:text-danger">
               <Icon.Trash size={16} />
             </IconButton>
           </div>
@@ -294,10 +294,10 @@ function DraftRoomCard({
         </div>
 
         {planRooms?.length && onMatchPlan ? (
-          <div className="flex flex-col gap-2 rounded-xl border border-line bg-bg-2 p-3">
+          <div className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-3">
             <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
               <label className="flex items-center gap-2 text-xs text-ink-2">
-                <span className="text-accent-2">
+                <span className="text-ink">
                   <Icon.Grid size={14} />
                 </span>
                 Which room on the floor plan is this?
@@ -354,7 +354,7 @@ function DraftRoomCard({
                 </Chip>
                 <Chip tone={a.quality === 'good' ? 'ok' : a.quality === 'ok' ? 'neutral' : 'warn'}>{a.quality} for reconstruction</Chip>
                 {a.roomType !== room.type ? (
-                  <button type="button" onClick={() => onUpdate({ type: a.roomType })} className="chip border-accent/40 text-accent-2 hover:bg-accent/10">
+                  <button type="button" onClick={() => onUpdate({ type: a.roomType })} className="ease-audora chip border-ink/25 font-semibold text-ink transition-colors duration-200 hover:border-ink hover:bg-surface">
                     Use {ROOM_TYPE_LABELS[a.roomType].toLowerCase()}
                   </button>
                 ) : null}
@@ -467,7 +467,7 @@ function PhotoAngles({
           {extra.map((p, i) => {
             const index = i + 1;
             return (
-              <div key={index} className="flex items-center gap-2 rounded-lg border border-line bg-bg-2 p-1.5">
+              <div key={index} className="flex items-center gap-2 rounded-lg border border-line bg-surface p-1.5">
                 <img src={p.dataUrl} alt="" className="h-10 w-14 shrink-0 rounded object-cover" draggable={false} />
                 <Select
                   value={p.angle ?? ''}
@@ -482,7 +482,7 @@ function PhotoAngles({
                     </option>
                   ))}
                 </Select>
-                <IconButton label={`Remove angle ${index}`} onClick={() => onRemovePhoto?.(index)} className="shrink-0 hover:border-danger/50 hover:text-danger">
+                <IconButton label={`Remove angle ${index}`} onClick={() => onRemovePhoto?.(index)} className="shrink-0 hover:border-danger/40 hover:text-danger">
                   <Icon.X size={14} />
                 </IconButton>
               </div>
@@ -523,7 +523,7 @@ function PhotoUrlBox({ onSubmit, state }: { onSubmit: (text: string) => void; st
     <div className="panel p-5">
       <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center justify-between text-left">
         <div className="flex items-center gap-3">
-          <span className="text-accent-2">
+          <span className="text-ink">
             <Icon.Link size={18} />
           </span>
           <div>
@@ -542,7 +542,7 @@ function PhotoUrlBox({ onSubmit, state }: { onSubmit: (text: string) => void; st
             spellCheck={false}
             placeholder={'https://photos.zillowstatic.com/fp/….jpg\nhttps://ssl.cdn-redfin.com/photo/….jpg'}
             aria-label="Listing photo URLs, one per line"
-            className="mono w-full resize-y rounded-xl border border-line-2 bg-bg-2 px-3 py-2 text-xs text-ink outline-none placeholder:text-ink-3 focus:border-accent/60"
+            className="mono w-full resize-y rounded-[10px] border border-line-2 bg-bg px-3 py-2 text-xs text-ink outline-none placeholder:text-faint focus:border-ink"
           />
           <div className="flex flex-wrap items-center gap-3">
             <Button

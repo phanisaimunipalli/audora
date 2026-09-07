@@ -39,20 +39,26 @@ export function splitTolerance(label: string): { head: string; tolerance: string
  * Audora refuses to make.
  */
 export function AnchorChip({ anchor, className, size = 'md', showDetail }: { anchor: AnchorSpec; className?: string; size?: 'sm' | 'md'; showDetail?: boolean }) {
-  const tone = anchor.method === 'assumed' ? 'text-warn border-warn/40 bg-warn/10' : anchor.method === 'marble' || anchor.method === 'ceiling' ? 'text-ink-2 border-line-2 bg-surface-2' : 'text-accent-2 border-accent/40 bg-accent/10';
+  // Gold is the anchor's colour: the one warm accent in an otherwise black-and-white app.
+  // Gold on white, opaque: the chip also rides over the 3D view, where a tinted background would
+  // pick up whatever is behind it and the gold would go dark.
+  const tone = anchor.method === 'assumed' ? 'text-warn border-warn/45 bg-bg' : anchor.method === 'marble' || anchor.method === 'ceiling' ? 'text-ink-2 border-line-2 bg-bg' : 'text-gold border-gold/45 bg-bg';
   const I = anchor.method === 'door' ? Icon.Door : anchor.method === 'wall' || anchor.method === 'floorplan' ? Icon.Ruler : anchor.method === 'outlet' ? Icon.Zap : Icon.Info;
   const { head, tolerance } = splitTolerance(spacedUnits(anchor.label));
   return (
-    <span className={cx('inline-flex max-w-full items-center gap-2 overflow-hidden rounded-full border px-2.5 py-1 mono', size === 'sm' ? 'text-[11px]' : 'text-xs', tone, className)} title={`${METHOD_LABEL[anchor.method]}. ${spacedUnits(anchor.label)}. ${anchor.detail ?? ''}`}>
+    /* In a 260 px glass panel a single truncating line lost the reference's second word — "anchor:
+       interior do… · ±4 cm" — and the reference is half the claim. The chip wraps instead: it may
+       take two lines in a narrow slot, and it never gives a word up. The prefix and the separator
+       carry full colour too; at 0.6 opacity the gold measured 2.43:1. */
+    <span
+      className={cx('inline-flex max-w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-full border px-2.5 py-1 mono leading-snug', size === 'sm' ? 'text-[11px]' : 'text-xs', tone, className)}
+      title={`${METHOD_LABEL[anchor.method]}. ${spacedUnits(anchor.label)}. ${anchor.detail ?? ''}`}
+    >
       <I size={size === 'sm' ? 12 : 14} className="shrink-0" />
-      <span className="shrink-0 text-ink-3">anchor:</span>
-      <span className="min-w-0 truncate">{head}</span>
-      {tolerance ? (
-        <span className="shrink-0 whitespace-nowrap text-ink-3">
-          · <span className="text-current">{tolerance}</span>
-        </span>
-      ) : null}
-      {showDetail && anchor.detail ? <span className="shrink-0 font-sans text-ink-3">· {anchor.detail}</span> : null}
+      <span className="shrink-0">anchor:</span>
+      <span className="min-w-0 break-words">{head}</span>
+      {tolerance ? <span className="shrink-0 whitespace-nowrap">· {tolerance}</span> : null}
+      {showDetail && anchor.detail ? <span className="shrink-0 font-sans text-dim">· {anchor.detail}</span> : null}
     </span>
   );
 }

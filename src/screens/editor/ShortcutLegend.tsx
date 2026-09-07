@@ -21,8 +21,8 @@ export function ShortcutLegend({ className }: { className?: string }) {
       {open ? (
         <div className="glass animate-rise flex w-64 flex-col gap-1.5 rounded-2xl p-3 text-[12px] text-ink-2">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] uppercase tracking-[0.14em] text-ink-3">Shortcuts</span>
-            <button type="button" onClick={() => setOpen(false)} className="text-ink-3 hover:text-ink">
+            <span className="micro">Shortcuts</span>
+            <button type="button" onClick={() => setOpen(false)} className="text-dim hover:text-ink">
               close
             </button>
           </div>
@@ -33,12 +33,12 @@ export function ShortcutLegend({ className }: { className?: string }) {
                   <Kbd key={k}>{k}</Kbd>
                 ))}
               </span>
-              <span className="text-right text-ink-3">{r.what}</span>
+              <span className="text-right text-dim">{r.what}</span>
             </div>
           ))}
         </div>
       ) : (
-        <button type="button" onClick={() => setOpen(true)} className="glass flex h-8 items-center gap-2 rounded-full px-3 text-[12px] text-ink-2 transition-colors hover:text-ink" title="Keyboard shortcuts">
+        <button type="button" onClick={() => setOpen(true)} className="glass flex h-8 items-center gap-2 rounded-full px-3 text-[12px] text-ink-2 transition-colors duration-200 ease-audora hover:text-ink" title="Keyboard shortcuts">
           <Kbd>?</Kbd> shortcuts
         </button>
       )}

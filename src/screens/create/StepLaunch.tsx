@@ -44,7 +44,7 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
     <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
       <div className="flex flex-col gap-6">
         <section className="flex flex-col gap-3">
-          <div className="text-sm font-medium text-ink">Quality</div>
+          <div className="micro">Quality</div>
           <div className="grid gap-3 sm:grid-cols-2">
             {(['draft', 'full'] as Tier[]).map((t) => {
               const i = TIER_INFO[t];
@@ -55,11 +55,11 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
                   key={t}
                   type="button"
                   onClick={() => onQuality(t)}
-                  className={cx('flex flex-col gap-2 rounded-2xl border p-4 text-left transition-colors', on ? 'border-accent/60 bg-accent/10 ring-accent' : 'border-line bg-surface hover:bg-surface-2')}
+                  className={cx('flex flex-col gap-2 rounded-2xl border p-4 text-left transition-colors', on ? 'border-accent bg-accent/5 ring-accent' : 'border-line bg-surface hover:bg-surface-2')}
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-base text-ink">{i.label}</span>
-                    {t === 'draft' ? <Chip tone="ok">recommended to start</Chip> : <Chip mono>what buyers walk</Chip>}
+                    {t === 'draft' ? <Chip tone="accent">recommended to start</Chip> : <Chip mono>what buyers walk</Chip>}
                   </div>
                   <div className="mono text-sm text-ink-2">
                     ~{t === 'draft' ? '1 minute' : '10 minutes'} · {fmtCredits(i.credits)} credits · ~${i.usd.toFixed(2)}/room
@@ -80,12 +80,12 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
         </section>
 
         <section className="flex flex-col gap-3">
-          <div className="text-sm font-medium text-ink">Reconstruction</div>
+          <div className="micro">Reconstruction</div>
           {provider === 'marble' ? (
             <div className="panel flex flex-col gap-3 p-4">
               <div className="flex flex-wrap items-center gap-2">
-                <Chip tone="ok">
-                  <span className="h-1.5 w-1.5 rounded-full bg-ok" /> Live · World Labs Marble
+                <Chip tone="accent">
+                  <span className="h-1.5 w-1.5 rounded-full bg-ink" /> Live · World Labs Marble
                 </Chip>
                 <Chip mono>{model}</Chip>
                 <Chip mono tone="accent">
@@ -108,7 +108,7 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
             <div className="panel flex flex-col gap-3 p-4">
               <div className="flex flex-wrap items-center gap-2">
                 <Chip tone="warn">
-                  <span className="h-1.5 w-1.5 rounded-full bg-warn" /> Simulated reconstruction
+                  <span className="h-1.5 w-1.5 rounded-full bg-line-2" /> Simulated reconstruction
                 </Chip>
                 <Chip mono>mock-{quality} · ~{mockSeconds}s per room · free</Chip>
               </div>
@@ -118,7 +118,7 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
                   : 'No World Labs key on the server, so rooms become deterministic mock worlds with honest timing and cost numbers.'}
               </p>
               {providers.marble ? <Toggle checked={settings.preferMock} onChange={(v) => setSettings({ preferMock: v })} label="Simulate instead (free)" /> : null}
-              <Link to="/settings" className="text-xs text-accent-2 hover:text-accent">
+              <Link to="/settings" className="text-xs text-ink-2 hover:text-ink">
                 Provider settings →
               </Link>
             </div>
@@ -126,10 +126,10 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
         </section>
 
         <section className="flex flex-col gap-3">
-          <div className="text-sm font-medium text-ink">Notifications</div>
+          <div className="micro">Notifications</div>
           <div className="panel flex flex-col gap-4 p-4">
             <div className="flex items-start gap-3">
-              <span className="mt-0.5 text-accent-2">
+              <span className="mt-0.5 text-ink">
                 <Icon.Bell size={18} />
               </span>
               <div>
@@ -154,7 +154,7 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
       <aside className="flex flex-col gap-4 lg:sticky lg:top-20 lg:self-start">
         <div className="panel flex flex-col gap-4 p-4">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.12em] text-ink-3">Summary</div>
+            <div className="micro">Summary</div>
             <div className="display mt-1 text-2xl text-ink">{listing.title || listing.address || 'Untitled listing'}</div>
             {listing.title ? <div className="text-xs text-ink-3">{listing.address}</div> : null}
             <div className="mono mt-1 text-xs text-ink-2">
@@ -166,7 +166,7 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
               const g = draftGeometry(r);
               const a = finalAnchor(r);
               return (
-                <li key={r.id} className="flex gap-3 rounded-xl border border-line bg-bg-2 p-2">
+                <li key={r.id} className="flex gap-3 rounded-xl border border-line bg-surface p-2">
                   <div className="h-12 w-16 shrink-0 overflow-hidden rounded-lg border border-line bg-surface">
                     {r.photo ? <img src={r.photo.dataUrl} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-ink-3"><Icon.Ruler size={16} /></div>}
                   </div>

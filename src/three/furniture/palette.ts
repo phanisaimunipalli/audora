@@ -5,10 +5,11 @@
 import type { PlacedPiece } from '@/engine/types';
 import type { PieceStatus } from './FurniturePiece';
 
-export const BUYER_BLUE = '#62a0ff';
-export const ACCENT = '#e8734a';
-const DANGER = '#e05d5d';
-const WARN = '#e6b450';
+export const BUYER_BLUE = '#1d63ff';
+/* Gold is the app's one warm accent, so it is also the selection halo under a piece. */
+export const ACCENT = '#7a6a3f';
+const DANGER = '#c0392b';
+const WARN = '#8a6a2a';
 
 function clamp01(n: number): number {
   return Math.max(0, Math.min(1, n));

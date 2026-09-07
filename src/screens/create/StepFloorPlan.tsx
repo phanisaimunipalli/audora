@@ -123,7 +123,7 @@ export function StepFloorPlan({ plan, roomCount, planRoomCount, onFile, onDemo, 
                     <div className="flex flex-col gap-4">
                       {parsed.floors.map((f, fi) => (
                         <section key={fi} className="flex flex-col gap-2">
-                          <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.14em] text-accent-2">
+                          <div className="flex items-center gap-2 micro">
                             <Icon.Layers size={13} /> {f.label}
                           </div>
                           <div className="flex flex-col gap-2">
@@ -176,7 +176,7 @@ function PlanRoomRow({ room, on, onToggle, onEdit }: { room: FlatPlanRoom; on: b
   // The anchor this room will carry, shown here because this is where its dimensions first appear.
   const anchor = dimensioned ? anchorFromFloorplan(rawFromMeasurements({ width: room.width!, depth: room.depth!, height: PLAN_CEILING_M }), room.width!) : undefined;
   return (
-    <div className={cx('grid gap-3 rounded-xl border p-3 transition-colors md:grid-cols-[20px_minmax(0,1fr)_140px_190px]', on ? 'border-line-2 bg-surface' : 'border-line bg-bg-2 opacity-60')}>
+    <div className={cx('grid gap-3 rounded-xl border p-3 transition-colors md:grid-cols-[20px_minmax(0,1fr)_140px_190px]', on ? 'border-line-2 bg-surface' : 'border-line bg-surface opacity-60')}>
       <label className="flex items-start pt-2" title={on ? 'Do not use this room' : 'Use this room'}>
         <input type="checkbox" checked={on} onChange={(e) => onToggle(e.target.checked)} className="h-4 w-4 accent-[var(--color-accent)]" aria-label={`Use ${room.name}`} />
       </label>
@@ -277,16 +277,16 @@ function PlanDropZone({ onFile, onDemo }: { onFile: (f: File) => void; onDemo: (
       onDragLeave={() => setOver(false)}
       onDrop={onDrop}
       className={cx(
-        'grid-bg relative flex flex-col items-center justify-center gap-4 rounded-2xl border border-dashed px-6 py-10 text-center transition-colors',
-        over ? 'border-accent bg-accent/5' : 'border-line-2 bg-surface',
+        'ease-audora relative flex flex-col items-center justify-center gap-3 rounded-[10px] border border-dashed px-6 py-11 text-center transition-colors duration-200',
+        over ? 'border-ink-2 bg-surface-2' : 'border-line-2 bg-surface',
       )}
     >
-      <span className={cx('flex h-12 w-12 items-center justify-center rounded-2xl border border-line-2 bg-surface-2', over ? 'text-accent' : 'text-ink-2')}>
+      <span className={cx('grid h-[52px] w-[52px] place-items-center rounded-full bg-bg shadow-sm', over ? 'text-ink' : 'text-ink-2')}>
         <Icon.Grid size={22} />
       </span>
       <div>
-        <div className="text-base text-ink">Drop the listing floor plan here</div>
-        <div className="mt-1 text-sm text-ink-3">The PDF export, the brochure page, a screenshot of the plan on the listing. Bigger is better: the dimensions have to be legible.</div>
+        <div className="text-[15.5px] font-semibold text-ink">Drop the listing floor plan here</div>
+        <div className="mt-1 text-[12.5px] text-dim">The PDF export, the brochure page, a screenshot of the plan on the listing. Bigger is better: the dimensions have to be legible.</div>
       </div>
       <div className="flex flex-wrap items-center justify-center gap-2">
         <Button variant="secondary" onClick={() => fileRef.current?.click()}>

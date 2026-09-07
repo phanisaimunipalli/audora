@@ -54,7 +54,7 @@ export function Inspector({ piece, room, status = 'ok', onChange, onDelete, onDu
   return (
     <div className={cx('flex flex-col gap-3', className)}>
       <div className="flex items-start gap-3">
-        <span className={cx('flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border', buyer ? 'border-buyer/50 bg-buyer/15 text-buyer' : 'border-accent/40 bg-accent/10 text-accent-2')}>
+        <span className={cx('flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border', buyer ? 'border-buyer-line bg-buyer-soft text-buyer' : 'border-line-2 bg-surface text-ink-2')}>
           <KindGlyph kind={piece.kind} size={22} />
         </span>
         <div className="min-w-0 flex-1">
@@ -71,11 +71,11 @@ export function Inspector({ piece, room, status = 'ok', onChange, onDelete, onDu
         <Chip tone={piece.verified ? 'ok' : 'neutral'}>{piece.verified ? 'verified dimensions' : 'reference dimensions'}</Chip>
         {piece.flat ? <Chip>flat · never collides</Chip> : null}
       </div>
-      {item?.source ? <p className="text-[12px] leading-snug text-ink-3">{item.source}</p> : null}
+      {item?.source ? <p className="text-[12px] leading-snug text-dim">{item.source}</p> : null}
 
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between">
-          <span className="text-[11px] uppercase tracking-[0.14em] text-ink-3">Rotation</span>
+          <span className="micro">Rotation</span>
           <span className="mono text-[12px] text-ink-2">{deg}°</span>
         </div>
         <input
@@ -90,12 +90,12 @@ export function Inspector({ piece, room, status = 'ok', onChange, onDelete, onDu
           onKeyUp={onEndGesture}
           onBlur={onEndGesture}
           onChange={(e) => setRot(Number(e.target.value))}
-          className="w-full accent-[#e8734a]"
+          className="w-full accent-accent"
           aria-label="Rotation in degrees"
         />
         <div className="grid grid-cols-4 gap-1">
           {[0, 90, 180, 270].map((d) => (
-            <button key={d} type="button" onClick={() => setRot(d)} className={cx('mono h-7 rounded-md border text-[11px] transition-colors', deg === d ? 'border-accent/50 bg-accent/10 text-accent-2' : 'border-line-2 bg-surface-2 text-ink-2 hover:text-ink')}>
+            <button key={d} type="button" onClick={() => setRot(d)} className={cx('mono h-7 rounded-lg border text-[11px] transition-colors duration-200 ease-audora', deg === d ? 'border-accent bg-accent text-white' : 'border-line-2 bg-bg text-ink-2 hover:border-ink-2 hover:text-ink')}>
               {d}°
             </button>
           ))}
@@ -103,12 +103,12 @@ export function Inspector({ piece, room, status = 'ok', onChange, onDelete, onDu
       </div>
 
       <div className="flex flex-col gap-1">
-        <span className="text-[11px] uppercase tracking-[0.14em] text-ink-3">Position</span>
+        <span className="micro">Position</span>
         <div className="grid grid-cols-2 gap-1.5">
           {nearest.map((w) => (
-            <div key={w} className="rounded-lg border border-line bg-bg-2/60 px-2.5 py-1.5">
-              <div className="text-[10px] uppercase tracking-wider text-ink-3">{WALL_NAME[w]} wall</div>
-              <div className={cx('mono text-[13px]', gaps[w] < -0.001 ? 'text-danger' : gaps[w] < 0.02 ? 'text-ink-2' : 'text-ink')}>{gaps[w] < 0.02 && gaps[w] > -0.001 ? 'flush' : m(gaps[w])}</div>
+            <div key={w} className="rounded-lg border border-line bg-surface px-2.5 py-1.5">
+              <div className="text-[10px] uppercase tracking-wider text-dim">{WALL_NAME[w]} wall</div>
+              <div className={cx('mono text-[13px]', gaps[w] < -0.001 ? 'text-danger' : gaps[w] < 0.02 ? 'text-dim' : 'text-ink')}>{gaps[w] < 0.02 && gaps[w] > -0.001 ? 'flush' : m(gaps[w])}</div>
             </div>
           ))}
         </div>

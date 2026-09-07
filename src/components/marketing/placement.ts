@@ -5,6 +5,7 @@
 import { buyerVerdict, clampToRoom, makePiece, parseFurnitureText, placeAgainstWall, wallLength } from '@/engine';
 import { aabb, corners, round, separation, wallGaps, wallLabel } from '@/engine/geometry';
 import { lowerName, smallPiece } from '@/engine/fit';
+import { BUYER_BLUE } from '@/three/furniture/palette';
 import type { BuyerVerdict, CatalogCategory, CatalogItem, PlacedPiece, ProceduralKind, RoomGeometry, Vec2, WallSide } from '@/engine/types';
 
 export interface BuyerSpec {
@@ -67,7 +68,7 @@ export function customItem(spec: BuyerSpec): CatalogItem {
     flat: spec.flat,
     verified: false,
     source: 'Typed by the buyer.',
-    color: '#62a0ff',
+    color: BUYER_BLUE,
   };
 }
 

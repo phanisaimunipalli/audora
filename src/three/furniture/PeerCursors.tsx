@@ -11,7 +11,7 @@ function Label({ name, color, y }: { name: string; color: string; y: number }) {
     <Html position={[0, y, 0]} center zIndexRange={[20, 0]} style={{ pointerEvents: 'none', whiteSpace: 'nowrap' }}>
       <span
         className="mono rounded-full border px-2 py-0.5 text-[11px]"
-        style={{ background: 'rgba(14,13,12,0.82)', borderColor: color, color, backdropFilter: 'blur(6px)' }}
+        style={{ background: 'rgba(255,255,255,0.9)', borderColor: color, color, backdropFilter: 'blur(6px)' }}
       >
         {name}
       </span>

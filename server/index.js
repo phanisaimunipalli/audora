@@ -29,6 +29,9 @@ try {
   views = Number.isFinite(n) && n >= 0 ? n : 0
 } catch { views = 0 }
 
+const geoCache = new Map()
+let lastGeocode = 0
+
 let pendingFlush = false
 function bumpViews() {
   views += 1
@@ -73,6 +76,26 @@ async function api(req, res, url) {
   if (url.pathname === '/api/views') {
     if (req.method === 'POST') return send(200, { views: bumpViews() })
     return send(200, { views })
+  }
+  // Address to coordinates. OpenStreetMap's Nominatim: no key, but their policy
+  // requires an identifying User-Agent and at most one call a second, so it is
+  // proxied here and cached rather than called from the browser.
+  if (url.pathname === '/api/geocode') {
+    const q = (url.searchParams.get('q') || '').trim()
+    if (q.length < 3) return send(400, { error: 'address too short' })
+    const hit = geoCache.get(q.toLowerCase())
+    if (hit) return send(200, { ...hit, cached: true })
+    const now = Date.now()
+    if (now - lastGeocode < 1100) await new Promise(r => setTimeout(r, 1100 - (now - lastGeocode)))
+    lastGeocode = Date.now()
+    const u = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`
+    const r = await fetch(u, { headers: { 'User-Agent': 'Audora/1.0 (https://audora-workflow.onrender.com)' } })
+    if (!r.ok) return send(r.status, { error: 'geocoder unavailable' })
+    const j = await r.json()
+    if (!j.length) return send(404, { error: 'no match for that address' })
+    const out = { lat: Number(j[0].lat), lon: Number(j[0].lon), label: j[0].display_name }
+    geoCache.set(q.toLowerCase(), out)
+    return send(200, out)
   }
   if (!KEY) return send(500, { error: 'WORLDLABS_API_KEY not configured on the server' })
   try {

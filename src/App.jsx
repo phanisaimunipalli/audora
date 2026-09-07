@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import WorldView from './WorldView.jsx'
 import ErrorBoundary from './ErrorBoundary.jsx'
+import SunPanel from './SunPanel.jsx'
 import { DEMO_WORLD } from './world.js'
 import { SETS, SINGLES, byId, cm } from './data.js'
 
@@ -251,7 +252,7 @@ export default function App() {
   const [error, setError] = useState(null)
   const [notice, setNotice] = useState(null)
   const [showMesh, setShowMesh] = useState(false)
-  const [showMetrics, setShowMetrics] = useState(true)
+  const [leftPanel, setLeftPanel] = useState('metrics')  // 'metrics' | 'sun' | null
   const [panoDims, setPanoDims] = useState(null)
   const [credits, setCredits] = useState(null)
   const views = useViews()
@@ -440,7 +441,10 @@ export default function App() {
           </span>
           <div className="right">
             <button className={staging ? 'on' : ''} onClick={() => setStaging(v => !v)}>Furniture</button>
-            <button className={showMetrics ? 'on' : ''} onClick={() => setShowMetrics(v => !v)}>Measurements</button>
+            <button className={leftPanel === 'sun' ? 'on' : ''}
+              onClick={() => setLeftPanel(v => (v === 'sun' ? null : 'sun'))}>Sunlight</button>
+            <button className={leftPanel === 'metrics' ? 'on' : ''}
+              onClick={() => setLeftPanel(v => (v === 'metrics' ? null : 'metrics'))}>Measurements</button>
             <button className={showMesh ? 'on' : ''} onClick={() => setShowMesh(v => !v)}>Geometry</button>
             <button onClick={goHome}>Home</button>
           </div>
@@ -448,7 +452,9 @@ export default function App() {
 
         {notice && <div className="notice">{notice}<button onClick={() => setNotice(null)}>×</button></div>}
 
-        {showMetrics && (
+        {leftPanel === 'sun' && <SunPanel onClose={() => setLeftPanel(null)} />}
+
+        {leftPanel === 'metrics' && (
           <aside className="metrics-panel">
             <div className="mp-h">What the model measured</div>
             <table className="mp-t"><tbody>

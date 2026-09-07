@@ -18,3 +18,4 @@ evals/results/ft-*/adapter/tokenizer.json
 .claude/settings.local.json
 .data
 dist-server
+*.tsbuildinfo

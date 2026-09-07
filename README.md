@@ -2,75 +2,44 @@
 
 **Live it before buying or selling.**
 
-Audora turns an empty room into a walkable, true to scale 3D space and stages it
-with furniture that actually fits. Built for sellers and listing agents who need
-a listing to show what a space can become, not just what it currently is.
+Upload a photo of a room. Get back a 3D world you can walk through and stage
+with furniture at true dimensions.
 
-Built at the Burning Token hackathon, September 2026.
+[audora-workflow.onrender.com](https://audora-workflow.onrender.com)
 
-## The problem
+Third place, SF round, Burning Token hackathon, September 2026.
 
-Empty rooms do not sell. Virtual staging exists, but it produces flat images
-with no spatial truth behind them. A buyer cannot tell whether their sofa fits,
-and a seller cannot tell whether the staging is honest.
+## How it works
 
-## What it does today
+One photo goes to World Labs Marble, which returns a navigable 3D world:
+an equirectangular panorama, a collider mesh, and Gaussian splats at four
+levels of detail. Audora renders it in three.js and puts furniture in it at
+real centimetre dimensions.
 
-1. You set the room from real measurements and declare a **scale anchor**, the
-   known real world dimension that makes every other number meaningful.
-2. Audora builds a metrically correct 3D room you can orbit or walk through at a
-   real 1.60m eye height.
-3. You stage it from a furniture catalog where every piece carries its real
-   dimensions in centimetres.
-4. Audora continuously reports what fits, what crosses a wall, what overlaps,
-   and how much floor you have consumed.
+A draft costs 150 credits and lands in about 30 seconds. Full quality costs
+1,500 and takes around 11 minutes, and it only runs if you ask for it after
+seeing the draft.
 
-## Why the scale anchor matters
+## About scale
 
-Photogrammetry and generative reconstruction both recover geometry only up to an
-unknown scale factor. Without an anchor, "will this couch fit" is unanswerable.
-Most staging tools quietly skip this. Audora makes you declare the anchor and
-shows it in the interface, because it is the difference between a picture and an
-answer.
+Marble reports a metric scale factor and a ground plane offset. Audora shows
+both, and says so plainly when they are missing, which is always the case for
+drafts. Every furniture piece carries its real dimensions, so a sofa that looks
+like it fits is measured against numbers you can see rather than an impression.
 
-## Honest scope
-
-This is a hackathon build and the boundaries are stated plainly:
-
-* The room is constructed from measurements you enter. Photo to geometry
-  reconstruction is **not** wired up yet.
-* An uploaded photo is displayed as a reference backdrop only. It does not
-  drive geometry.
-* Catalog dimensions are reference figures for common furniture classes. They
-  are **not** verified retail SKUs and no price is quoted. "Find this piece"
-  opens a shopping search.
-* Nothing is scraped from any listing site.
-
-## Roadmap
-
-* **Reconstruction via World Labs Marble.** Marble accepts a single image and
-  returns a navigable 3D world in roughly 20 seconds, which removes the
-  multi view capture requirement that makes classical photogrammetry fail on
-  texture poor empty rooms. Audora's scale anchor still supplies the metric
-  scale that generative reconstruction cannot.
-* **Verified catalog.** Replace reference dimensions with per SKU dimensions
-  checked against retailer sources, with live purchase links.
-* **Realtime co staging.** Two people staging the same room at once.
+Catalog dimensions are reference figures for common furniture classes. They are
+not verified retail SKUs.
 
 ## Stack
 
-React 18, Vite, three.js via @react-three/fiber and @react-three/drei.
-No external 3D assets. The room and every furniture piece are generated
-procedurally in metres, which is what makes the scale claim verifiable.
+React 18, Vite, three.js through @react-three/fiber and @react-three/drei.
+The API key stays server side: `vite.config.js` proxies Marble in development
+and `server/index.js` does the same in production. Deployed on Render, with a
+mounted disk holding the view counter.
 
-## Run it
-
-```
-npm install
-npm run dev
-```
+No 3D assets are shipped. Furniture is generated in metres, which is what makes
+the scale claim checkable.
 
 ## AI used to build this
 
-Claude Opus 5 in Claude Code wrote the application. Research on reconstruction
-options was done with web search through the same session.
+Claude Opus 5 in Claude Code.

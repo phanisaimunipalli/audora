@@ -6,7 +6,7 @@ import { SETS, SINGLES, byId, cm } from './data.js'
 
 const DRAFT = 'marble-1.0-draft'
 const FULL = 'marble-1.1'
-const MAX_PHOTOS = 1  // one photo for now, on purpose
+const MAX_PHOTOS = 6  // more angles give Marble more to reconstruct from
 
 function downscale(file, max = 1600) {
   return new Promise((resolve, reject) => {
@@ -32,6 +32,21 @@ const preload = (url) => new Promise((resolve) => {
   i.onload = () => fin(true); i.onerror = () => fin(false); i.src = url
   setTimeout(() => fin(false), 25000)
 })
+
+// "4 min ago" reads faster than a timestamp when you are scanning a row.
+const ago = (iso) => {
+  const t = Date.parse(iso)
+  if (!Number.isFinite(t)) return ''
+  const s = Math.max(0, (Date.now() - t) / 1000)
+  if (s < 60) return 'just now'
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m} min ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h} ${h === 1 ? 'hour' : 'hours'} ago`
+  const d = Math.floor(h / 24)
+  if (d < 7) return `${d} ${d === 1 ? 'day' : 'days'} ago`
+  return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
 
 const mmss = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 
@@ -107,21 +122,59 @@ function Sky({ items }) {
 }
 
 function Strip({ items, activeId, onPick }) {
+  const rail = useRef(null)
+  const [edge, setEdge] = useState({ l: false, r: false })
+
+  // Arrows only appear when there is something to scroll to, the way a real
+  // poster row behaves.
+  const measure = useCallback(() => {
+    const el = rail.current
+    if (!el) return
+    setEdge({
+      l: el.scrollLeft > 8,
+      r: el.scrollLeft + el.clientWidth < el.scrollWidth - 8,
+    })
+  }, [])
+
+  useEffect(() => {
+    measure()
+    const el = rail.current
+    if (!el) return
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    window.addEventListener('resize', measure)
+    return () => { ro.disconnect(); window.removeEventListener('resize', measure) }
+  }, [measure, items.length])
+
+  const nudge = (dir) => {
+    const el = rail.current
+    if (!el) return
+    el.scrollBy({ left: dir * Math.max(el.clientWidth * 0.8, 320), behavior: 'smooth' })
+  }
+
   if (!items.length) return null
   return (
-    <div className="strip">
+    <section className="strip">
       <div className="strip-l"><span>Rooms already generated</span><em>{items.length}</em></div>
-      <div className="strip-scroll">
-        {items.map((w) => (
-          <button key={w.world_id}
-            className={'tile' + (w.world_id === activeId ? ' on' : '')}
-            onClick={() => onPick(w)} title={`${w.model} · ${w.created_at}`}>
-            <img src={w.assets.thumbnail_url} alt="" loading="lazy" />
-            <span className="tile-b">{w.model === 'marble-1.1' ? 'Full' : 'Draft'}</span>
-          </button>
-        ))}
+      <div className="rail-wrap">
+        <button className={'rail-arrow left' + (edge.l ? '' : ' off')}
+          onClick={() => nudge(-1)} aria-label="Scroll left">‹</button>
+        <div className="strip-scroll" ref={rail} onScroll={measure}>
+          {items.map((w) => (
+            <button key={w.world_id}
+              className={'tile' + (w.world_id === activeId ? ' on' : '')}
+              onClick={() => onPick(w)} title={`${w.model} · ${new Date(w.created_at).toLocaleString()}`}>
+              <img src={w.assets.thumbnail_url} alt="" loading="lazy" />
+              <span className="tile-b">{w.model === 'marble-1.1' ? 'Full' : 'Draft'}</span>
+              <span className="tile-when">{ago(w.created_at)}</span>
+              <span className="tile-play" aria-hidden="true">▶</span>
+            </button>
+          ))}
+        </div>
+        <button className={'rail-arrow right' + (edge.r ? '' : ' off')}
+          onClick={() => nudge(1)} aria-label="Scroll right">›</button>
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -166,6 +219,7 @@ export default function App() {
   const [items, setItems] = useState([])
   const [selected, setSelected] = useState(null)
   const [floorY, setFloorY] = useState(-1.3)
+  const [camOpen, setCamOpen] = useState(false)
   const timer = useRef(null)
   const lastGood = useRef(null)
 
@@ -286,10 +340,23 @@ export default function App() {
 
   const addPhotos = async (files) => {
     setError(null)
-    const picked = Array.from(files).slice(0, MAX_PHOTOS)
+    const room = MAX_PHOTOS - photos.length
+    if (room <= 0) return setError(`That is the limit of ${MAX_PHOTOS} photos. Remove one to add another.`)
+    const picked = Array.from(files).slice(0, room)
     const urls = await Promise.all(picked.map(f => downscale(f)))
-    // With a cap of one, a new pick replaces the current photo.
-    setPhotos(p => [...p, ...urls].slice(-MAX_PHOTOS))
+    setPhotos(p => [...p, ...urls].slice(0, MAX_PHOTOS))
+  }
+
+  // The newest generated room beats the bundled demo whenever there is one.
+  const openLatest = () => {
+    const w = history[0]
+    if (w) return pick(w)
+    return openWorld(DEMO_WORLD, 'full')
+  }
+
+  const addShot = (dataUrl) => {
+    setPhotos(p => (p.length >= MAX_PHOTOS ? p : [...p, dataUrl]))
+    setCamOpen(false)
   }
 
   const addPiece = (id, at) => {
@@ -474,38 +541,50 @@ export default function App() {
                 </div>
               )}
               <label className={'drop' + (photos.length ? ' small' : '')}>
-                <input type="file" accept="image/*"
+                <input type="file" accept="image/*" multiple
                   onChange={e => { addPhotos(e.target.files); e.target.value = '' }} />
                 <span className="drop-i" aria-hidden="true">
                   <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" /><path d="M12 15V4" /><path d="m7 9 5-5 5 5" />
                   </svg>
                 </span>
-                <span className="drop-t">{photos.length ? 'Choose a different photo' : 'Add one photo of the room'}</span>
+                <span className="drop-t">{photos.length ? 'Add another angle' : 'Add photos of the room'}</span>
                 <span className="drop-s">
-                  {photos.length ? 'One photo is all we need for now.'
-                                 : 'Stand in the doorway, get the far corner in. JPG or PNG.'}
+                  {photos.length
+                    ? `${photos.length} of ${MAX_PHOTOS}. More angles give Marble more to work with.`
+                    : 'One works. Several from different angles works better.'}
                 </span>
               </label>
+              <button className="cam-open" onClick={() => setCamOpen(true)}>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 8a2 2 0 0 1 2-2h2l1.2-1.6A1 1 0 0 1 9 4h6a1 1 0 0 1 .8.4L17 6h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                  <circle cx="12" cy="12.5" r="3.2" />
+                </svg>
+                Use the camera instead
+              </button>
               {photos.length > 0 && (
                 <button className="go wide" onClick={run}>
-                  Generate draft from this photo →
+                  Generate draft from {photos.length} {photos.length === 1 ? 'photo' : 'photos'} →
                 </button>
               )}
               <p className="tiny">Draft first, always. Full quality only when you say so.</p>
               {error && <div className="err">{error}</div>}
               {notice && <div className="err notice-inline">{notice}</div>}
             </div>
-            <button className="ghost" onClick={() => openWorld(DEMO_WORLD, 'full')}>
-              Skip the wait, open a world we already made →
+            <button className="ghost" onClick={openLatest}>
+              {history.length
+                ? `Skip the wait, open the latest room (${ago(history[0].created_at)}) →`
+                : 'Skip the wait, open a world we already made →'}
             </button>
-            <Strip items={history} activeId={null} onPick={pick} />
-            {views != null && (
-              <p className="views">{views.toLocaleString()} {views === 1 ? 'view' : 'views'}</p>
-            )}
+            {camOpen && <Camera onShot={addShot} onClose={() => setCamOpen(false)} />}
           </>
         )}
       </div>
+
+      {phase !== 'working' && <Strip items={history} activeId={null} onPick={pick} />}
+      {phase !== 'working' && views != null && (
+        <p className="views">{views.toLocaleString()} {views === 1 ? 'view' : 'views'}</p>
+      )}
     </div>
   )
 }

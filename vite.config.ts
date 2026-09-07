@@ -2,13 +2,13 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'node:path';
-import { audoraApi } from './server/api';
+import { audoraApi } from './server/api.ts';
 
 // Keys are read from process.env on the server side only. Nothing prefixed
 // VITE_ is used for secrets, so nothing secret ever ships to the browser.
 export default defineConfig({
   plugins: [react(), tailwindcss(), audoraApi()],
-  resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
+  resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } },
   server: { port: 5173, watch: { ignored: ['**/.audora/**', '**/evals/results/**', '**/dist/**'] } },
   build: {
     chunkSizeWarningLimit: 1500,

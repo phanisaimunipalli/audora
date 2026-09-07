@@ -17,3 +17,4 @@ evals/results/ft-*/adapter/tokenizer.json
 .pr-body.md
 .claude/settings.local.json
 .data
+dist-server

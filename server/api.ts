@@ -1,5 +1,6 @@
 /**
- * Audora dev/preview API — a Vite plugin that mounts /api/* on the dev and preview servers.
+ * Audora API — a Vite plugin that mounts /api/* on the dev and preview servers, and the same handler
+ * (handleApi) that server/prod.ts mounts in production.
  *
  * All third-party keys are read here, on the server, from .env / process.env.
  * Nothing prefixed VITE_ is used for secrets, so nothing secret ever reaches the browser.
@@ -15,10 +16,15 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { appendFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { loadEnv, type Plugin } from 'vite';
+import type { Plugin } from 'vite';
 
 type Env = Record<string, string>;
 let ENV: Env = {};
+
+/** Production entry point (server/prod.ts) hands the process environment in here; the Vite plugin loads .env itself. */
+export function configureEnv(env: Env) {
+  ENV = { ...env };
+}
 
 const NEBIUS_BASE = 'https://api.tokenfactory.nebius.com/v1';
 
@@ -335,7 +341,8 @@ async function marble(pathname: string, init: RequestInit, res: ServerResponse) 
   res.end(text);
 }
 
-async function handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+/** Answers /api/* requests; resolves false when the path is not an API route so the caller can serve files. */
+export async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const url = new URL(req.url || '/', 'http://localhost');
   const p = url.pathname;
   if (!p.startsWith('/api/')) return false;
@@ -439,7 +446,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<boolea
 export function audoraApi(): Plugin {
   const mount = (middlewares: { use: (fn: (req: IncomingMessage, res: ServerResponse, next: () => void) => void) => void }) => {
     middlewares.use((req, res, next) => {
-      handle(req, res).then((handled) => {
+      handleApi(req, res).then((handled) => {
         if (!handled) next();
       });
     });
@@ -450,7 +457,9 @@ export function audoraApi(): Plugin {
     // as a source change: Tailwind registers every watched file as a class-scan source and full-reloads the
     // page when one changes, which used to reload every open tab on every AI call.
     config: () => ({ server: { watch: { ignored: ['**/.audora/**'] } } }),
-    configResolved(config) {
+    async configResolved(config) {
+      // Loaded lazily so the production server (which imports handleApi) never pulls Vite in at runtime.
+      const { loadEnv } = await import('vite');
       ENV = { ...loadEnv(config.mode, config.root, ''), ...(process.env as Env) };
     },
     configureServer(server) {

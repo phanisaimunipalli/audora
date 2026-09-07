@@ -26,6 +26,24 @@ npm run build       # production bundle in dist/
 npm run preview     # serves dist/ with the same /api proxy
 ```
 
+## Deploy (Render, or any Node host)
+
+`npm run build` produces `dist/` (the app) and `dist-server/` (the production server, compiled from
+`server/prod.ts`). `npm start` runs it with nothing but Node: it serves `dist/` with gzip and
+immutable caching for hashed bundles, answers client-side routes with the app shell, and mounts the
+same `/api/*` handler the dev server uses so keys never reach the browser.
+
+| Render setting | Value |
+|---|---|
+| Build command | `npm install && npm run build` |
+| Start command | `npm start` |
+| Health check path | `/healthz` |
+| Environment | `WORLDLABS_API_KEY`, `NEBIUS_API_KEY`, `VITE_SHADEMAP_KEY` (build-time: it is inlined into the bundle, so redeploy after changing it), optional `MARBLE_MAX_GENERATIONS` |
+
+`PORT` and `HOST` are read from the environment (Render sets `PORT`). The AI cost log under
+`.audora/` is written to the instance's disk and does not survive a redeploy; that is fine, it only
+feeds the evaluation write-up.
+
 ## Keys (server-side only)
 
 `.env` is read by the Vite dev/preview server (`server/api.ts`) and never shipped to the browser. Nothing prefixed `VITE_` is used for secrets.

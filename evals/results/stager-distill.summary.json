@@ -1,0 +1,12 @@
+{
+  "rooms": 120,
+  "modelCalls": 120,
+  "modelValid": 117,
+  "heuristicAdded": 53,
+  "usd": 0.0426852,
+  "ms": 428163,
+  "examples": 170,
+  "live": true,
+  "at": "2026-09-06T14:59:25.722Z",
+  "out": "/Users/chaitanyapinapaka/Work/burningtoken/audora/evals/results/stager-distill.jsonl"
+}

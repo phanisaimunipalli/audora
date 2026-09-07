@@ -1,0 +1,79 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
+  <style>
+    body { margin: 0; background: #ffffff; color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Inter Tight', 'Helvetica Neue', Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #0066cc; text-decoration: none; } a:hover { color: #0077ed; }
+    .mono { font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace; }
+    .tile { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 26px 28px; background: #f5f5f7; border-radius: 26px; overflow: hidden; min-height: 0; text-align: center; }
+    .label { margin: 0; font-size: 25px; line-height: 1.22; font-weight: 500; letter-spacing: -0.015em; color: #1d1d1f; text-wrap: balance; }
+    .sub { margin: 0; font-size: 17px; line-height: 1.35; font-weight: 400; color: #6e6e73; text-wrap: balance; }
+    .grad { -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .g1 { background-image: linear-gradient(90deg, #1e8bff 0%, #8a4dff 50%, #ff2d76 100%); }
+    .g2 { background-image: linear-gradient(90deg, #ff8a00 0%, #ff2d55 100%); }
+    .g3 { background-image: linear-gradient(90deg, #1fb56b 0%, #17c3d8 100%); }
+    .g4 { background-image: linear-gradient(90deg, #5e5ce6 0%, #ff375f 100%); }
+    .g5 { background-image: linear-gradient(90deg, #17b0ff 0%, #2b6cff 100%); }
+    .big { font-size: 72px; line-height: 1; font-weight: 700; letter-spacing: -0.04em; }
+    .word { font-size: 64px; line-height: 1; font-weight: 700; letter-spacing: -0.035em; }
+    .photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .cap { position: absolute; left: 0; right: 0; bottom: 22px; margin: 0; font-size: 22px; font-weight: 600; color: #ffffff; text-align: center; text-shadow: 0 1px 12px rgba(0,0,0,0.55); }
+    .stat { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .stat .n { font-size: 58px; line-height: 1; font-weight: 700; letter-spacing: -0.04em; }
+    .stat .l { font-size: 16px; font-weight: 500; color: #6e6e73; }
+  </style>
+</helmet>
+<div style="position: relative; width: 1920px; height: 1080px; box-sizing: border-box; padding: 20px; background: #ffffff; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 16px; overflow: hidden;">
+  <div class="tile" style="grid-column: span 5;">
+    <span class="word grad g2" style="font-size: 60px;">The problem</span>
+    <p class="label" style="font-size: 30px;">An empty room photograph is a dead end.</p>
+    <p class="sub" style="font-size: 18px;">The seller sees a room that photographs badly. The agent sees a listing that sits. The buyer sees four white walls and cannot tell whether their life fits inside them.</p>
+  </div>
+  <div class="tile" style="grid-column: span 4; padding: 0;">
+    <img class="photo" src="room2.jpg" alt="Empty room with an extension cord on the floor">
+    <div aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0) 55%, rgba(0,0,0,0.55) 100%);"></div>
+    <p class="cap">Four white walls. Everybody is guessing.</p>
+  </div>
+  <div class="tile" style="grid-column: span 3;">
+    <span class="big grad g2" style="font-size: 68px;">$50–100</span>
+    <p class="label" style="font-size: 25px;">per photo for virtual staging today</p>
+  </div>
+  <div class="tile" style="grid-column: span 4;">
+    <span class="word grad g1" style="font-size: 48px;">Priya</span>
+    <p class="label" style="font-size: 25px;">Listing agent. Six listings, two empty. Stages the hero shot only, because every room is too expensive.</p>
+    <p class="sub" style="font-size: 17px;">Measures success in days on market</p>
+  </div>
+  <div class="tile" style="grid-column: span 4;">
+    <span class="word grad g3" style="font-size: 48px;">Dan</span>
+    <p class="label" style="font-size: 25px;">Seller. Moved out three weeks ago. His condo shows as an echoey box.</p>
+    <p class="sub" style="font-size: 17px;">Has a phone and eight minutes</p>
+  </div>
+  <div class="tile" style="grid-column: span 4;">
+    <span class="word grad g5" style="font-size: 48px;">Ana</span>
+    <p class="label" style="font-size: 25px;">Buyer. Owns a 2.2 m sectional she is not giving up. Has toured four places and cannot remember which living room was wider.</p>
+    <p class="sub" style="font-size: 17px;">Wants one number: does it fit</p>
+  </div>
+  <div class="tile" style="grid-column: span 4;">
+    <span class="big grad g5" style="font-size: 56px;">About a day</span>
+    <p class="label" style="font-size: 25px;">turnaround for one staged photo</p>
+  </div>
+  <div class="tile" style="grid-column: span 4;">
+    <span class="word grad g4" style="font-size: 48px;">Nobody measured</span>
+    <p class="label" style="font-size: 25px;">A staged photo can lie about scale, and routinely does. Buyers have learned to distrust it.</p>
+  </div>
+  <div class="tile" style="grid-column: span 4;">
+    <span class="word grad g2" style="font-size: 48px;">A flat image</span>
+    <p class="label" style="font-size: 25px;">No spatial truth behind it. It answers none of the questions the buyer actually has.</p>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

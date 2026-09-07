@@ -2,6 +2,18 @@ node_modules
 dist
 .env
 .env.local
+*.local
 .DS_Store
-.vercel
+evals/results/*.json
+
+# local fine-tune serving
+.venv-ft
+*.safetensors
+evals/results/ft-*/adapter/tokenizer.json
+
+.audora/
+!evals/results/finetune-*.json
+!evals/results/stager-distill.summary.json
+.pr-body.md
+.claude/settings.local.json
 .data

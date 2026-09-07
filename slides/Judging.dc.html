@@ -1,0 +1,93 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
+  <style>
+    body { margin: 0; background: #ffffff; color: #1d1d1f; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Inter Tight', 'Helvetica Neue', Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: #0066cc; text-decoration: none; } a:hover { color: #0077ed; }
+    .mono { font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace; }
+    .tile { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 26px 28px; background: #f5f5f7; border-radius: 26px; overflow: hidden; min-height: 0; text-align: center; }
+    .label { margin: 0; font-size: 25px; line-height: 1.22; font-weight: 500; letter-spacing: -0.015em; color: #1d1d1f; text-wrap: balance; }
+    .sub { margin: 0; font-size: 17px; line-height: 1.35; font-weight: 400; color: #6e6e73; text-wrap: balance; }
+    .grad { -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .g1 { background-image: linear-gradient(90deg, #1e8bff 0%, #8a4dff 50%, #ff2d76 100%); }
+    .g2 { background-image: linear-gradient(90deg, #ff8a00 0%, #ff2d55 100%); }
+    .g3 { background-image: linear-gradient(90deg, #1fb56b 0%, #17c3d8 100%); }
+    .g4 { background-image: linear-gradient(90deg, #5e5ce6 0%, #ff375f 100%); }
+    .g5 { background-image: linear-gradient(90deg, #17b0ff 0%, #2b6cff 100%); }
+    .big { font-size: 72px; line-height: 1; font-weight: 700; letter-spacing: -0.04em; }
+    .word { font-size: 64px; line-height: 1; font-weight: 700; letter-spacing: -0.035em; }
+    .photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .cap { position: absolute; left: 0; right: 0; bottom: 22px; margin: 0; font-size: 22px; font-weight: 600; color: #ffffff; text-align: center; text-shadow: 0 1px 12px rgba(0,0,0,0.55); }
+    .stat { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .stat .n { font-size: 58px; line-height: 1; font-weight: 700; letter-spacing: -0.04em; }
+    .stat .l { font-size: 16px; font-weight: 500; color: #6e6e73; }
+  </style>
+</helmet>
+<div style="position: relative; width: 1920px; height: 1080px; box-sizing: border-box; padding: 20px; background: #ffffff; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); gap: 16px; overflow: hidden;">
+  <div class="tile" style="grid-column: span 3;">
+    <span class="word grad g1" style="font-size: 52px;">What matters</span>
+    <p class="label" style="font-size: 24px;">Six judging criteria. One answer each.</p>
+    <p class="sub" style="font-size: 17px;">Burning Token · September 2026</p>
+  </div>
+  <div class="tile" style="grid-column: span 3;">
+    <span class="word grad g2" style="font-size: 52px;">Problem</span>
+    <p class="label" style="font-size: 22px;">Empty rooms do not sell, and virtual staging lies about scale.</p>
+    <p class="sub" style="font-size: 16px;">$50 to $100 per photo, a day’s turnaround, no spatial truth</p>
+  </div>
+  <div class="tile" style="grid-column: span 3;">
+    <span class="word grad g1" style="font-size: 52px;">Product</span>
+    <p class="label" style="font-size: 22px;">One photo becomes a room a buyer can walk, measure, and test their own furniture in.</p>
+    <p class="sub" style="font-size: 16px;">The fit report closes the loop back to the agent</p>
+  </div>
+  <div class="tile" style="grid-column: span 3;">
+    <span class="word grad g4" style="font-size: 52px;">Execution</span>
+    <p class="label" style="font-size: 22px;">Real Marble worlds, a tested metric engine, keys kept server-side, jobs that survive reloads.</p>
+    <p class="sub" style="font-size: 16px;">Runs fully in mock mode without any keys</p>
+  </div>
+  <div class="tile" style="grid-column: span 4;">
+    <span class="word grad g3" style="font-size: 52px;">Validation</span>
+    <p class="label" style="font-size: 22px;">Live Marble generation verified. Eval harness over 12 rooms and 3 staging systems. Every AI call logged with tokens, latency, and real USD cost.</p>
+    <p class="sub" style="font-size: 16px;">Honest limits written down before they were discovered</p>
+  </div>
+  <div class="tile" style="grid-column: span 4;">
+    <span class="word grad g5" style="font-size: 52px;">Experience</span>
+    <p class="label" style="font-size: 22px;">Open a link and land in the doorway at 1.60 m. No signup. Start a generation and leave; we notify you when it is ready.</p>
+    <p class="sub" style="font-size: 16px;">± on every number, digitally staged on every frame</p>
+  </div>
+  <div class="tile" style="grid-column: span 4;">
+    <span class="word grad g2" style="font-size: 52px;">Demo</span>
+    <p class="label" style="font-size: 22px;">Walk 1247 Oak Street: five staged rooms, one real Marble draft, three days of buyer data.</p>
+    <p class="sub" style="font-size: 16px;">audora-workflow.onrender.com/t/oak1247</p>
+  </div>
+  <div class="tile" style="grid-column: span 2;">
+    <span class="big grad g5" style="font-size: 60px;">35 s</span>
+    <p class="label" style="font-size: 18px;">one live Marble draft world</p>
+  </div>
+  <div class="tile" style="grid-column: span 2;">
+    <span class="big grad g3" style="font-size: 60px;">27</span>
+    <p class="label" style="font-size: 18px;">engine tests passing</p>
+  </div>
+  <div class="tile" style="grid-column: span 3;">
+    <span class="big grad g4" style="font-size: 60px;">12 × 3</span>
+    <p class="label" style="font-size: 18px;">rooms and staging systems in the eval harness</p>
+  </div>
+  <div class="tile" style="grid-column: span 2;">
+    <span class="big grad g2" style="font-size: 56px;">&lt; $0.001</span>
+    <p class="label" style="font-size: 18px;">per auto-staging call</p>
+  </div>
+  <div class="tile" style="grid-column: span 3;">
+    <span class="big grad g1" style="font-size: 60px;">5 rooms</span>
+    <p class="label" style="font-size: 18px;">in the seeded demo listing, walkable today</p>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

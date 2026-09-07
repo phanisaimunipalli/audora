@@ -6,7 +6,7 @@ import { SETS, SINGLES, byId, cm } from './data.js'
 
 const DRAFT = 'marble-1.0-draft'
 const FULL = 'marble-1.1'
-const MAX_PHOTOS = 6  // more angles give Marble more to reconstruct from
+const MAX_PHOTOS = 6  // more angles give the model more to reconstruct from
 
 function downscale(file, max = 1600) {
   return new Promise((resolve, reject) => {
@@ -178,6 +178,47 @@ function Strip({ items, activeId, onPick }) {
   )
 }
 
+const STEPS = [
+  { n: '01', t: 'Take one photo',
+    d: 'Stand in the doorway and get the far corner in. Your phone is enough. Add a few more angles if you want a sharper room.' },
+  { n: '02', t: 'Walk into it',
+    d: 'About thirty seconds later you are standing in that room, looking around, instead of squinting at a listing photo.' },
+  { n: '03', t: 'Put your furniture in',
+    d: 'Drop in a sofa, a bed, a dining table. Every piece is its real size, so you find out it does not fit here rather than on moving day.' },
+]
+
+function HowItWorks() {
+  return (
+    <section className="how">
+      <div className="how-in">
+        <h2>How it works</h2>
+        <ol className="how-steps">
+          {STEPS.map((s) => (
+            <li key={s.n}>
+              <span className="how-n">{s.n}</span>
+              <h3>{s.t}</h3>
+              <p>{s.d}</p>
+            </li>
+          ))}
+        </ol>
+        <div className="how-note">
+          <h3>Photos lie about size. This does not.</h3>
+          <p>
+            A wide lens makes a small room look generous, and you cannot tell until the
+            truck is outside. Audora shows you the measurements it is working from, in
+            centimetres, and tells you when it is not confident rather than guessing.
+            Your sofa is 220cm wide no matter how flattering the listing photo was.
+          </p>
+          <p className="how-fine">
+            Furniture sizes are typical dimensions for each kind of piece, not specific
+            products. Reconstruction runs on World Labs Marble.
+          </p>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 let seq = 0
 
 // Counts a visit once per browser session, so a reload does not inflate it.
@@ -243,7 +284,7 @@ export default function App() {
     const started = Date.now()
     clearInterval(timer.current); setElapsed(0)
     timer.current = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000)
-    setStatus(list.length > 1 ? `Sending ${list.length} angles to Marble` : 'Sending to Marble')
+    setStatus(list.length > 1 ? `Reading ${list.length} angles` : 'Reading the photo')
     const gen = await fetch('/api/generate', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ images: list, model }),
@@ -515,7 +556,7 @@ export default function App() {
         </nav>
       </header>
       <div className="up-inner">
-        <div className="eyebrow">Photo to walkable 3D · World Labs Marble</div>
+        <div className="eyebrow">Photo to walkable 3D</div>
         <h1>Live it before buying or selling.</h1>
         <p className="sub">One photo of a room becomes a real 3D world you can walk through and stage with furniture at true dimensions.</p>
 
@@ -551,7 +592,7 @@ export default function App() {
                 <span className="drop-t">{photos.length ? 'Add another angle' : 'Add photos of the room'}</span>
                 <span className="drop-s">
                   {photos.length
-                    ? `${photos.length} of ${MAX_PHOTOS}. More angles give Marble more to work with.`
+                    ? `${photos.length} of ${MAX_PHOTOS}. More angles give Audora more to work with.`
                     : 'One works. Several from different angles works better.'}
                 </span>
               </label>
@@ -582,6 +623,7 @@ export default function App() {
       </div>
 
       {phase !== 'working' && <Strip items={history} activeId={null} onPick={pick} />}
+      {phase !== 'working' && <HowItWorks />}
       {phase !== 'working' && views != null && (
         <p className="views">{views.toLocaleString()} {views === 1 ? 'view' : 'views'}</p>
       )}

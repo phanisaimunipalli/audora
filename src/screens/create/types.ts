@@ -4,12 +4,14 @@
  * *recipe* (what the user did) so it can be re-derived if the raw geometry changes.
  */
 import type { AnchorSpec, RawGeometry, RoomGeometry, RoomType } from '@/engine/types';
-import { anchorAssumed, anchorFromDoor, anchorFromFloorplan, anchorFromOutlet, anchorFromWall, applyScale } from '@/engine/anchor';
+import { anchorAssumed, anchorFromDoor, anchorFromFloorplan, anchorFromOutlet, anchorFromWall, applyScale, CEILING_HEIGHT_M } from '@/engine/anchor';
 import { mockRawGeometry } from '@/services/mockWorld';
 import { guessRoomType } from '@/services/ai';
+import { planRoomType, type FloorPlan, type FlatPlanRoom } from '@/services/floorplan';
+import { MAX_ROOM_PHOTOS } from '@/services/marble';
 import { photoHints, type LoadedPhoto } from '@/lib/image';
 import { uid } from '@/lib/ids';
-import type { PhotoAnalysis } from '@/state/types';
+import type { PhotoAngle, PhotoAnalysis, PlanDimensions } from '@/state/types';
 
 export interface Tap {
   x: number;
@@ -50,7 +52,11 @@ export interface DraftRoom {
   name: string;
   type: RoomType;
   source: 'photo' | 'measured';
-  photo?: LoadedPhoto;
+  photo?: DraftPhoto;
+  /** Extra angles of the same room; the primary `photo` is not repeated here. Six in all. */
+  photos?: DraftPhoto[];
+  /** The plan room this one was matched to, and the metres the plan printed for it. */
+  planRoom?: DraftPlanRoomRef;
   fileName?: string;
   hints: PhotoHint[];
   analysis?: PhotoAnalysis;
@@ -158,10 +164,15 @@ export function measuredAnchor(raw: RawGeometry, tool: MeasureTool = 'tape'): An
   return anchorFromWall(raw, 'width', raw.width, tool);
 }
 
-/** The anchor the room currently has, or undefined when the ritual has not been completed. */
+/**
+ * The anchor the room currently has, or undefined when the ritual has not been completed.
+ * A declared recipe wins over the room's source: a room read off the floor plan is anchored by the
+ * plan whether or not it also has a photo, and it must not claim to have been measured with a tape.
+ */
 export function draftAnchor(room: DraftRoom): AnchorSpec | undefined {
-  if (room.source === 'measured') return measuredAnchor(room.raw, room.measured?.tool ?? 'tape');
-  return room.recipe ? anchorFromRecipe(room.raw, room.recipe) : undefined;
+  if (room.recipe) return anchorFromRecipe(room.raw, room.recipe);
+  if (room.source === 'measured' && room.measured) return measuredAnchor(room.raw, room.measured.tool ?? 'tape');
+  return undefined;
 }
 
 /** What will be written to the store: the declared anchor, or an honest "assumed" one. */
@@ -245,4 +256,151 @@ export function demoRooms(): DraftRoom[] {
     newMeasuredRoom('Second bedroom', 'bedroom', { width: 2.75, depth: 3.05, height: 2.5 }),
     newMeasuredRoom('Dining room', 'dining', { width: 3.4, depth: 4.0, height: 2.6 }),
   ];
+}
+
+/* ---------- photos: one primary, up to five more angles ---------- */
+
+export { MAX_ROOM_PHOTOS };
+
+/**
+ * A photo in the create flow. `angle` is set only when the seller says which way it faces; it becomes
+ * Marble's azimuth hint in the multi-image prompt.
+ */
+export interface DraftPhoto extends LoadedPhoto {
+  angle?: PhotoAngle;
+  origin?: 'file' | 'url';
+  sourceUrl?: string;
+}
+
+/** Every photo a draft room will send, primary first. */
+export function draftPhotos(room: DraftRoom): DraftPhoto[] {
+  return [...(room.photo ? [room.photo] : []), ...(room.photos ?? [])];
+}
+
+export function photoCount(room: DraftRoom): number {
+  return draftPhotos(room).length;
+}
+
+export function canAddPhoto(room: DraftRoom): boolean {
+  return photoCount(room) < MAX_ROOM_PHOTOS;
+}
+
+/**
+ * Add an angle. The first photo on a room without one becomes the primary — the shot the anchor is
+ * tapped on and the one that defines azimuth 0 — and everything after it is an extra angle.
+ */
+export function withPhoto(room: DraftRoom, photo: DraftPhoto): DraftRoom {
+  if (!canAddPhoto(room)) return room;
+  if (!room.photo) return { ...room, source: 'photo', photo, hints: photoHints(photo) };
+  return { ...room, photos: [...(room.photos ?? []), photo] };
+}
+
+/** Drop one angle by index into `draftPhotos` (0 is the primary; the next angle is promoted). */
+export function withoutPhoto(room: DraftRoom, index: number): DraftRoom {
+  const all = draftPhotos(room);
+  if (index < 0 || index >= all.length) return room;
+  const rest = all.filter((_, i) => i !== index);
+  const [primary, ...extra] = rest;
+  return {
+    ...room,
+    photo: primary,
+    photos: extra.length ? extra : undefined,
+    hints: primary ? photoHints(primary) : [],
+    // A room with no photo left is measurements only: the anchor step has no image to tap on.
+    source: primary ? 'photo' : 'measured',
+  };
+}
+
+export function withPhotoAngle(room: DraftRoom, index: number, angle: PhotoAngle | undefined): DraftRoom {
+  const all = draftPhotos(room).map((p, i) => (i === index ? { ...p, angle } : p));
+  const [primary, ...extra] = all;
+  return { ...room, photo: primary, photos: extra.length ? extra : undefined };
+}
+
+/* ---------- the listing floor plan ---------- */
+
+/** The plan room a draft room was matched to, flattened onto the draft so it survives a reload. */
+export interface DraftPlanRoomRef {
+  /** `FlatPlanRoom.key` — which floor, which room. */
+  key: string;
+  name: string;
+  floor: string;
+  /** Metres, when the plan printed dimensions for this room. */
+  width?: number;
+  depth?: number;
+  /** Exactly what the plan printed. */
+  text?: string;
+}
+
+/** The floor-plan step's own state. Held in the wizard, written to the tour on launch. */
+export interface DraftPlan {
+  image?: LoadedPhoto;
+  fileName?: string;
+  state: 'idle' | 'parsing' | 'done' | 'failed';
+  plan?: FloorPlan;
+  /** Keys of the rooms the seller kept. Empty means "none chosen yet". */
+  chosen: string[];
+}
+
+export function emptyDraftPlan(): DraftPlan {
+  return { state: 'idle', chosen: [] };
+}
+
+/** A plan's ceiling is never printed, so the rooms it produces stand under the standard 2.44 m. */
+export const PLAN_CEILING_M = CEILING_HEIGHT_M;
+
+export function planRoomRef(r: FlatPlanRoom): DraftPlanRoomRef {
+  return { key: r.key, name: r.name, floor: r.floor, width: r.width, depth: r.depth, text: r.dimensionsText };
+}
+
+/** What goes on the room record: the plan's metres, or nothing when it printed none. */
+export function planDimensionsOf(ref: DraftPlanRoomRef | undefined): PlanDimensions | undefined {
+  if (!ref || ref.width == null || ref.depth == null) return undefined;
+  return { width: ref.width, depth: ref.depth, text: ref.text, planRoomName: ref.name, floor: ref.floor };
+}
+
+/**
+ * Attach a plan room to a draft room. **The plan wins**: when it printed dimensions, the room's raw
+ * geometry is rebuilt from them (metres, so one raw unit is one metre) and its anchor becomes
+ * `floorplan` — "floor plan · 3.75 m wall · ±5 cm" — over any estimate the photo produced. A plan
+ * room with no printed dimensions contributes only its name, its type and its floor.
+ */
+export function withPlanRoom(room: DraftRoom, ref: DraftPlanRoomRef | undefined): DraftRoom {
+  if (!ref) {
+    // Unmatching a room drops the plan's numbers; a photo room falls back to the photo's proportions.
+    const raw = room.photo ? rawForPhoto(room.photo, room.name, room.type) : room.measured ? rawFromMeasurements(room.measured) : room.raw;
+    return { ...room, planRoom: undefined, raw, recipe: room.recipe?.method === 'floorplan' ? undefined : room.recipe };
+  }
+  const type = planRoomType(ref.name);
+  const next: DraftRoom = { ...room, planRoom: ref, name: ref.name, type };
+  if (ref.width == null || ref.depth == null) return next;
+  const measured: Measurements = { width: ref.width, depth: ref.depth, height: PLAN_CEILING_M };
+  return { ...next, raw: rawFromMeasurements(measured), recipe: { method: 'floorplan', metres: ref.width } };
+}
+
+/** True when this room's numbers come from the plan rather than from a photo or a tape. */
+export function isFromPlan(room: DraftRoom): boolean {
+  return room.recipe?.method === 'floorplan' && !!room.planRoom;
+}
+
+/**
+ * A room read straight off the plan, with no photo. With dimensions it is real by construction and
+ * anchored by the plan; without them it is a name and a floor, and its numbers stay an honest guess
+ * until the seller adds a photo or types a wall.
+ */
+export function newPlanRoom(ref: DraftPlanRoomRef, index: number): DraftRoom {
+  const type = planRoomType(ref.name);
+  const base: DraftRoom = {
+    id: uid('draft'),
+    name: ref.name,
+    type,
+    source: 'measured',
+    planRoom: ref,
+    hints: [],
+    analysisState: 'done',
+    raw: mockRawGeometry(`plan:${ref.key}:${ref.name}:${index}`, type),
+  };
+  if (ref.width == null || ref.depth == null) return base;
+  const measured: Measurements = { width: ref.width, depth: ref.depth, height: PLAN_CEILING_M };
+  return { ...base, raw: rawFromMeasurements(measured), measured: undefined, recipe: { method: 'floorplan', metres: ref.width } };
 }

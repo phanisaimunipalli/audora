@@ -98,6 +98,8 @@ export function SplatWorld({ world, visible = true, onStatus, opacity = 1, trans
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
   const fading = useRef(false);
+  /** The tier actually on screen, kept so hiding and re-showing the layer can re-state it. */
+  const onScreenRef = useRef<{ tier: SplatTier; splats: number } | null>(null);
 
   const scale = world.metricScaleFactor ?? null;
   const ground = world.groundPlaneOffset ?? null;
@@ -218,6 +220,7 @@ export function SplatWorld({ world, visible = true, onStatus, opacity = 1, trans
         meshRef.current?.(mesh);
         const n = mesh.packedSplats?.numSplats ?? 0;
         onScreen = { tier: rung.tier, splats: n };
+        onScreenRef.current = onScreen;
         report('ready', n ? `${Math.round(n / 1000)}k splats` : undefined, { tier: rung.tier, splats: n, upgrading: null });
         step += 1;
         /* The next rung is either the rest of the plan or, at the top of it, the upgrade this
@@ -254,6 +257,7 @@ export function SplatWorld({ world, visible = true, onStatus, opacity = 1, trans
         }
       }
       live.current = [];
+      onScreenRef.current = null;
       meshRef.current?.(null);
       release?.();
     };
@@ -266,6 +270,10 @@ export function SplatWorld({ world, visible = true, onStatus, opacity = 1, trans
   useEffect(() => {
     for (const m of live.current) m.visible = visible;
     if (!fading.current) for (const m of live.current) m.opacity = opacity;
+    /* Showing an already-loaded splat again is not a load: say "ready" straight away, or the viewer
+       reads the silence as "no capture" and draws the measured shell over the photograph. */
+    const s = onScreenRef.current;
+    if (visible && s) statusRef.current?.('ready', s.splats ? `${Math.round(s.splats / 1000)}k splats` : undefined, { tier: s.tier, splats: s.splats, upgrading: null });
     invalidate();
   }, [visible, opacity, invalidate]);
 

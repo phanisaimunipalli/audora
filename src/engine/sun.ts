@@ -63,9 +63,18 @@ export function sunPosition(date: Date, lat: number, lon: number): SunPosition {
   return { azimuth: (azimuth + 360) % 360, elevation };
 }
 
-/** Sunrise/sunset (UTC) by scanning the day at 2-minute steps; good enough for a slider. */
-export function sunTimes(dayUtc: Date, lat: number, lon: number): { sunrise: Date | null; sunset: Date | null } {
-  const start = new Date(Date.UTC(dayUtc.getUTCFullYear(), dayUtc.getUTCMonth(), dayUtc.getUTCDate(), 0, 0, 0));
+/**
+ * Sunrise and sunset for the **local calendar day** `day` falls in, by scanning it at 2-minute
+ * steps; good enough for a slider.
+ *
+ * Local, not UTC. Every screen that shows these prints them on the device's own clock and keys them
+ * by the local date (`dateInputValue`), so scanning the UTC day made the answer depend on the hour
+ * the panel happened to be opened at: west of Greenwich anything after ~17:00 local rolled into the
+ * next UTC day, and the viewer and the hub printed sunsets two minutes apart for the same instant at
+ * the same address. One date, one address, one answer.
+ */
+export function sunTimes(day: Date, lat: number, lon: number): { sunrise: Date | null; sunset: Date | null } {
+  const start = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 0, 0, 0, 0);
   let prev = sunPosition(start, lat, lon).elevation > 0;
   let sunrise: Date | null = null;
   let sunset: Date | null = null;

@@ -134,9 +134,16 @@ export function Select({ className, children, ...rest }: SelectHTMLAttributes<HT
   );
 }
 
-export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: ReactNode }) {
+export function Toggle({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label?: ReactNode; disabled?: boolean }) {
   return (
-    <button type="button" onClick={() => onChange(!checked)} className="flex items-center gap-3 text-left" role="switch" aria-checked={checked}>
+    <button
+      type="button"
+      onClick={() => !disabled && onChange(!checked)}
+      disabled={disabled}
+      className={cx('flex items-center gap-3 text-left', disabled && 'cursor-not-allowed opacity-60')}
+      role="switch"
+      aria-checked={checked}
+    >
       <span className={cx('relative inline-flex h-6 w-11 items-center rounded-full transition-colors', checked ? 'bg-accent' : 'bg-surface-3 border border-line-2')}>
         <span className={cx('absolute h-5 w-5 rounded-full bg-white transition-transform', checked ? 'translate-x-5.5' : 'translate-x-0.5')} />
       </span>

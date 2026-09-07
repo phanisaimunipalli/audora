@@ -168,9 +168,10 @@ supersede the guesses earlier in this section.
   mask comes out as an 8.1 m² rectangle filling 96% of its own bounding box.)
   `window.__audoraWalkMask` exposes it in dev.
 
-Photo view is one shared surface: the same mode switch, the same `WorldLayers` panel (geometry, real
-capture, floor height) and the same frame in the public viewer, the hub's Tour tab and the staging
-editor.
+Photo view is one shared surface: the same mode switch, the same layers panel and the same frame in
+the public viewer, the hub's Tour tab and the staging editor. (That panel is now
+`screens/viewer/LayersPanel` — the portrait stack, the sun readout, geometry and the floor nudge;
+`components/WorldLayers` was its ancestor and is gone.)
 
 **The measured shell is never drawn over a real capture.** Portrait-mode layering means the photo
 layer wins: whenever the panorama or the splat is actually on screen, `RoomShell` is not rendered at
@@ -258,3 +259,52 @@ Dollhouse switch cleanly; "Test my furniture" answers "Your sofa does not fit he
 queen bed and the nightstand." with the anchor chip; the Furnished flat streams 100k → 500k and
 stands our plant on its floorboards with a contact shadow; the hub's Publish tab shows the disabled
 toggle, the free rehearsal and the per-room tiers.
+
+### The two goals, integrated (2026-09-06, integrator)
+
+Both owner goals are in and wired into one product. Three seams were closed at merge time.
+
+- **One layers panel, two screens.** `screens/viewer/LayersPanel` (Photo / Furniture / Shadows /
+  Occluder, the exploded preview, the measured-light readout, Geometry with its wireframe/occluder
+  view, and the floor nudge with its AnchorChip) is now mounted identically in the buyer's viewer
+  **and** in the staging editor, with its own `usePortraitLayers` in each. `components/WorldLayers`
+  was the editor's older, smaller copy and is deleted. Reaching for the catalogue turns the furniture
+  layer back on, and dragging is off while the layer is in the air.
+- **The Shadows switch reaches the shadows.** It used to gate only the contact discs, so the cast
+  shadow stayed on the photographed floor. `CaptureLight` already had `catcher` for exactly this
+  ("hides shadows without changing the light"); the viewer and the editor now pass the layer to
+  `catcher` and to `SunLight`'s `shadows`, so switching it off removes the shadow and leaves the
+  room's brightness alone.
+- **The real sun is in the listing stills.** `StillsRenderer` takes an optional `sun` (`SunState`);
+  `PublishPanel` computes it from `tour.site` at the hour the seller parked the time-of-day control
+  on. Over a photograph the capture waits for `CaptureLight`'s budget before it fires, because
+  `externalSunScale(null, …)` is 1 — a studio sun on a photograph, which is the thing the composite
+  exists to avoid.
+
+Two data facts, both settled empirically:
+
+- **The demo tour has a real site.** `seed.ts` carries the Nominatim answer for 1247 Oak St and the
+  Overpass building way nearest it (`way/513962743`, 25 corners, longest edge 171.4°, © OpenStreetMap
+  contributors, ODbL, fetched 2026-09-06), so `/t/oak1247` opens with a time-of-day control and the
+  hub shows a Site card on a first run with no network. `ensureSite` also upgrades a tour seeded
+  before the Site step existed.
+- **`TourSite.windowWall` is new, and it is the fix for a real bug.** The seller answers "which way
+  do the windows face?" and the engine stores the bearing of the room's *north* wall;
+  `facingToHeading` converts, using the wall the rooms' windows are dominantly on. The Site step is
+  step 2 of six, so that room set always changes afterwards — the floor plan adds rooms, and so do
+  photos. Re-deriving the wall at display time therefore renames a heading that never moved: a
+  confirmed "264° · west" came back as "84° · east" on the hub as soon as a garage arrived off the
+  plan. The site now records the wall its heading was expressed against, `SiteCard` prefers it, and
+  `tests/siteheading.test.ts` pins the invariant. `RoomCard` keeps using each room's own wall, which
+  is right — that control is per room.
+
+Verified against the running dev server, in the foreground extension tab where the window allowed it
+and in the headless SwiftShader Chrome on :9333 otherwise (`document.hidden` suspends r3f's loop and
+the ResizeObserver an offscreen stills canvas needs, which is why the stills were checked there):
+the corner room walks its real capture with our bed on the photographed floor; the Shadows switch
+removes the cast shadow and nothing else; the exploded preview lifts the furniture 0.35 → 0.4 m and
+settles; the hour slider moves the shadow across the floorboards (09:00 casts left, 19:00 barely at
+all at 6° elevation); the four composite stills come out named Portrait / From the capture point /
+Across the room / Looking back with the disclosure plate burned in, and the 09:00 and 17:00 renders
+of the same angle differ; and the wizard runs listing → site → floor plan → photos → anchor → launch
+end to end, reading 12 rooms off the demo townhouse plan and generating 16 simulated rooms.

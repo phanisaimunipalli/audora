@@ -108,3 +108,20 @@ describe('standable with a mask', () => {
     expect(dest.z).toBeCloseTo(1.2, 1);
   });
 });
+
+describe('the mask never claims floor outside the room the tour states', () => {
+  it('clips a big collider down to the stated rectangle', () => {
+    // An 8 m collider — the open-plan flat whose measurement `roomExtent` rejects — inside a tour
+    // that states a 4 × 3 m room.
+    const big = boxRoom(8, 2.5);
+    const whole = buildWalkMask(big, { seed: { x: 0, z: 0 }, reach: 8 });
+    const clipped = buildWalkMask(big, { seed: { x: 0, z: 0 }, reach: 8, limit: { halfWidth: 2, halfDepth: 1.5 } });
+    expect(whole!.areaM2).toBeGreaterThan(40);
+    expect(clipped!.areaM2).toBeLessThan(whole!.areaM2);
+    // 4 × 3 less the walker's radius on each side (3.46 × 2.46 = 8.5 m²), to within a cell.
+    expect(clipped!.areaM2).toBeGreaterThan(8);
+    expect(clipped!.areaM2).toBeLessThan(9.5);
+    expect(clipped!.blocked(0, 0)).toBe(false);
+    expect(clipped!.blocked(3, 0)).toBe(true); // inside the collider, outside the stated room
+  });
+});

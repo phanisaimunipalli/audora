@@ -46,6 +46,17 @@ export interface WalkMaskOptions {
   reach?: number;
   /** Below this reachable area the mask is not trustworthy and null is returned (default 2 m²). */
   minAreaM2?: number;
+  /**
+   * The room Audora states, as half-extents about the origin. Cells outside it are walled off before
+   * the flood, so the mask measures the floor the buyer can *actually* stand on rather than every
+   * square metre the collider happens to reach.
+   *
+   * It matters most where the two disagree: the full-quality flat's collider is a whole open-plan
+   * apartment, `roomExtent` rejects that as "not one room" and the tour states 5.50 × 4.00 m — and
+   * the mask then reported 52.5 m² of walkable floor for a 22 m² room, while `standable` clamped the
+   * walker to the rectangle anyway. One number, and it is the true one.
+   */
+  limit?: { halfWidth: number; halfDepth: number };
   /** Cap on triangles read; beyond it the mesh is strided (default 400k). */
   maxTriangles?: number;
 }
@@ -164,6 +175,21 @@ export function buildWalkMask(root: THREE.Object3D, options: WalkMaskOptions = {
   if (marked === 0) return null;
 
   const solid = dilate(occ, cols, rows, Math.max(1, Math.round(radius / cell)));
+
+  /* The stated room is a wall too (see `limit`). Applied after the dilation, because the walker's
+     radius is already taken off the rectangle by `standable`; double-counting it would shave another
+     25 cm off every side. */
+  if (options.limit) {
+    const hx = Math.max(cell, options.limit.halfWidth - radius - 0.02);
+    const hz = Math.max(cell, options.limit.halfDepth - radius - 0.02);
+    for (let z = 0; z < rows; z++) {
+      const wz = minZ + z * cell;
+      for (let x = 0; x < cols; x++) {
+        const wx = minX + x * cell;
+        if (Math.abs(wx) > hx || Math.abs(wz) > hz) solid[z * cols + x] = 1;
+      }
+    }
+  }
 
   // Flood-fill the free cells from the capture point. Anything the flood cannot reach is either
   // beyond a wall or outside the room, and the buyer has no business there.

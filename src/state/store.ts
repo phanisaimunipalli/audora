@@ -7,7 +7,7 @@ import type { StagingStyle } from '@/engine/autostage';
 import { uid, shortId } from '@/lib/ids';
 import { mockRawGeometry } from '@/services/mockWorld';
 import { pickWorld } from './publish';
-import type { AnalyticsEvent, AnalyticsType, Job, MyStuffItem, PhotoRecord, ProviderStatus, Room, RoomWorld, Settings, Tier, Toast, Tour } from './types';
+import type { AnalyticsEvent, AnalyticsType, Job, MyStuffItem, PhotoRecord, PlanDimensions, ProviderStatus, Room, RoomWorld, Settings, Tier, Toast, Tour, TourSite } from './types';
 
 export interface CreateTourInput {
   title?: string;
@@ -21,12 +21,18 @@ export interface CreateTourInput {
   summary?: string;
   quality?: Tier;
   notify?: { browser: boolean; email: string };
+  /** Where it is on the planet, from the Site step. */
+  site?: TourSite;
 }
 
 export interface AddRoomInput {
   name: string;
   type: RoomType;
   photo?: PhotoRecord;
+  /** Extra angles of the same room; the primary `photo` is not repeated here. */
+  photos?: PhotoRecord[];
+  /** What the listing floor plan printed for this room (metres, ±5 cm). */
+  planDims?: PlanDimensions;
   raw?: RawGeometry;
   anchor?: AnchorSpec;
 }
@@ -54,6 +60,12 @@ interface AudoraState {
   updateTour: (id: string, patch: Partial<Tour>) => void;
   deleteTour: (id: string) => void;
   publishTour: (id: string, published?: boolean) => void;
+  /** Set (or clear) the tour's geocoded site. Additive: everything else about the tour is left alone. */
+  setSite: (tourId: string, site: TourSite | undefined) => void;
+  /** Park the time-of-day control on an instant so the tour reopens on it. Debounce the caller. */
+  setPreviewTime: (tourId: string, ms: number) => void;
+  /** Per-room override of the building heading; `undefined` hands the room back to the building. */
+  setRoomHeading: (roomId: string, headingDeg: number | undefined) => void;
 
   addRoom: (tourId: string, input: AddRoomInput) => Room;
   updateRoom: (id: string, patch: Partial<Room>) => void;
@@ -310,6 +322,7 @@ export const useAudora = create<AudoraState>()(
           baths: input.baths,
           sqft: input.sqft,
           summary: input.summary,
+          site: input.site,
           roomIds: [],
           quality: input.quality ?? 'draft',
           createdAt: t,
@@ -347,6 +360,24 @@ export const useAudora = create<AudoraState>()(
         }),
       publishTour: (id, published = true) =>
         set((s) => (s.tours[id] ? { tours: { ...s.tours, [id]: { ...s.tours[id], published, publishedAt: published ? now() : s.tours[id].publishedAt, updatedAt: now() } } } : {})),
+      setSite: (tourId, site) =>
+        set((s) => (s.tours[tourId] ? { tours: { ...s.tours, [tourId]: { ...s.tours[tourId], site, updatedAt: now() } } } : {})),
+      setPreviewTime: (tourId, ms) =>
+        set((s) => {
+          const tour = s.tours[tourId];
+          if (!tour?.site || tour.site.previewTime === ms) return {};
+          return { tours: { ...s.tours, [tourId]: { ...tour, site: { ...tour.site, previewTime: ms }, updatedAt: now() } } };
+        }),
+      setRoomHeading: (roomId, headingDeg) =>
+        set((s) => {
+          const room = s.rooms[roomId];
+          if (!room) return {};
+          const next = headingDeg == null || !Number.isFinite(headingDeg) ? undefined : ((headingDeg % 360) + 360) % 360;
+          if ((room.northWallHeading ?? undefined) === next) return {};
+          const patched = { ...room, northWallHeading: next, updatedAt: now() };
+          if (next === undefined) delete patched.northWallHeading;
+          return { rooms: { ...s.rooms, [roomId]: patched } };
+        }),
 
       addRoom: (tourId, input) => {
         const t = now();
@@ -360,6 +391,8 @@ export const useAudora = create<AudoraState>()(
           type: input.type,
           order: tour ? tour.roomIds.length : 0,
           photo: input.photo,
+          photos: input.photos?.length ? input.photos : undefined,
+          planDims: input.planDims,
           raw,
           anchor,
           geometry: applyScale(raw, anchor.metresPerUnit),

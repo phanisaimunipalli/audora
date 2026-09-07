@@ -7,9 +7,10 @@ import { preparePhoto } from '@/lib/image';
 import { autoStage, makePiece } from '@/engine/autostage';
 import { mockRawGeometry, mockWorld } from '@/services/mockWorld';
 import { uid } from '@/lib/ids';
+import { defaultHeading, dominantWindowWall, facingToHeading } from '@/engine/siteSun';
 import { useAudora } from './store';
-import type { AnalyticsEvent, Room, RoomWorld } from './types';
-import type { PlacedPiece, RawGeometry, RoomGeometry, RoomType } from '@/engine/types';
+import type { AnalyticsEvent, Room, RoomWorld, TourSite } from './types';
+import type { PlacedPiece, RawGeometry, RoomGeometry, RoomType, WallSide } from '@/engine/types';
 
 export const DEMO_SHARE_ID = 'oak1247';
 
@@ -266,6 +267,86 @@ function refreshFullBounds(roomId: string) {
     .catch(() => undefined);
 }
 
+/**
+ * Where 1247 Oak Street really is, from OpenStreetMap.
+ *
+ * Not invented: the coordinates are Nominatim's answer for the demo address and the ring is the
+ * building way Overpass returns nearest to it (`way/513962743`, tagged `building=yes`,
+ * `addr:housenumber=1245` — one address plate for the pair, which is why the seller confirms the
+ * heading rather than the map dictating it). Fetched 2026-09-06; data © OpenStreetMap contributors,
+ * ODbL. The same two calls `StepSite` makes, run once and baked in so the demo has a real sun on a
+ * first run with no network.
+ *
+ * `principalHeading` 171.4° is the bearing of the longest edge — the flat runs down the block — so
+ * `defaultHeading` puts the window wall at 261°, facing west over the Panhandle. That is why the
+ * demo's light comes in late in the afternoon.
+ */
+export const DEMO_SITE_RING: [number, number][] = [
+  [37.7727316, -122.4398978],
+  [37.7727352, -122.4398688],
+  [37.772742, -122.4398628],
+  [37.7727465, -122.4398268],
+  [37.7727409, -122.4398218],
+  [37.7727419, -122.4398128],
+  [37.772739, -122.4398128],
+  [37.7726671, -122.4397988],
+  [37.7726649, -122.4398168],
+  [37.7726574, -122.4398158],
+  [37.7726597, -122.4397968],
+  [37.7726125, -122.4397878],
+  [37.7726104, -122.4398058],
+  [37.7725739, -122.4397978],
+  [37.772576, -122.4397808],
+  [37.7725066, -122.4397678],
+  [37.7725055, -122.4397778],
+  [37.7724988, -122.4397868],
+  [37.772495, -122.4398188],
+  [37.7724997, -122.4398258],
+  [37.7724965, -122.4398528],
+  [37.7725685, -122.4398668],
+  [37.7725709, -122.4398458],
+  [37.7726601, -122.4398628],
+  [37.7726577, -122.4398828],
+  [37.7727316, -122.4398978],
+];
+
+/**
+ * The demo's site. `previewTime` is late afternoon **on the day the demo is first opened**, because
+ * that is when a west-facing flat is worth showing — the buyer can drag the hour anywhere from the
+ * Time of day panel and the tour reopens on wherever they left it.
+ */
+export function demoSite(windowWall: WallSide): TourSite {
+  const preview = new Date();
+  preview.setHours(16, 20, 0, 0);
+  return {
+    lat: 37.7727412,
+    lon: -122.4398545,
+    displayName: '1247, Oak Street, Panhandle, San Francisco, California, 94117, United States',
+    footprint: { ring: DEMO_SITE_RING, principalHeading: 171.4, levels: undefined },
+    /* `heading` is the engine's frame — the bearing the room's NORTH wall faces — while 261° is the
+       façade, i.e. what the seller answers on the compass ("the windows face west"). `StepSite`
+       stores exactly this conversion; storing the façade bearing raw turns the sun by however far
+       the window wall is from north, which on these rooms is a whole 90°. */
+    heading: facingToHeading(defaultHeading(171.4), windowWall),
+    windowWall,
+    previewTime: preview.getTime(),
+    resolvedAt: Date.now(),
+  };
+}
+
+/**
+ * Give the demo tour its site if it has none (this also upgrades a tour seeded before the Site step
+ * existed). Call it once the rooms are in: the heading is stored relative to the wall the windows
+ * are actually on, so it needs to know which wall that is.
+ */
+export function ensureSite(tourId: string) {
+  const s = useAudora.getState();
+  const tour = s.tours[tourId];
+  if (!tour || tour.site) return;
+  const walls = tour.roomIds.flatMap((id) => s.rooms[id]?.geometry.windows.map((w) => w.wall) ?? []);
+  s.setSite(tourId, demoSite(dominantWindowWall(walls)));
+}
+
 /** Adds the real-world rooms to the demo tour if they are not there yet (also migrates older seeds). */
 export function ensureRealRoom(tourId: string) {
   const tour = useAudora.getState().tours[tourId];
@@ -304,6 +385,7 @@ export function seedDemo() {
   const s = useAudora.getState();
   const existing = Object.values(s.tours).find((t) => t.shareId === DEMO_SHARE_ID);
   if (existing) {
+    ensureSite(existing.id);
     ensureRealRoom(existing.id);
     if (s.seedVersion < SEED_VERSION) {
       restageDemo(existing.id);
@@ -385,6 +467,7 @@ export function seedDemo() {
     push(fits ? 'fit' : 'nofit', visitor, at + 5e3, roomId, item);
   });
   useAudora.setState((st) => ({ events: [...st.events, ...events] }));
+  ensureSite(tour.id);
   ensureRealRoom(tour.id);
   useAudora.getState().setSeeded();
   useAudora.getState().setSeedVersion(SEED_VERSION);

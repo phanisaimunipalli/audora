@@ -51,3 +51,18 @@ describe('sun in the room frame', () => {
     expect(sunlitWalls({ azimuth: 10, elevation: -5 }, 0)).toEqual([]);
   });
 });
+
+describe('sunrise and sunset belong to one local day', () => {
+  it('answers the same for every hour of the same local day', () => {
+    const morning = new Date(2026, 2, 6, 8, 0, 0);
+    const evening = new Date(2026, 2, 6, 18, 40, 0);
+    const a = sunTimes(morning, SF.lat, SF.lon);
+    const b = sunTimes(evening, SF.lat, SF.lon);
+    expect(a.sunrise?.getTime()).toBe(b.sunrise?.getTime());
+    expect(a.sunset?.getTime()).toBe(b.sunset?.getTime());
+    // ...and both fall on that same local day, sunrise first.
+    expect(a.sunrise!.getDate()).toBe(6);
+    expect(a.sunset!.getDate()).toBe(6);
+    expect(a.sunset!.getTime()).toBeGreaterThan(a.sunrise!.getTime());
+  });
+});

@@ -6,6 +6,7 @@ import { useContext, type ReactNode } from 'react';
 import { RoundedBox } from '@react-three/drei';
 import type { ThreeElements } from '@react-three/fiber';
 import * as THREE from 'three';
+import { useCaptureEnv } from '../lighting/captureEnv';
 import { PartContext, noRaycast, type PartState } from './partContext';
 
 type V3 = [number, number, number];
@@ -21,17 +22,36 @@ export interface MatProps {
   double?: boolean;
 }
 
+/**
+ * Every procedural piece's only material — and the only material in Audora that reads the capture's
+ * environment map.
+ *
+ * That is the portrait-mode contract made literal: the room's own light is delivered per material
+ * (`lighting/captureEnv`) rather than through `scene.environment`, so it reaches the furniture layer
+ * and cannot reach the photo layer, the measured shell, or anything a teammate mounts later. When no
+ * real capture is on screen there is no environment and the piece falls back to whatever lights the
+ * scene has, exactly as before.
+ *
+ * The `key` is load-bearing: three only recompiles a material's program when it is told to, and
+ * gaining an `envMap` changes the program. Remounting the material — once, when the panorama lands —
+ * is the cheap way to be certain the furniture is actually lit rather than silently unlit.
+ */
 export function Mat({ color, rough = 0.85, metal = 0, glow, glowIntensity = 0, double }: MatProps) {
   const s = useContext(PartContext);
+  const env = useCaptureEnv();
   const em = glow ?? s.emissive;
   const emI = glow ? glowIntensity : s.emissiveIntensity;
   return (
     <meshStandardMaterial
+      key={env ? env.envMap.uuid : 'unlit'}
       color={color}
       roughness={rough}
       metalness={metal}
       emissive={em}
       emissiveIntensity={emI}
+      envMap={env ? env.envMap : null}
+      envMapIntensity={env ? env.envMapIntensity : 1}
+      envMapRotation={env ? [0, env.rotationY, 0] : undefined}
       transparent={s.ghost}
       opacity={s.ghost ? 0.5 : 1}
       depthWrite={!s.ghost}

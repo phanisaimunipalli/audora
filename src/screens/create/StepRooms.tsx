@@ -1,9 +1,21 @@
 import { useRef, useState, type DragEvent } from 'react';
 import type { RoomType } from '@/engine/types';
+import type { PhotoAngle } from '@/state/types';
+import { ANGLE_LABELS, MAX_ROOM_PHOTOS } from '@/services/marble';
+import { metricText, type FlatPlanRoom } from '@/services/floorplan';
+import { AnchorChip } from '@/components/AnchorChip';
 import { Button, Callout, Chip, Field, IconButton, Input, Segmented, Select, Spinner, cx } from '@/components/ui';
 import { Icon } from '@/components/icons';
 import { FloorPlanSvg } from '@/screens/hub/FloorPlanSvg';
-import { ROOM_TYPES, ROOM_TYPE_LABELS, TOOL_OPTIONS, draftGeometry, type DraftRoom, type MeasureTool, type Measurements } from './types';
+import { ROOM_TYPES, ROOM_TYPE_LABELS, TOOL_OPTIONS, canAddPhoto, draftGeometry, draftPhotos, finalAnchor, isFromPlan, type DraftRoom, type MeasureTool, type Measurements } from './types';
+
+/** Progress of a "paste photo URLs" import, so the box can report each line as it lands. */
+export interface UrlImportState {
+  running: boolean;
+  done: number;
+  total: number;
+  errors: { url: string; error: string }[];
+}
 
 export interface StepRoomsProps {
   rooms: DraftRoom[];
@@ -14,11 +26,22 @@ export interface StepRoomsProps {
   onUpdate: (id: string, patch: Partial<DraftRoom>) => void;
   onRemove: (id: string) => void;
   onMove: (id: string, toIndex: number) => void;
+  /** Rooms read off the listing floor plan, offered as the match for each photo. */
+  planRooms?: FlatPlanRoom[];
+  onMatchPlan?: (id: string, key: string | undefined) => void;
+  /** Another angle of the same room; up to six per room reach Marble as one multi-image prompt. */
+  onAddAngle?: (id: string, files: File[]) => void;
+  onRemovePhoto?: (id: string, index: number) => void;
+  onPhotoAngle?: (id: string, index: number, angle: PhotoAngle | undefined) => void;
+  /** Photo URLs copied off the listing, fetched through the server. */
+  onAddUrls?: (text: string) => void;
+  urlImport?: UrlImportState | null;
 }
 
-export function StepRooms({ rooms, loading, onAddFiles, onAddMeasured, onUpdate, onRemove, onMove }: StepRoomsProps) {
+export function StepRooms({ rooms, loading, onAddFiles, onAddMeasured, onUpdate, onRemove, onMove, planRooms, onMatchPlan, onAddAngle, onRemovePhoto, onPhotoAngle, onAddUrls, urlImport }: StepRoomsProps) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [showMeasured, setShowMeasured] = useState(false);
+  const takenKeys = new Set(rooms.map((r) => r.planRoom?.key).filter(Boolean) as string[]);
 
   const dropOn = (targetId: string) => {
     if (!dragId || dragId === targetId) return;
@@ -30,6 +53,8 @@ export function StepRooms({ rooms, loading, onAddFiles, onAddMeasured, onUpdate,
   return (
     <div className="flex flex-col gap-6">
       <DropZone onFiles={onAddFiles} loading={loading} />
+
+      {onAddUrls ? <PhotoUrlBox onSubmit={onAddUrls} state={urlImport} /> : null}
 
       {rooms.length ? (
         <div className="flex flex-col gap-3">
@@ -52,6 +77,12 @@ export function StepRooms({ rooms, loading, onAddFiles, onAddMeasured, onUpdate,
               onUpdate={(patch) => onUpdate(room.id, patch)}
               onRemove={() => onRemove(room.id)}
               onMove={(to) => onMove(room.id, to)}
+              planRooms={planRooms}
+              takenKeys={takenKeys}
+              onMatchPlan={onMatchPlan ? (key) => onMatchPlan(room.id, key) : undefined}
+              onAddAngle={onAddAngle ? (files) => onAddAngle(room.id, files) : undefined}
+              onRemovePhoto={onRemovePhoto ? (i) => onRemovePhoto(room.id, i) : undefined}
+              onPhotoAngle={onPhotoAngle ? (i, a) => onPhotoAngle(room.id, i, a) : undefined}
             />
           ))}
         </div>
@@ -142,6 +173,12 @@ function DraftRoomCard({
   onUpdate,
   onRemove,
   onMove,
+  planRooms,
+  takenKeys,
+  onMatchPlan,
+  onAddAngle,
+  onRemovePhoto,
+  onPhotoAngle,
 }: {
   room: DraftRoom;
   index: number;
@@ -153,11 +190,19 @@ function DraftRoomCard({
   onUpdate: (patch: Partial<DraftRoom>) => void;
   onRemove: () => void;
   onMove: (to: number) => void;
+  planRooms?: FlatPlanRoom[];
+  takenKeys: Set<string>;
+  onMatchPlan?: (key: string | undefined) => void;
+  onAddAngle?: (files: File[]) => void;
+  onRemovePhoto?: (index: number) => void;
+  onPhotoAngle?: (index: number, angle: PhotoAngle | undefined) => void;
 }) {
   const [armed, setArmed] = useState(false);
   const [over, setOver] = useState(false);
   const g = draftGeometry(room);
   const a = room.analysis;
+  const photos = draftPhotos(room);
+  const fromPlan = isFromPlan(room);
   return (
     <div
       draggable={armed}
@@ -181,17 +226,22 @@ function DraftRoomCard({
       }}
       className={cx('panel animate-rise grid gap-4 p-4 transition-all md:grid-cols-[220px_1fr]', dragging && 'opacity-50', over && 'border-accent/60')}
     >
-      <div className="relative overflow-hidden rounded-xl border border-line bg-bg-2">
-        {room.photo ? (
-          <img src={room.photo.dataUrl} alt="" className="aspect-[4/3] w-full object-cover" draggable={false} />
-        ) : (
-          <div className="flex aspect-[4/3] w-full items-center justify-center p-3">
-            <FloorPlanSvg geometry={g} showDims className="max-h-full" />
-          </div>
-        )}
-        <span className="mono absolute left-2 top-2 rounded-md bg-bg/80 px-1.5 py-0.5 text-[11px] text-ink-2">{index + 1}</span>
-        {room.synthetic ? <span className="chip mono absolute right-2 top-2 !text-[10px] uppercase">demo photo</span> : null}
-        {room.source === 'measured' ? <span className="chip mono absolute right-2 top-2 !text-[10px] uppercase">typed</span> : null}
+      <div className="flex flex-col gap-2">
+        <div className="relative overflow-hidden rounded-xl border border-line bg-bg-2">
+          {room.photo ? (
+            <img src={room.photo.dataUrl} alt="" className="aspect-[4/3] w-full object-cover" draggable={false} />
+          ) : (
+            <div className="flex aspect-[4/3] w-full items-center justify-center p-3">
+              <FloorPlanSvg geometry={g} showDims className="max-h-full" />
+            </div>
+          )}
+          <span className="mono absolute left-2 top-2 rounded-md bg-bg/80 px-1.5 py-0.5 text-[11px] text-ink-2">{index + 1}</span>
+          {room.synthetic ? <span className="chip mono absolute right-2 top-2 !text-[10px] uppercase">demo photo</span> : null}
+          {!room.synthetic && room.planRoom && !room.photo ? <span className="chip mono absolute right-2 top-2 !text-[10px] uppercase">floor plan</span> : null}
+          {!room.synthetic && !room.planRoom && room.source === 'measured' ? <span className="chip mono absolute right-2 top-2 !text-[10px] uppercase">typed</span> : null}
+          {room.photo?.origin === 'url' ? <span className="chip mono absolute bottom-2 left-2 !text-[10px] uppercase">from listing</span> : null}
+        </div>
+        <PhotoAngles room={room} photos={photos} onAddAngle={onAddAngle} onRemovePhoto={onRemovePhoto} onPhotoAngle={onPhotoAngle} />
       </div>
 
       <div className="flex min-w-0 flex-col gap-3">
@@ -242,6 +292,48 @@ function DraftRoomCard({
             </Chip>
           ) : null}
         </div>
+
+        {planRooms?.length && onMatchPlan ? (
+          <div className="flex flex-col gap-2 rounded-xl border border-line bg-bg-2 p-3">
+            <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
+              <label className="flex items-center gap-2 text-xs text-ink-2">
+                <span className="text-accent-2">
+                  <Icon.Grid size={14} />
+                </span>
+                Which room on the floor plan is this?
+              </label>
+              <Select
+                value={room.planRoom?.key ?? ''}
+                onChange={(e) => onMatchPlan(e.target.value || undefined)}
+                aria-label={`Floor-plan room for ${room.name}`}
+                className="h-9 sm:w-[260px]"
+              >
+                <option value="">Not on the plan</option>
+                {planRooms.map((p) => (
+                  <option key={p.key} value={p.key} disabled={takenKeys.has(p.key) && p.key !== room.planRoom?.key}>
+                    {p.floor} · {p.name}
+                    {metricText(p) ? ` — ${metricText(p)}` : ' — no dimensions'}
+                    {takenKeys.has(p.key) && p.key !== room.planRoom?.key ? ' (taken)' : ''}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            {room.planRoom ? (
+              <div className="flex flex-wrap items-center gap-2">
+                {fromPlan ? (
+                  <Chip tone="accent" mono>
+                    <Icon.Ruler size={12} /> plan · {g.width.toFixed(2)} × {g.depth.toFixed(2)} m
+                  </Chip>
+                ) : null}
+                {room.planRoom.text ? <Chip mono>printed: {room.planRoom.text}</Chip> : null}
+                {/* The room's numbers are on screen (the plan thumbnail), so the anchor is too. */}
+                <AnchorChip anchor={finalAnchor(room)} size="sm" />
+                {fromPlan && room.photo ? <span className="text-[11px] text-ink-3">The plan’s dimensions replace the estimate from this photo.</span> : null}
+                {!fromPlan ? <span className="text-[11px] text-ink-3">The plan printed no dimensions for this room — add a photo or type a wall.</span> : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         {room.source === 'photo' ? (
           <div className="flex flex-wrap items-center gap-1.5">
@@ -336,6 +428,153 @@ function MeasuredForm({ onAdd }: { onAdd: (name: string, type: RoomType, m: Meas
         <Segmented size="sm" value={tool} onChange={setTool} options={TOOL_OPTIONS} />
         <span className="text-xs text-ink-3">This becomes the room's anchor uncertainty.</span>
       </div>
+    </div>
+  );
+}
+
+/* ---------- more angles of the same room ----------
+ * Marble reconstructs a room better from several views than from one, and a listing already has
+ * them. Up to six photos per room go up as one multi-image prompt; the first is the primary — the
+ * shot the anchor is tapped on and the one the others are angled against. Saying which way an angle
+ * faces is optional: an unlabelled angle lets Marble work the arrangement out, which beats a wrong
+ * hint. */
+
+const ANGLE_ORDER: PhotoAngle[] = ['left', 'centre', 'right', 'back'];
+
+function PhotoAngles({
+  room,
+  photos,
+  onAddAngle,
+  onRemovePhoto,
+  onPhotoAngle,
+}: {
+  room: DraftRoom;
+  photos: ReturnType<typeof draftPhotos>;
+  onAddAngle?: (files: File[]) => void;
+  onRemovePhoto?: (index: number) => void;
+  onPhotoAngle?: (index: number, angle: PhotoAngle | undefined) => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  if (!onAddAngle) return null;
+  // The demo photo is drawn in the browser; extra angles of it would mean nothing.
+  if (room.synthetic) return null;
+  const extra = photos.slice(1);
+
+  return (
+    <div className="flex flex-col gap-2">
+      {extra.length ? (
+        <div className="flex flex-col gap-1.5">
+          {extra.map((p, i) => {
+            const index = i + 1;
+            return (
+              <div key={index} className="flex items-center gap-2 rounded-lg border border-line bg-bg-2 p-1.5">
+                <img src={p.dataUrl} alt="" className="h-10 w-14 shrink-0 rounded object-cover" draggable={false} />
+                <Select
+                  value={p.angle ?? ''}
+                  onChange={(e) => onPhotoAngle?.(index, (e.target.value || undefined) as PhotoAngle | undefined)}
+                  aria-label={`Which way angle ${index} faces`}
+                  className="h-8 min-w-0 flex-1 !text-[11px]"
+                >
+                  <option value="">Angle {index} · let Marble decide</option>
+                  {ANGLE_ORDER.map((a) => (
+                    <option key={a} value={a}>
+                      {ANGLE_LABELS[a]}
+                    </option>
+                  ))}
+                </Select>
+                <IconButton label={`Remove angle ${index}`} onClick={() => onRemovePhoto?.(index)} className="shrink-0 hover:border-danger/50 hover:text-danger">
+                  <Icon.X size={14} />
+                </IconButton>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+      <Button variant="ghost" size="sm" disabled={!canAddPhoto(room)} onClick={() => fileRef.current?.click()} className="w-full justify-center">
+        <Icon.Plus size={14} /> {photos.length ? 'Add another angle' : 'Add a photo'} · <span className="mono">{photos.length} of {MAX_ROOM_PHOTOS}</span>
+      </Button>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        multiple
+        hidden
+        onChange={(e) => {
+          const files = [...(e.target.files || [])].filter((f) => f.type.startsWith('image/'));
+          if (files.length) onAddAngle(files);
+          e.target.value = '';
+        }}
+      />
+    </div>
+  );
+}
+
+/* ---------- photo URLs copied off the listing ----------
+ * The agent's own listing already carries twenty photographs. The browser cannot read them (listing
+ * CDNs send no CORS header), so the URLs go to the dev server's /api/fetch-image proxy, which fetches
+ * one image at a time with an 8 MB cap and refuses anything that is not an image. Audora never
+ * touches the listing page itself. */
+
+function PhotoUrlBox({ onSubmit, state }: { onSubmit: (text: string) => void; state?: UrlImportState | null }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const lines = text.split(/[\s,]+/).filter((s) => /^https?:\/\//i.test(s.trim())).length;
+  return (
+    <div className="panel p-5">
+      <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center justify-between text-left">
+        <div className="flex items-center gap-3">
+          <span className="text-accent-2">
+            <Icon.Link size={18} />
+          </span>
+          <div>
+            <div className="text-sm font-medium text-ink">Paste photo URLs from the listing</div>
+            <div className="text-xs text-ink-3">One per line. Right-click a photo on Zillow, Redfin or Compass → Copy image address.</div>
+          </div>
+        </div>
+        <Icon.ChevronDown size={18} className={cx('text-ink-3 transition-transform', open && 'rotate-180')} />
+      </button>
+      {open ? (
+        <div className="mt-4 flex flex-col gap-3 border-t border-line pt-4">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={4}
+            spellCheck={false}
+            placeholder={'https://photos.zillowstatic.com/fp/….jpg\nhttps://ssl.cdn-redfin.com/photo/….jpg'}
+            aria-label="Listing photo URLs, one per line"
+            className="mono w-full resize-y rounded-xl border border-line-2 bg-bg-2 px-3 py-2 text-xs text-ink outline-none placeholder:text-ink-3 focus:border-accent/60"
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={!lines || state?.running}
+              loading={state?.running}
+              onClick={() => {
+                onSubmit(text);
+                setText('');
+              }}
+            >
+              <Icon.Download size={14} /> Fetch {lines || ''} photo{lines === 1 ? '' : 's'}
+            </Button>
+            {state?.running ? (
+              <span className="mono text-xs text-ink-3">
+                {state.done} of {state.total} fetched…
+              </span>
+            ) : null}
+            <span className="text-xs text-ink-3">Each photo becomes a room; match it to the floor plan below.</span>
+          </div>
+          {state?.errors.length ? (
+            <ul className="flex flex-col gap-1 text-xs text-warn">
+              {state.errors.slice(0, 4).map((e, i) => (
+                <li key={i} className="truncate">
+                  · {e.error}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

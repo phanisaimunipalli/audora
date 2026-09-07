@@ -20,6 +20,7 @@ import {
 import { listingCopy, type AiMeta } from '@/services/ai';
 import { TIER_INFO } from '@/services/mockWorld';
 import { watermark } from '@/three/stills';
+import { effectiveHeading, sunState } from '@/engine/siteSun';
 import { clock, timeAgo, usd } from '@/lib/format';
 import { AnchorChip } from '@/components/AnchorChip';
 import { Button, Callout, Card, Chip, IconButton, Input, Progress, Spinner, StagedLabel, Toggle, cx } from '@/components/ui';
@@ -93,6 +94,17 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
     setQueue((q) => q.slice(1));
   }, [queue, rendering, finishing]);
   const renderingRoom = rooms.find((r) => r.id === rendering);
+  /* The listing still is taken under the light the buyer will open the tour in: the address's own
+     sun at the hour the seller parked the time-of-day control on. A tour with no site simply has no
+     real sun and the room keeps the studio key it always had. */
+  const site = tour?.site;
+  const stillSun = useMemo(
+    () =>
+      site && renderingRoom
+        ? sunState(new Date(site.previewTime ?? Date.now()), site.lat, site.lon, effectiveHeading(site.heading, renderingRoom.northWallHeading))
+        : null,
+    [site, renderingRoom],
+  );
   const onStills = useCallback(
     async (raw: Still[]) => {
       const room = renderingRoom;
@@ -115,6 +127,20 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
     setRendering(null);
     toast({ kind: 'error', title: 'Rendering failed', body: (e as Error)?.message });
   }, []);
+  /* A room with a real capture whose photograph did not arrive comes back as a render of the
+     measured room. That is a usable fallback, but it is NOT the flat, and a seller about to put
+     four images on a listing has to be told which they are looking at. */
+  const onStillsFallback = useCallback(
+    (reason: string) => {
+      const name = renderingRoom?.name ?? 'This room';
+      toast({
+        kind: 'warn',
+        title: `${name}: these stills are the measured room`,
+        body: `The reconstruction could not be composited — ${reason}. The images below are Audora's own drawing of the room, not the photograph. Render again when the connection is better.`,
+      });
+    },
+    [renderingRoom],
+  );
   const renderRoom = (id: string) => setQueue((q) => (q.includes(id) || rendering === id ? q : [...q, id]));
   const renderAll = () => rooms.filter((r) => r.status === 'ready').forEach((r) => renderRoom(r.id));
 
@@ -211,7 +237,9 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
 
   return (
     <div className={cx('flex flex-col gap-5', className)}>
-      {renderingRoom ? <StillsRenderer key={renderingRoom.id} room={renderingRoom} onDone={onStills} onError={onStillsError} /> : null}
+      {renderingRoom ? (
+        <StillsRenderer key={renderingRoom.id} room={renderingRoom} sun={stillSun} onDone={onStills} onError={onStillsError} onFallback={onStillsFallback} />
+      ) : null}
 
       {/* publish + full quality */}
       <Card className="flex flex-col gap-4">

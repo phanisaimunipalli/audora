@@ -43,17 +43,25 @@ describe('splatTransform', () => {
     expect(t.position[1]).not.toBeCloseTo(-FULL_BOUNDS.minY * FULL.metricScaleFactor, 2);
   });
 
-  it("stands the mesh's own floor on y=0 when the collider has been read", () => {
-    // `floorY` is the densest horizontal slab of the collider — the plane the panorama's floor lies
-    // on. Measured: 6 cm above minY on the draft world, 15 cm below ground_plane_offset on the full
-    // one. It wins over both, so a sofa on y = 0 stands on the photographed floor.
+  it("stands a draft world's own mesh floor on y=0 when the collider has been read", () => {
+    // `floorY` is the densest horizontal slab of the collider — 6 cm above minY on the draft world.
+    // With no ground plane published it is the best floor there is, and it beats minY.
     const draft = splatTransform({ metricScaleFactor: null, groundPlaneOffset: null, bounds: { ...DRAFT_BOUNDS, floorY: -1.5975 } }, 0.6867);
     expect(draft.position[1]).toBeCloseTo(1.5975 * 0.6867, 6);
     expect(draft.position[1]).not.toBeCloseTo(-DRAFT_BOUNDS.minY * 0.6867, 3);
+  });
 
-    const full = splatTransform({ ...FULL, bounds: { ...FULL_BOUNDS, floorY: -0.6535 } }, 1);
-    expect(full.position[1]).toBeCloseTo(0.6535 * FULL.metricScaleFactor, 6);
-    expect(full.position[1]).not.toBeCloseTo(FULL.groundPlaneOffset, 2);
+  it("keeps the model's own ground plane over the collider's floor slab on a full-quality world", () => {
+    /* Measured against the world's Gaussians rather than against its mesh (tests/tmp probe,
+       2026-09-06): the flat's splat floor is at y_spz 0.581, so with `ground_plane_offset` it lands
+       1.2 cm above y = 0 and with the collider's floor slab (−0.6544) 16 cm above it — which is what
+       made the plant look sunk into the photographed floorboards. Where Marble publishes metric
+       semantics they win. */
+    const full = splatTransform({ ...FULL, bounds: { ...FULL_BOUNDS, floorY: -0.6544 } }, 1);
+    expect(full.position[1]).toBeCloseTo(FULL.groundPlaneOffset, 6);
+    expect(full.position[1]).not.toBeCloseTo(0.6544 * FULL.metricScaleFactor, 2);
+    const SPLAT_FLOOR_SPZ_Y = 0.5809; // densest slab of the 500k SPZ, y-down frame
+    expect(-SPLAT_FLOOR_SPZ_Y * FULL.metricScaleFactor + full.position[1]).toBeCloseTo(0, 1);
   });
 
   it('is consistent with and without bounds: same scale, same capture height, centre only from bounds', () => {

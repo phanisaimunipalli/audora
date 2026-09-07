@@ -7,9 +7,10 @@
  *   GET  /api/status                       → which providers are live vs mocked
  *   POST /api/ai/chat                      → Nebius Token Factory chat completions (OpenAI-compatible)
  *   GET  /api/ai/stats                     → cost / latency log for the evaluation write-up
- *   POST /api/marble/generate              → World Labs Marble worlds:generate
+ *   POST /api/marble/generate              → World Labs Marble worlds:generate (one image, or several)
  *   GET  /api/marble/operations/:id        → poll a generation
  *   GET  /api/marble/worlds/:id            → fetch a finished world
+ *   GET  /api/fetch-image?url=             → fetch one https image for the seller (listing photo URLs)
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { appendFile, mkdir } from 'node:fs/promises';
@@ -46,6 +47,9 @@ function resolveProvider(modelId: string): { name: string; base: string; key: st
 let liveGenerations = 0;
 const maxGenerations = () => Number(ENV.MARBLE_MAX_GENERATIONS || 3);
 const MARBLE_BASE = 'https://api.worldlabs.ai/marble/v1';
+/** Marble takes 4 images in a multi-image prompt, or 8 in reconstruction mode. */
+const MARBLE_PLAIN_IMAGES = 4;
+const MARBLE_MAX_IMAGES = 8;
 
 // Prices (USD per 1M tokens). Filled from GET /v1/models?verbose=true on first use so the
 // cost-per-task log reflects the account's real list prices; the static rows are a fallback.
@@ -226,6 +230,97 @@ function dataUrlToBase64(dataUrl: string): { base64: string; extension: string }
   return { base64: m[2], extension: ext };
 }
 
+/* ---------- listing photo proxy ----------
+ * The seller copies photo URLs out of the listing they are already looking at (Zillow, Redfin,
+ * Compass, an MLS CDN) and pastes them in. The browser cannot read those bytes — the CDNs send no
+ * CORS header — so the dev server fetches them instead and hands back a data URL.
+ *
+ * Deliberate limits: https only, one image at a time, 8 MB, and the response must actually BE an
+ * image — a login wall or an HTML error page is refused rather than turned into a "photo". Redirects
+ * are followed by fetch, and the final response's content-type is what is checked, so a redirect
+ * into a sign-in page ends as a 415 and never as a data URL. This is not a scraper: it fetches a URL
+ * the user pasted, never a listing page, and never follows links found in one. */
+
+const IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+
+/** Hosts a seller's listing photos actually come from. Any other https image host is allowed too. */
+const LISTING_IMAGE_HOSTS = [
+  'photos.zillowstatic.com',
+  'maps.zillowstatic.com',
+  'ssl.cdn-redfin.com',
+  'photos.redfin.com',
+  'ap.rdcpix.com',
+  'ar.rdcpix.com',
+  'p.rdcpix.com',
+  'images.compass.com',
+  'd1qfrurkpx5f0p.cloudfront.net',
+  'media.crmls.org',
+  'cdn.resize.sparkplatform.com',
+  'media-cdn.rightmove.co.uk',
+  'lc.zoocdn.com',
+  'upload.wikimedia.org',
+];
+
+function imageHostAllowed(u: URL): boolean {
+  if (u.protocol !== 'https:') return false;
+  const host = u.hostname.toLowerCase();
+  if (LISTING_IMAGE_HOSTS.some((h) => host === h || host.endsWith(`.${h}`))) return true;
+  // Any other https host is allowed, but only when the URL is plausibly an image file: a listing
+  // page URL pasted by mistake must not be fetched.
+  return /\.(jpe?g|png|webp|avif|gif)(\?|$)/i.test(`${u.pathname}${u.search}`);
+}
+
+const EXT_FOR_TYPE: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/avif': 'avif',
+  'image/gif': 'gif',
+};
+
+async function fetchImage(raw: string, res: ServerResponse) {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return json(res, 400, { error: 'That is not a URL.' });
+  }
+  if (u.protocol !== 'https:') return json(res, 400, { error: 'Only https image URLs can be fetched.' });
+  if (!imageHostAllowed(u)) {
+    return json(res, 400, { error: `${u.hostname} is not a known listing image host and that URL does not look like an image file. Paste the URL of the photo itself (right-click → Copy image address).` });
+  }
+  let r: Response;
+  try {
+    r = await fetch(u, {
+      redirect: 'follow',
+      headers: { accept: 'image/avif,image/webp,image/png,image/jpeg,*/*;q=0.8', 'user-agent': 'Audora/0.1 (listing photo import)' },
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (e: any) {
+    return json(res, 502, { error: `Could not reach ${u.hostname} (${e?.message || 'network error'}).` });
+  }
+  if (!r.ok) return json(res, r.status === 404 ? 404 : 502, { error: `${u.hostname} answered ${r.status}. The photo may need a signed URL.` });
+
+  const type = (r.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (!type.startsWith('image/') || !EXT_FOR_TYPE[type]) {
+    return json(res, 415, { error: `That URL returned ${type || 'no content type'}, not an image. Copy the image address, not the listing page.` });
+  }
+  const declared = Number(r.headers.get('content-length') || 0);
+  if (declared > IMAGE_MAX_BYTES) return json(res, 413, { error: `That image is ${(declared / 1e6).toFixed(1)} MB; the limit is 8 MB.` });
+
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (buf.byteLength > IMAGE_MAX_BYTES) return json(res, 413, { error: `That image is ${(buf.byteLength / 1e6).toFixed(1)} MB; the limit is 8 MB.` });
+  if (buf.byteLength < 512) return json(res, 415, { error: 'That URL returned an empty or placeholder image.' });
+
+  return json(res, 200, {
+    dataUrl: `data:${type};base64,${buf.toString('base64')}`,
+    contentType: type,
+    bytes: buf.byteLength,
+    url: r.url || u.toString(),
+  });
+}
+
 async function marble(pathname: string, init: RequestInit, res: ServerResponse) {
   const key = ENV.WORLDLABS_API_KEY;
   if (!key) return json(res, 503, { error: 'WORLDLABS_API_KEY is not set on the server. Running in mock mode.' });
@@ -272,7 +367,37 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<boolea
         return true;
       }
       liveGenerations += 1;
-      const { base64, extension } = dataUrlToBase64(body.imageDataUrl);
+      /* One angle or several. `images` is the general form — `{ dataUrl, azimuth? }` per angle, in
+         the order the seller shot them — and `imageDataUrl` stays for the single-photo callers.
+         Marble's multi-image prompt takes up to 4 images, or 8 with `reconstruct_images`; an
+         `azimuth` (degrees round the capture point, 0 = the first shot) tells it where each angle
+         faces instead of making it guess. Shape per the World API's own schema:
+         multi_image_prompt: [{ azimuth?, content: { source, data_base64, extension } }]. */
+      const angles: { dataUrl: string; azimuth?: number }[] = Array.isArray(body.images) && body.images.length
+        ? body.images.filter((a: any) => typeof a?.dataUrl === 'string')
+        : [{ dataUrl: body.imageDataUrl }];
+      if (!angles.length) {
+        json(res, 400, { error: 'No image supplied.' });
+        return true;
+      }
+      const shots = angles.slice(0, MARBLE_MAX_IMAGES).map((a) => ({ ...dataUrlToBase64(a.dataUrl), azimuth: Number.isFinite(Number(a.azimuth)) ? Number(a.azimuth) : undefined }));
+      const textPrompt = body.textPrompt || 'An empty residential room, photographed from the doorway. Keep the real geometry.';
+      const world_prompt =
+        shots.length === 1
+          ? {
+              type: 'image',
+              image_prompt: { source: 'data_base64', data_base64: shots[0].base64, extension: shots[0].extension },
+              text_prompt: textPrompt,
+            }
+          : {
+              type: 'multi-image',
+              multi_image_prompt: shots.map((s) => ({
+                ...(s.azimuth == null ? {} : { azimuth: s.azimuth }),
+                content: { source: 'data_base64', data_base64: s.base64, extension: s.extension },
+              })),
+              reconstruct_images: shots.length > MARBLE_PLAIN_IMAGES,
+              text_prompt: textPrompt,
+            };
       await marble(
         '/worlds:generate',
         {
@@ -282,15 +407,15 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<boolea
             model: body.tier === 'full' ? m.marbleFull : m.marbleDraft,
             tags: ['audora'],
             permission: { public: false, allow_id_access: true },
-            world_prompt: {
-              type: 'image',
-              image_prompt: { source: 'data_base64', data_base64: base64, extension },
-              text_prompt: body.textPrompt || 'An empty residential room, photographed from the doorway. Keep the real geometry.',
-            },
+            world_prompt,
           }),
         },
         res,
       );
+      return true;
+    }
+    if (p === '/api/fetch-image' && req.method === 'GET') {
+      await fetchImage(url.searchParams.get('url') || '', res);
       return true;
     }
     let m = /^\/api\/marble\/operations\/([\w-]+)$/.exec(p);

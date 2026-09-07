@@ -536,42 +536,78 @@ function TapImage({
 
 /* ---------- typed room ---------- */
 
+/**
+ * A room with no photograph to tap on: the seller types its three dimensions.
+ *
+ * Two rules, both learned the hard way:
+ *
+ * - **The fields are metres, so they are seeded with metres.** A room read off a floor plan that
+ *   printed no dimensions carries `raw` in the reconstruction's own units, and the anchor's
+ *   `metresPerUnit` (2.03 on the demo plan) is what turns those into the metres the Derived panel
+ *   prints. Seeding the boxes from `room.raw` put 1.70 in a box labelled "Width (m)" beside a
+ *   Derived panel reading 3.45 m — and committing it halved the room.
+ * - **Touching a field is not measuring it.** `onBlur` used to commit whatever the boxes held, so
+ *   a focus and a click away turned a room the app itself calls a ±30 cm guess into an anchored
+ *   ±2 cm measurement without anyone typing a digit. Nothing is committed until a value changes.
+ */
 function MeasuredPanel({ room, onMeasured }: { room: DraftRoom; onMeasured: (m: Measurements) => void }) {
-  const m = room.measured ?? { width: room.raw.width, depth: room.raw.depth, height: room.raw.height, tool: 'tape' as MeasureTool };
-  const [w, setW] = useState(m.width.toFixed(2));
-  const [d, setD] = useState(m.depth.toFixed(2));
-  const [h, setH] = useState(m.height.toFixed(2));
-  const tool: MeasureTool = m.tool ?? 'tape';
   const g = draftGeometry(room);
+  const seeded = room.measured ?? { width: g.width, depth: g.depth, height: g.height, tool: 'tape' as MeasureTool };
+  const [w, setW] = useState(seeded.width.toFixed(2));
+  const [d, setD] = useState(seeded.depth.toFixed(2));
+  const [h, setH] = useState(seeded.height.toFixed(2));
+  const [tool, setTool] = useState<MeasureTool>(seeded.tool ?? 'tape');
+  /** Has the seller actually changed a number? Until they have, this room has not been measured. */
+  const [touched, setTouched] = useState(false);
   const anchor = finalAnchor(room);
   const warnings = plausibility(g);
   const read = () => ({ width: Number(w), depth: Number(d), height: Number(h) });
   const apply = (next = read(), t: MeasureTool = tool) => {
     if ([next.width, next.depth, next.height].every((v) => Number.isFinite(v) && v > 0.5)) onMeasured({ ...next, tool: t });
   };
+  const edit = (set: (v: string) => void) => (v: string) => {
+    set(v);
+    setTouched(true);
+  };
+  /* The tool is a claim about how these numbers were arrived at, so it only commits numbers that
+     are already the seller's own — either typed here, or typed on an earlier visit. */
+  const chooseTool = (t: MeasureTool) => {
+    setTool(t);
+    if (touched || room.measured) apply(read(), t);
+  };
   return (
     <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
       <div className="panel flex flex-col gap-3 p-4">
         <div>
           <div className="text-lg text-ink">{room.name}</div>
-          <div className="text-xs text-ink-3">{ROOM_TYPE_LABELS[room.type]} · typed in</div>
+          <div className="text-xs text-ink-3">
+            {ROOM_TYPE_LABELS[room.type]} · {room.planRoom ? 'from the floor plan' : 'typed in'}
+          </div>
         </div>
-        <Callout tone="ok" title="Already anchored">
-          The far wall <span className="mono">{g.width.toFixed(2)} m</span> is the reference, so every other number is real by construction. How it was measured sets the ±.
-        </Callout>
+        {/* A room read off a plan that printed no dimensions is NOT anchored, and must not say it is. */}
+        {anchor.method === 'assumed' ? (
+          <Callout tone="warn" title="Not anchored yet">
+            The floor plan named this room but printed no dimensions for it, so every number below is a ±30 cm guess. Type the far wall and the rest becomes real by construction.
+          </Callout>
+        ) : (
+          <Callout tone="ok" title="Already anchored">
+            The far wall <span className="mono">{g.width.toFixed(2)} m</span> is the reference, so every other number is real by construction.{' '}
+            {room.planRoom && anchor.method === 'floorplan' ? 'It came off the plan, which carries ±5 cm. Typing it yourself with a tape is tighter.' : 'How it was measured sets the ±.'}
+          </Callout>
+        )}
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-xs font-medium text-ink-2">Measured with</span>
-          <Segmented size="sm" value={tool} onChange={(t) => apply(read(), t)} options={TOOL_OPTIONS} />
+          <Segmented size="sm" value={tool} onChange={chooseTool} options={TOOL_OPTIONS} />
         </div>
         <div className="grid grid-cols-3 gap-3">
           <Field label="Width (m)">
-            <Input value={w} onChange={(e) => setW(e.target.value)} onBlur={() => apply()} inputMode="decimal" className="mono" />
+            <Input value={w} onChange={(e) => edit(setW)(e.target.value)} onBlur={() => touched && apply()} inputMode="decimal" className="mono" />
           </Field>
           <Field label="Depth (m)">
-            <Input value={d} onChange={(e) => setD(e.target.value)} onBlur={() => apply()} inputMode="decimal" className="mono" />
+            <Input value={d} onChange={(e) => edit(setD)(e.target.value)} onBlur={() => touched && apply()} inputMode="decimal" className="mono" />
           </Field>
           <Field label="Height (m)">
-            <Input value={h} onChange={(e) => setH(e.target.value)} onBlur={() => apply()} inputMode="decimal" className="mono" />
+            <Input value={h} onChange={(e) => edit(setH)(e.target.value)} onBlur={() => touched && apply()} inputMode="decimal" className="mono" />
           </Field>
         </div>
         <FloorPlanSvg geometry={g} className="max-h-64 rounded-xl border border-line bg-surface p-2" />

@@ -3,15 +3,17 @@ import { cx } from '@/components/ui';
 
 export const WIZARD_STEPS = [
   { key: 'listing', label: 'Listing', blurb: 'Where is it' },
-  { key: 'rooms', label: 'Rooms', blurb: 'One photo each' },
+  { key: 'site', label: 'Site', blurb: 'Sun and compass' },
+  { key: 'plan', label: 'Floor plan', blurb: 'Rooms and metres' },
+  { key: 'rooms', label: 'Rooms', blurb: 'Photos per room' },
   { key: 'anchor', label: 'Anchor', blurb: 'One real measurement' },
   { key: 'launch', label: 'Launch', blurb: 'Generate' },
 ] as const;
 
 export function Stepper({ step, done, onJump }: { step: number; done: boolean[]; onJump: (i: number) => void }) {
   return (
-    // Four steps do not fit a 390 px phone at full size: the row scrolls, fades at the edge, and the
-    // labels tighten rather than pushing step 4 off with no way to reach it.
+    // Six steps do not fit a 390 px phone at full size: the row scrolls, fades at the edge, and the
+    // labels tighten rather than pushing the last step off with no way to reach it.
     <ol className="no-scrollbar -mx-1 flex w-full items-center gap-0.5 overflow-x-auto px-1 sm:gap-1 [mask-image:linear-gradient(to_right,black_calc(100%-20px),transparent)] sm:[mask-image:none]">
       {WIZARD_STEPS.map((s, i) => {
         const active = i === step;

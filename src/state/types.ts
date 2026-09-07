@@ -1,8 +1,17 @@
 import type { AnchorSpec, PlacedPiece, ProceduralKind, RawGeometry, RoomGeometry, RoomType, WallSide } from '@/engine/types';
 import type { StagingStyle } from '@/engine/autostage';
+// Type-only: the parsed shape lives next to the parser (services/floorplan), and a tour stores it whole.
+import type { FloorPlan } from '@/services/floorplan';
 
 export type Tier = 'draft' | 'full';
 export type Provider = 'marble' | 'mock';
+
+/**
+ * Where an extra angle faces, relative to the room's primary photo. It becomes Marble's `azimuth`
+ * hint in a multi-image prompt (`AZIMUTH_FOR_ANGLE` in services/marble); left unset, Marble works
+ * the arrangement out for itself, which is better than a wrong hint.
+ */
+export type PhotoAngle = 'left' | 'centre' | 'right' | 'back';
 
 export interface PhotoRecord {
   dataUrl: string;
@@ -11,6 +20,12 @@ export interface PhotoRecord {
   brightness: number;
   darkFraction: number;
   detail: number;
+  /** Set only on extra angles the seller labelled. */
+  angle?: PhotoAngle;
+  /** Where the photo came from, when it was not a file the seller chose. */
+  origin?: 'file' | 'url';
+  /** The listing URL the photo was fetched from, for the credit line. */
+  sourceUrl?: string;
 }
 
 export interface PhotoAnalysis {
@@ -108,6 +123,28 @@ export interface RoomWorld {
   seconds?: number;
 }
 
+/**
+ * A room's measurements as the listing floor plan printed them. `text` is kept verbatim
+ * (`12'-4" × 15'-2"`) so a seller can check the conversion against the drawing they uploaded.
+ */
+export interface PlanDimensions {
+  /** Metres. */
+  width: number;
+  depth: number;
+  /** Exactly what the plan printed. */
+  text?: string;
+  /** The plan's own name for the room, and the floor it put it on. */
+  planRoomName?: string;
+  floor?: string;
+}
+
+/** The listing floor plan a tour was built from: the drawing itself plus what was read off it. */
+export interface TourFloorPlan extends FloorPlan {
+  /** The uploaded drawing, downscaled — shown beside the rooms it produced. */
+  imageUrl?: string;
+  fileName?: string;
+}
+
 export type RoomStatus = 'pending' | 'generating' | 'ready' | 'failed';
 
 /**
@@ -124,6 +161,18 @@ export interface Room {
   type: RoomType;
   order: number;
   photo?: PhotoRecord;
+  /**
+   * Extra angles of the same room, in the order the seller added them — the primary `photo` is not
+   * repeated here. Together they become one multi-image Marble prompt (`generationImages` in
+   * services/marble), capped at `MAX_ROOM_PHOTOS` including the primary.
+   */
+  photos?: PhotoRecord[];
+  /**
+   * What the listing floor plan says this room measures. Metres, ±5 cm — the plan is a drawing, not
+   * a tape. When it is present the room's raw geometry is built from these numbers instead of the
+   * photo's estimate, and the anchor is `anchorFromFloorplan` (chip: "floor plan · 3.75 m wall · ±5 cm").
+   */
+  planDims?: PlanDimensions;
   analysis?: PhotoAnalysis;
   raw: RawGeometry;
   anchor: AnchorSpec;
@@ -140,6 +189,11 @@ export interface Room {
    */
   floorOffset?: number;
   /**
+   * Per-room override of `Tour.site.heading`: the true-north bearing this room's north wall faces
+   * outward. A flat's rooms look different ways; the sun has to follow the room, not the building.
+   */
+  northWallHeading?: number;
+  /**
    * Provenance shown as a chip next to the room ("real Marble draft"). Kept out of `name` on
    * purpose: the name is buyer-facing copy and must not carry pipeline qualifiers.
    */
@@ -149,6 +203,63 @@ export interface Room {
   updatedAt: number;
 }
 
+/** A building footprint from OpenStreetMap, as drawn on the site map. */
+export interface SiteFootprint {
+  /** Closed [lat, lon] ring. */
+  ring: [number, number][];
+  /** Bearing (deg from true north, mod 180) of its longest edge — the building's own axis. */
+  principalHeading: number;
+  heightM?: number;
+  levels?: number;
+}
+
+/**
+ * Where the listing actually is. Geocoded from the address (OpenStreetMap Nominatim), with the
+ * building footprint from Overpass and the heading the seller confirmed on the compass. It is what
+ * turns "a sun" into *this* listing's sun: `sunPosition(date, lat, lon)` through walls turned by
+ * `heading`. Optional everywhere — a tour with no site simply has no real sun.
+ */
+export interface TourSite {
+  lat: number;
+  lon: number;
+  /** Nominatim's own name for the place; shown with "© OpenStreetMap contributors". */
+  displayName: string;
+  footprint?: SiteFootprint;
+  /** True-north bearing the room's north wall (the window wall) faces outward. */
+  heading: number;
+  /**
+   * The wall `heading` was expressed against when the seller confirmed it — the wall the rooms'
+   * windows were dominantly on at that moment.
+   *
+   * The seller answers one question ("which way do the windows face?") and the engine stores a
+   * different number (the bearing of the room's *north* wall); `facingToHeading` converts, and the
+   * conversion needs to know which wall the windows are on. That wall is read off the rooms, and the
+   * rooms change after the Site step — the floor plan adds more, and the seller adds photos — so
+   * reading it again later can turn the seller's "west" into "east" without anything having moved.
+   * Recording it here keeps the answer the one they gave. Optional: a site saved before this field
+   * existed falls back to reading the rooms.
+   */
+  windowWall?: WallSide;
+  /** The instant the time-of-day control is parked on (epoch ms), so the tour reopens on it. */
+  previewTime?: number;
+  /** ShadeMap said whether each window is in sun, hour by hour, on `previewTime`'s date. */
+  windowSun?: WindowSunStrip[];
+  /** When the address was resolved. */
+  resolvedAt?: number;
+}
+
+/** "Does this window get sun at this hour?" for one window, 24 hours of one day. */
+export interface WindowSunStrip {
+  roomName: string;
+  wall: WallSide;
+  /** Bearing the window faces, deg from true north. */
+  bearing: number;
+  /** 24 booleans, local hours 0-23 at half past. */
+  hours: boolean[];
+  /** `shademap` includes the neighbours' shadows; `model` is Audora's own solar geometry only. */
+  source: 'shademap' | 'model';
+}
+
 export interface Tour {
   id: string;
   shareId: string;
@@ -156,6 +267,10 @@ export interface Tour {
   address: string;
   listingUrl?: string;
   listingSource?: string;
+  /** The real place on the planet, once the seller has confirmed it in the Site step. */
+  site?: TourSite;
+  /** The listing floor plan and every room read off it, once the seller has uploaded one. */
+  floorPlan?: TourFloorPlan;
   price?: string;
   beds?: number;
   baths?: number;

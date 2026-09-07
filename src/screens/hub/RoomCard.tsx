@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import type { RoomType } from '@/engine/types';
 import { STYLE_LABELS } from '@/engine/autostage';
 import { fitReport } from '@/engine/fit';
+import { compassLabel, dominantWindowWall, effectiveHeading, facingToHeading, headingToFacing } from '@/engine/siteSun';
 import { bestWorld, toast, useAudora } from '@/state/store';
 import { activeProvider, regenerateRoom } from '@/state/jobs';
 import { needsFull } from '@/state/publish';
@@ -27,6 +28,7 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
   const updateRoom = useAudora((s) => s.updateRoom);
   const removeRoom = useAudora((s) => s.removeRoom);
   const setStaging = useAudora((s) => s.setStaging);
+  const setRoomHeading = useAudora((s) => s.setRoomHeading);
   const providers = useAudora((s) => s.providers);
   const preferMock = useAudora((s) => s.settings.preferMock);
   const [staging, setStagingBusy] = useState(false);
@@ -36,6 +38,15 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
 
   const g = room.geometry;
   const report = fitReport(room.staging, g);
+  /* A flat's rooms do not all look the same way. The building's heading is the default; this room
+     can say otherwise, and then the sun in *this* room follows it. */
+  const site = tour.site;
+  const heading = effectiveHeading(site?.heading, room.northWallHeading);
+  const overridden = room.northWallHeading != null;
+  /* The seller thinks in windows, the engine in the room's north wall; this room says which wall its
+     windows are on, so the two can be the same control. */
+  const windowWall = dominantWindowWall(g.windows.map((w) => w.wall));
+  const facing = headingToFacing(heading, windowWall);
   const world = bestWorld(room);
   /** A real reconstruction: it has assets to place, so its floor can be nudged. */
   const real = world?.provider === 'marble' && (!!world.panoUrl || !!world.spzUrl || !!world.colliderUrl);
@@ -112,6 +123,36 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
             {report.narrowestWalkway != null ? ` · narrowest walkway ${report.narrowestWalkway.toFixed(2)} m` : ''}
             {report.misfits.length ? ` · ${report.misfits.length} misfit` : ''}
           </div>
+          {site ? (
+            <div className="flex flex-col gap-1 rounded-xl border border-line bg-bg-2 px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] uppercase tracking-[0.14em] text-ink-3">{g.windows.length ? `${windowWall} windows face` : 'Far wall faces'}</span>
+                <span className="mono text-xs text-ink">
+                  {Math.round(facing)}° · {compassLabel(facing)}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={355}
+                step={5}
+                value={Math.round(facing)}
+                onChange={(e) => setRoomHeading(room.id, facingToHeading(Number(e.target.value), windowWall))}
+                className="h-4 w-full cursor-pointer accent-accent"
+                aria-label={`Direction the windows of ${room.name} face`}
+              />
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] text-ink-3">
+                  {overridden ? 'this room only' : `from the building · ${Math.round(headingToFacing(site.heading, windowWall))}°`}
+                </span>
+                {overridden ? (
+                  <button type="button" className="text-[10px] text-accent-2 hover:text-accent" onClick={() => setRoomHeading(room.id, undefined)}>
+                    Use the building
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
           <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
             <Link to={`/tours/${tour.id}/stage/${room.id}`} className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-accent px-3 text-[13px] font-medium text-[#1a0f0a] hover:bg-accent-2">
               <Icon.Sofa size={14} /> Open editor

@@ -13,9 +13,16 @@ import { useViewer, type Pose, type ViewMode } from '@/three/viewerStore';
 import { SceneCanvas } from '@/three/SceneCanvas';
 import { RoomShell } from '@/three/RoomShell';
 import { OrbitRig, PhotoRig } from '@/three/OrbitRig';
-import { MarbleWorld, useMarbleFrame, type MarbleWorldStatus } from '@/three/MarbleWorld';
+import { MarbleWorld, useMarbleFrame, type GeometryView, type MarbleWorldStatus } from '@/three/MarbleWorld';
 import { captureYaw } from '@/three/splat/frame';
-import { CaptureLight } from '@/three/CaptureLight';
+import { CaptureLight, externalSunScale, type LightBudget, type PanoramaLight } from '@/three/CaptureLight';
+import { describeSun, windowPositions, type SunDescription } from '@/three/lighting/describe';
+import { SunLight } from '@/three/SunLight';
+import { effectiveHeading, sunState } from '@/engine/siteSun';
+import { TimeOfDay } from './viewer/TimeOfDay';
+import { LayersPanel } from './viewer/LayersPanel';
+import { ExplodedLayer } from './viewer/ExplodedLayer';
+import { usePortraitLayers, type PortraitLayers } from './viewer/layers';
 import { WalkControls } from '@/three/WalkControls';
 import { buildWalkMask, type WalkMask } from '@/three/walkMask';
 import { StagingLayer } from '@/three/furniture/StagingLayer';
@@ -24,7 +31,6 @@ import { inTextField, throttle } from '@/three/furniture/floor';
 import { CatalogRail } from '@/components/CatalogRail';
 import { FitReportPanel } from '@/components/FitReportPanel';
 import { AnchorChip } from '@/components/AnchorChip';
-import { WorldLayers } from '@/components/WorldLayers';
 import { Icon } from '@/components/icons';
 import { Button, Chip, EmptyState, IconButton, Kbd, Segmented, StagedLabel } from '@/components/ui';
 import { TopBar, type AutoStageMeta } from './editor/TopBar';
@@ -34,7 +40,7 @@ import { BottomSheet } from './editor/BottomSheet';
 import { Joystick } from './editor/Joystick';
 import { useUndoStack } from './editor/useUndoStack';
 import { useMediaQuery, useTouchDevice } from './editor/useMediaQuery';
-import { floorOffsetOf, hasPano, isReal, layerLoading, layerReady, loadPill, type MarbleStatusMap } from './viewer/marble';
+import { floorOffsetOf, hasPano, isReal, layerReady, loadPill, type MarbleStatusMap } from './viewer/marble';
 
 /** An empty stand-in so the Marble frame hook can be called for rooms with no reconstruction. */
 const NO_WORLD = { metricScaleFactor: null, groundPlaneOffset: null, bounds: undefined } as const;
@@ -105,9 +111,17 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
   const [autoMeta, setAutoMeta] = useState<AutoStageMeta | null>(null);
   const [sheet, setSheet] = useState<'catalog' | 'fit' | null>(null);
   const [layersOpen, setLayersOpen] = useState(false);
+  const [timeOpen, setTimeOpen] = useState(false);
   const [marbleStatus, setMarbleStatus] = useState<MarbleStatusMap>({});
   // The panorama is the room's light as well as its backdrop (PMREM environment + estimated sun).
   const [panoTex, setPanoTex] = useState<import('three').Texture | null>(null);
+  // How the panorama's light was divided; the real sun fills the key's share of it.
+  const [budget, setBudget] = useState<LightBudget | null>(null);
+  const [captureSun, setCaptureSun] = useState<PanoramaLight | null>(null);
+  /* The same portrait stack the buyer gets (./viewer/layers), so the seller stages against the
+     layers rather than against a flattened picture of them. Local and transient by design. */
+  const { layers, setLayer, exploded, explode } = usePortraitLayers();
+  const [geometryView, setGeometryView] = useState<GeometryView>('wireframe');
   const onMarbleStatus = useCallback((st: MarbleWorldStatus) => setMarbleStatus((prev) => ({ ...prev, [st.layer]: st })), []);
 
   const roomRef = useRef(room);
@@ -298,17 +312,21 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
     navigate(`/tours/${tourId}`);
   }, [flush, broadcast, navigate, tourId]);
 
+  /* Placing a piece into a room whose furniture layer is switched off would drop it into thin air:
+     the layer comes back on, because reaching for the catalogue says what the seller wants to see. */
   const addFromCatalog = useCallback((item: CatalogItem) => {
     setPlaceOnRelease(false);
     setPlacing(item);
     setSheet(null);
     setSelectedId(null);
-  }, [setSelectedId]);
+    setLayer('furniture', true);
+  }, [setSelectedId, setLayer]);
   const dragFromCatalog = useCallback((item: CatalogItem) => {
     setPlacing(item);
     setPlaceOnRelease(true);
     setSelectedId(null);
-  }, [setSelectedId]);
+    setLayer('furniture', true);
+  }, [setSelectedId, setLayer]);
 
   /* ---------- derived ---------- */
 
@@ -342,20 +360,69 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
     [setSelectedId, isMobile],
   );
 
+  /* ---------- the real sun, when the tour has an address ----------
+     The seller stages under the light the buyer will be standing in: same site, same heading, same
+     hour. The instant is parked on the tour, so opening the buyer's viewer picks up where the
+     staging left off. */
+  const site = tour.site;
+  const heading = effectiveHeading(site?.heading, room.northWallHeading);
+  const setPreviewTime = useAudora((s) => s.setPreviewTime);
+  const [previewTime, setLocalPreviewTime] = useState<number>(() => site?.previewTime ?? Date.now());
+  const hasSite = Boolean(site);
+  useEffect(() => {
+    if (!hasSite) return;
+    const id = window.setTimeout(() => setPreviewTime(tourId, previewTime), 600);
+    return () => window.clearTimeout(id);
+  }, [hasSite, previewTime, tourId, setPreviewTime]);
+  const siteLat = site?.lat;
+  const siteLon = site?.lon;
+  const sky = useMemo(
+    () => (siteLat != null && siteLon != null ? sunState(new Date(previewTime), siteLat, siteLon, heading) : null),
+    [siteLat, siteLon, previewTime, heading],
+  );
+
+  /* The Photo row and the store's `showSplat` are the same decision seen twice: taking the capture
+     away must take the splat with it, or the room comes back as a splat with no panorama behind it. */
+  const onLayerChange = useCallback(
+    (key: keyof PortraitLayers, value: boolean) => {
+      setLayer(key, value);
+      if (key === 'photo') setShowSplat(value);
+    },
+    [setLayer, setShowSplat],
+  );
+
+  /* "Light from ahead · 21% directional" — what the panorama was measured to be lighting the
+     furniture with, said relative to the way the seller is facing, because that is the only frame a
+     person standing in a room has. Coarsened to 5° so turning does not re-render the panel. */
+  const facing = Math.round(((pose.yaw * 180) / Math.PI) / 5) * 5;
+  const sunDescription = useMemo<SunDescription | null>(() => {
+    if (!captureSun || !budget) return null;
+    return describeSun(captureSun.sun, {
+      facing: (facing * Math.PI) / 180,
+      windows: windowPositions(geometry),
+      directionalShare: budget.directionalShare,
+    });
+  }, [captureSun, budget, facing, geometry]);
+
   /* ---------- the real reconstruction, when this room has one ---------- */
 
   const world = bestWorld(room);
   const real = isReal(world) ? world : undefined;
   const photo = mode === 'photo' && hasPano(real);
-  const wantSplat = mode === 'walk' && showSplat && Boolean(real?.spzUrl);
+  /* Photo view's camera belongs to the *mode*; whether the photograph is drawn belongs to the
+     *layer*. Switching the capture off leaves the seller standing where they were, looking at the
+     measured room — which is the only way to see what the furniture is being composited onto. */
+  const showPhotoLayer = layers.photo;
+  const wantSplat = mode === 'walk' && showSplat && showPhotoLayer && Boolean(real?.spzUrl);
   const marbleFrame = useMarbleFrame(real ?? NO_WORLD, room.anchor.metresPerUnit, floorOffsetOf(room));
   const pill = loadPill(marbleStatus);
-  const panoLoading = layerLoading(marbleStatus, 'pano');
   // The measured room stays up until the photograph has actually arrived.
-  const photoOnly = photo && layerReady(marbleStatus, 'pano');
+  const photoOnly = photo && showPhotoLayer && layerReady(marbleStatus, 'pano');
   const splatUp = wantSplat && layerReady(marbleStatus, 'splat');
   /** Furniture is standing on a real capture, so it is lit by it and casts onto it. */
   const composite = photoOnly || splatUp;
+  /** The address's own sun is up: it owns the shadows, the panorama keeps owning the colour. */
+  const sunUp = Boolean(sky && sky.intensity > 0.01);
   /* Under the splat the measured shell is a milky box drawn inside the photograph, not a stand-in:
      the seller has to stage against what the buyer will actually see. */
   const shell = !photoOnly && !splatUp;
@@ -384,7 +451,11 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
         requestAnimationFrame(build);
         return;
       }
-      const m = buildWalkMask(collider, { seed: { x: captureX, z: captureZ }, reach: Math.max(8, Math.max(geometry.width, geometry.depth)) });
+      const m = buildWalkMask(collider, {
+        seed: { x: captureX, z: captureZ },
+        reach: Math.max(8, Math.max(geometry.width, geometry.depth)),
+        limit: { halfWidth: geometry.width / 2, halfDepth: geometry.depth / 2 },
+      });
       setWalkMask(m);
       if (import.meta.env.DEV) window.__audoraWalkMask = m;
     };
@@ -454,15 +525,48 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
             className="absolute inset-0"
             camera={{ fov: 50, near: 0.05, far: 200 }}
             style={{ touchAction: 'none' }}
-            busy={panoLoading}
+            /* Any capture layer still coming down, not just the panorama: decoding half a million
+               splats blocks the main thread before the first frame lands, and "Building the room…"
+               for half a minute is the canvas describing the wrong wait. The pill says which layer
+               and how far along it is. */
+            busy={Boolean(pill)}
             busyLabel={pill?.label}
             busyProgress={pill?.progress ?? null}
             loadingLabel={photo ? 'Developing the photograph…' : 'Building the room…'}
           >
             {/* The seller stages against exactly what the buyer will see: the room's own light. */}
-            {composite ? <CaptureLight texture={panoTex} groupRotationY={marbleFrame.rotationY} span={Math.max(geometry.width, geometry.depth)} /> : null}
+            {composite ? (
+              <CaptureLight
+                texture={panoTex}
+                groupRotationY={marbleFrame.rotationY}
+                span={Math.max(geometry.width, geometry.depth)}
+                floor={{ width: geometry.width, depth: geometry.depth }}
+                shadows={!sunUp}
+                catcher={layers.shadows}
+                onLight={setCaptureSun}
+                onBudget={setBudget}
+              />
+            ) : null}
+            {sky ? (
+              <SunLight
+                room={geometry}
+                sun={sky}
+                composite={composite}
+                intensity={composite ? externalSunScale(budget, sky.intensity) : 1}
+                shadows={layers.shadows}
+                shadowOpacity={composite ? budget?.shadowOpacity : undefined}
+              />
+            ) : null}
             {shell ? (
-              <RoomShell room={geometry} cullNearWalls={mode === 'orbit'} showGrid={mode === 'orbit'} showCeiling={mode === 'walk'} lights={!composite} />
+              <RoomShell
+                room={geometry}
+                cullNearWalls={mode === 'orbit'}
+                showGrid={mode === 'orbit'}
+                showCeiling={mode === 'walk'}
+                lights={!composite}
+                externalSun={Boolean(sky)}
+                sunWalls={sky?.walls}
+              />
             ) : null}
             {real ? (
               /* Keyed on the world so a different capture is a teardown, not a re-point: the
@@ -473,31 +577,39 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
                 world={real}
                 metresPerUnit={room.anchor.metresPerUnit}
                 floorOffset={floorOffsetOf(room)}
-                showPano={photo || wantSplat}
+                showPano={(photo || wantSplat) && showPhotoLayer}
                 showSplat={wantSplat}
                 showGeometry={showGeometry && Boolean(real.colliderUrl)}
+                geometryView={geometryView}
+                showOccluder={layers.occluder && composite && Boolean(real.colliderUrl)}
                 onStatus={onMarbleStatus}
                 onCollider={setCollider}
                 onPanoTexture={setPanoTex}
               />
             ) : null}
-            <StagingLayer
-              room={geometry}
-              pieces={present}
-              contactShadows={composite}
-              editable={editable}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-              onHover={setHoverId}
-              onChange={handleChange}
-              onFloorPointer={handleFloorPointer}
-              placing={editable ? placing : null}
-              placeOnRelease={placeOnRelease}
-              onPlaced={() => setPlacing(null)}
-              onCancelPlacing={() => setPlacing(null)}
-              onGestureStart={stack.beginGesture}
-              onGestureEnd={stack.endGesture}
-            />
+            {layers.furniture ? (
+              /* The furniture layer, liftable off the photograph for a moment. Dragging is off while
+                 it is in the air: the piece the seller would be dropping is 40 cm above the floor. */
+              <ExplodedLayer active={exploded}>
+                <StagingLayer
+                  room={geometry}
+                  pieces={present}
+                  contactShadows={composite && layers.shadows}
+                  editable={editable && !exploded}
+                  selectedId={selectedId}
+                  onSelect={setSelectedId}
+                  onHover={setHoverId}
+                  onChange={handleChange}
+                  onFloorPointer={handleFloorPointer}
+                  placing={editable && !exploded ? placing : null}
+                  placeOnRelease={placeOnRelease}
+                  onPlaced={() => setPlacing(null)}
+                  onCancelPlacing={() => setPlacing(null)}
+                  onGestureStart={stack.beginGesture}
+                  onGestureEnd={stack.endGesture}
+                />
+              </ExplodedLayer>
+            ) : null}
             <PeerCursors peers={collab.peers} />
             {photo ? (
               <PhotoRig origin={marbleFrame.position} initialYaw={captureFacing} fov={photoFov} onFov={setPhotoFov} resetKey={roomId} />
@@ -510,29 +622,60 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
 
           {/* overlays */}
           <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-3">
-            {/* Real-reconstruction layers. Kept out of the top bar so the room's own controls stay put. */}
-            {real ? (
+            {/* Real-reconstruction layers and the hour of the day. Kept out of the top bar so the
+                room's own controls stay put. */}
+            {real || site ? (
               <div className="pointer-events-auto absolute left-3 top-3 flex flex-col items-start gap-2">
                 <div className="flex items-center gap-1.5">
-                  <IconButton
-                    label={layersOpen ? 'Close the capture layers' : 'Capture layers and floor height'}
-                    active={layersOpen || showGeometry}
-                    onClick={() => setLayersOpen((v) => !v)}
-                    className="glass !h-8 !w-8"
-                  >
-                    <Icon.Layers size={15} />
-                  </IconButton>
+                  {real ? (
+                    <IconButton
+                      label={layersOpen ? 'Close the layers' : 'Layers · the photograph, the furniture and its shadow'}
+                      active={layersOpen || showGeometry}
+                      onClick={() => setLayersOpen((v) => !v)}
+                      className="glass !h-8 !w-8"
+                    >
+                      <Icon.Layers size={15} />
+                    </IconButton>
+                  ) : null}
+                  {site ? (
+                    <IconButton
+                      label={timeOpen ? 'Close the time of day' : 'Time of day · the real sun'}
+                      active={timeOpen}
+                      onClick={() => setTimeOpen((v) => !v)}
+                      className="glass !h-8 !w-8"
+                    >
+                      <Icon.Sun size={15} />
+                    </IconButton>
+                  ) : null}
                   {pill?.tone === 'error' ? <span className="glass rounded-full px-2.5 py-1 text-[11px] text-warn">{pill.label}</span> : null}
                 </div>
-                {layersOpen ? (
-                  <WorldLayers
+                {timeOpen && site ? (
+                  <TimeOfDay
+                    lat={site.lat}
+                    lon={site.lon}
+                    heading={heading}
+                    date={new Date(previewTime)}
+                    onChange={(d) => setLocalPreviewTime(d.getTime())}
+                    onClose={() => setTimeOpen(false)}
+                    place={site.displayName}
+                  />
+                ) : null}
+                {layersOpen && real ? (
+                  <LayersPanel
                     roomId={roomId}
                     world={real}
+                    layers={layers}
+                    onLayer={onLayerChange}
+                    exploded={exploded}
+                    onExplode={explode}
                     showGeometry={showGeometry}
                     onGeometry={setShowGeometry}
-                    showSplat={showSplat}
-                    onSplat={mode === 'walk' ? setShowSplat : undefined}
-                    splatHint={mode === 'walk' ? undefined : 'The Gaussian splat, shown while you walk the room.'}
+                    geometryView={geometryView}
+                    onGeometryView={setGeometryView}
+                    sun={sunDescription}
+                    envIntensity={budget?.envMapIntensity ?? null}
+                    hasCapture
+                    photoHint={mode === 'orbit' ? 'The dollhouse draws the measured room; walk or switch to Photo to stand in the capture.' : undefined}
                     onClose={() => setLayersOpen(false)}
                   />
                 ) : null}

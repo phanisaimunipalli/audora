@@ -70,3 +70,74 @@ export function listingFromUrl(url: string): ListingMeta {
     inferred: true,
   };
 }
+
+/* ---------- photos the seller copies out of the listing ----------
+ *
+ * Listing sites do not let a browser read their photos (no CORS header) and Audora does not scrape
+ * listing pages. What a seller *can* do is right-click the photos on their own listing and copy the
+ * image addresses; those URLs come back through the dev server's `/api/fetch-image` proxy, one at a
+ * time, with an 8 MB cap and a content-type check. It is the difference between a tour built from
+ * three phone photos and a tour built from the twenty the agent already paid a photographer for. */
+
+export interface PhotoUrlResult {
+  url: string;
+  dataUrl?: string;
+  bytes?: number;
+  contentType?: string;
+  error?: string;
+}
+
+/**
+ * One URL per line, as pasted. Lines are split first and only split again on whitespace when a line
+ * carries more than one URL, so a single address is never torn in half by a stray space.
+ * Anything that is not an http(s) URL is dropped; duplicates are dropped too.
+ */
+export function parsePhotoUrls(text: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const line of text.split(/[\r\n,]+/)) {
+    const parts = (line.match(/https?:\/\//gi)?.length ?? 0) > 1 ? line.split(/\s+/) : [line];
+    for (const raw of parts) {
+      const s = raw.trim().replace(/\s+/g, '').replace(/[),.;]+$/, '');
+      if (!/^https?:\/\//i.test(s)) continue;
+      if (seen.has(s)) continue;
+      seen.add(s);
+      out.push(s);
+    }
+  }
+  return out;
+}
+
+/** True when a URL looks like the photo itself rather than the listing page around it. */
+export function looksLikeImageUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (/\.(jpe?g|png|webp|avif|gif)(\?|$)/i.test(`${u.pathname}${u.search}`)) return true;
+    return /(zillowstatic|cdn-redfin|rdcpix|compass|rightmove|zoocdn|sparkplatform|cloudfront)\./i.test(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** Fetch one listing photo through the server proxy. Never throws; the error is on the result. */
+export async function fetchPhotoUrl(url: string, signal?: AbortSignal): Promise<PhotoUrlResult> {
+  try {
+    const r = await fetch(`/api/fetch-image?url=${encodeURIComponent(url)}`, { signal });
+    const body = await r.json();
+    if (!r.ok) return { url, error: body?.error || `Could not fetch that photo (${r.status})` };
+    return { url, dataUrl: body.dataUrl, bytes: body.bytes, contentType: body.contentType };
+  } catch (e: any) {
+    return { url, error: e?.name === 'AbortError' ? 'Cancelled' : e?.message || 'Could not fetch that photo' };
+  }
+}
+
+/** Fetch a batch, in order, reporting each as it lands. */
+export async function fetchPhotoUrls(urls: string[], onEach?: (r: PhotoUrlResult, i: number) => void): Promise<PhotoUrlResult[]> {
+  const out: PhotoUrlResult[] = [];
+  for (const [i, url] of urls.entries()) {
+    const r = await fetchPhotoUrl(url);
+    out.push(r);
+    onEach?.(r, i);
+  }
+  return out;
+}

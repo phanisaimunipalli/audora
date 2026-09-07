@@ -5,6 +5,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { RoomWorld } from '@/state/types';
 import { marbleFrame } from './splat/frame';
 import type { SplatTier } from './splat/tiers';
+import { Occluder } from './lighting/Occluder';
 import { PANO_RADIUS, PanoWorld, type PanoProgress, type PanoStatus } from './PanoWorld';
 import { SplatWorld, type SplatInfo, type SplatStatus } from './SplatWorld';
 
@@ -28,6 +29,9 @@ export const GEOMETRY_OPACITY = 0.3;
  * the group's `rotationY = π + yaw` carries the room's own turn on top of it.
  */
 export const COLLIDER_MIRROR: [number, number, number] = [-1, 1, 1];
+
+/** How the Geometry layer draws the reconstruction's mesh when it is switched on. */
+export type GeometryView = 'wireframe' | 'occluder';
 
 export type MarbleLayer = 'pano' | 'collider' | 'splat';
 export type MarbleStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -54,8 +58,16 @@ export interface MarbleWorldProps {
   showPano?: boolean;
   /** Draw the Gaussian splat when the world has one. */
   showSplat?: boolean;
-  /** Draw the collider mesh as a purple wireframe. */
+  /** Draw the collider mesh — as the purple wireframe, or as the depth surface that does the hiding. */
   showGeometry?: boolean;
+  /** Which of the two the Geometry layer shows. */
+  geometryView?: GeometryView;
+  /**
+   * Write the collider into the depth buffer so real walls and columns hide furniture behind them
+   * (see `lighting/Occluder`). Independent of `showGeometry`: the occlusion is the feature, the
+   * Geometry layer is only how you look at it.
+   */
+  showOccluder?: boolean;
   panoOpacity?: number;
   splatOpacity?: number;
   /**
@@ -266,6 +278,8 @@ export function MarbleWorld({
   showPano = true,
   showSplat = false,
   showGeometry = false,
+  geometryView = 'wireframe',
+  showOccluder = false,
   panoOpacity = 1,
   splatOpacity = 1,
   keepPanoLoaded,
@@ -285,12 +299,25 @@ export function MarbleWorld({
   colliderCb.current = onCollider;
 
   const wantSplat = showSplat && Boolean(world.spzUrl);
+  /* **A splat, once downloaded, stays.** Unmounting SplatWorld disposes every tier, so switching
+     the Photo layer off and on again re-ran the whole ladder — pano, 100k, 500k, full res — and put
+     the buyer back in a blurry room for twenty seconds to see something they had already seen. It
+     stays mounted and merely invisible until the *world* changes (a different capture is a
+     teardown, not a hide), which costs GPU memory the room was already using a moment ago. */
+  const [everSplat, setEverSplat] = useState(false);
   useEffect(() => {
-    if (wantSplat) return;
+    setEverSplat(false);
+  }, [world.spzUrl]);
+  useEffect(() => {
+    if (wantSplat) setEverSplat(true);
+  }, [wantSplat]);
+  const splatMounted = everSplat && Boolean(world.spzUrl);
+  useEffect(() => {
+    if (splatMounted) return;
     // Photo view and the dollhouse have no splat, so whatever it last said about itself ("loading
     // the real capture…") is no longer true and must not be left on the viewer's status line.
     report.current?.({ layer: 'splat', status: 'idle' });
-  }, [wantSplat]);
+  }, [splatMounted]);
 
   /* **The panorama stays behind the splat.** It used to fade out over 0.6 s once real splats were
      up, which left whatever the reconstruction does not cover — everything above the top of the
@@ -331,20 +358,23 @@ export function MarbleWorld({
         ) : null}
         <Collider
           url={world.colliderUrl}
-          visible={showGeometry}
+          visible={showGeometry && geometryView === 'wireframe'}
           onStatus={(s, detail) => report.current?.({ layer: 'collider', status: s, detail })}
           onScene={(scene) => {
             setCollider(scene);
             colliderCb.current?.(scene);
           }}
         />
+        {/* Real geometry, written to depth only, so a chair behind a photographed wall is behind it. */}
+        <Occluder source={collider} enabled={showOccluder} reveal={showGeometry && geometryView === 'occluder'} scale={COLLIDER_MIRROR} />
       </group>
       {/* Measurable real geometry — only while a capture is actually on screen, so the dollhouse
           keeps measuring the room Audora drew rather than the mesh hidden inside it. */}
       <ColliderPick target={collider} enabled={showGeometry || wantSplat || (showPano && panoVisible)} />
-      {wantSplat ? (
+      {splatMounted ? (
         <SplatWorld
           world={world}
+          visible={wantSplat}
           metresPerUnit={metresPerUnit}
           opacity={splatOpacity}
           transform={{ y: floorOffset }}

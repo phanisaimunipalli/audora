@@ -10,6 +10,12 @@ export interface StillSpec {
   position: [number, number, number];
   lookAt: [number, number, number];
   fov?: number;
+  /**
+   * Take the pose from the live camera instead of `position`/`lookAt` — the "Portrait" still, which
+   * is whatever the buyer is looking at right now. `captureStills` needs `opts.camera` for this;
+   * without one the spec falls back to its own position and lookAt.
+   */
+  fromCamera?: boolean;
 }
 
 export interface Still {
@@ -36,6 +42,135 @@ export function stillSpecs(room: RoomGeometry): StillSpec[] {
     { name: 'Window side', position: [winSide.x, EYE_HEIGHT_M, winSide.z], lookAt: [-wp.x * 0.5, 1.0, -wp.z * 0.5], fov: 60 },
     { name: 'Overview', position: [out.x * (span * 0.9 + 1) + span * 0.45, span * 0.95 + 1.2, out.z * (span * 0.9 + 1) + span * 0.45], lookAt: [0, 0.4, 0], fov: 46 },
   ];
+}
+
+/**
+ * How far the floor runs from a point in a given direction before it meets a wall, in metres.
+ * The room is the rectangle centred on the origin, so this is a ray/box intersection.
+ */
+export function runToWall(room: Pick<RoomGeometry, 'width' | 'depth'>, x: number, z: number, yaw: number): number {
+  // Same convention as `lookAt` below: yaw 0 looks toward −z.
+  const dx = -Math.sin(yaw);
+  const dz = -Math.cos(yaw);
+  const hx = room.width / 2;
+  const hz = room.depth / 2;
+  let t = Infinity;
+  if (Math.abs(dx) > 1e-6) t = Math.min(t, ((dx > 0 ? hx : -hx) - x) / dx);
+  if (Math.abs(dz) > 1e-6) t = Math.min(t, ((dz > 0 ? hz : -hz) - z) / dz);
+  return Number.isFinite(t) ? Math.max(0, t) : Math.max(room.width, room.depth);
+}
+
+/** Directions at least this far apart count as different pictures (radians ≈ 40°). */
+const STILL_SEPARATION = 0.7;
+
+/**
+ * The lens a direction wants: the less room in front of the camera, the wider it has to be to show
+ * any of it. An estate agent's own kit is 24 mm (74°) and goes wider in a small room, which is the
+ * same trade — a 68° lens 1.2 m from a wall is a photograph of plaster.
+ */
+export function stillFov(run: number): number {
+  const t = Math.max(0, Math.min(1, (3.2 - run) / 2.2));
+  return Math.round(62 + 22 * t);
+}
+
+/**
+ * Listing angles for a room that has a real capture behind it.
+ *
+ * Nothing here leaves the capture point. A panorama is only a photograph from where it was taken —
+ * step away from that point and the walls stop having parallax — so a composite still turns on the
+ * spot instead of walking around, and the only thing that varies between the four is the direction.
+ * The first is **Portrait**: the direction the buyer is actually looking, so the still they save is
+ * the frame they were sold on.
+ *
+ * **The other three are chosen by what they can see.** They used to be fixed offsets from the
+ * photographer's own direction — +0°, +66°, +180° — which on the demo corner room put the capture
+ * point 60 cm from the rear wall and made "Looking back" a featureless blurred wall, while the first
+ * two were the same picture whenever the buyer had not turned. So every direction is scored by how
+ * much room is in front of it (`runToWall`) and by the staged furniture it frames, and the three
+ * best that are at least ~55° from each other and from Portrait are the ones taken. With no room to
+ * score against the old fixed offsets are used, which is what a caller passing no geometry gets.
+ *
+ * The furniture is metric and stands on our floor, so it composites correctly from the capture point
+ * in exactly the way the viewer does.
+ */
+export function compositeSpecs(
+  capture: { x: number; z: number; yaw: number },
+  /** Where the buyer is looking now. Only the direction is used; the position stays honest. */
+  viewer?: { yaw: number; fov?: number } | null,
+  /** The measured room and what is staged in it, so the angles can be picked by content. */
+  scene?: { room: Pick<RoomGeometry, 'width' | 'depth'>; pieces?: { x: number; z: number }[] } | null,
+): StillSpec[] {
+  const eye: [number, number, number] = [capture.x, EYE_HEIGHT_M, capture.z];
+  const at = (yaw: number): [number, number, number] => [capture.x - Math.sin(yaw) * 4, 1.3, capture.z - Math.cos(yaw) * 4];
+  const first = viewer?.yaw ?? capture.yaw;
+  /* Named for what they are, not for a direction they no longer have: the three after Portrait are
+     whichever directions see the most room, so "Looking back" — which used to be `yaw + π` and was a
+     photograph of the wall behind the photographer — would be a caption that lies. */
+  const names = ['Portrait', 'The long view', 'Across the room', 'The far corner'];
+  const yaws = scene?.room ? pickYaws(capture, first, scene.room, scene.pieces ?? []) : [first, capture.yaw, capture.yaw + 1.15, capture.yaw + Math.PI];
+  return yaws.map((yaw, i) => ({
+    name: names[i] ?? `Angle ${i + 1}`,
+    position: eye,
+    lookAt: at(yaw),
+    fov: i === 0 && viewer?.fov ? viewer.fov : scene?.room ? stillFov(runToWall(scene.room, capture.x, capture.z, yaw)) : [64, 68, 66, 68][i] ?? 66,
+  }));
+}
+
+/**
+ * Portrait, then the three best-scoring directions that are pictures of their own.
+ *
+ * A capture point in the corner of a 3 × 4 m room cannot yield four views a quarter-turn apart that
+ * all see the room — one of them is always the wall behind the photographer, which is exactly the
+ * blank frame this replaces. So the angles are allowed to cluster over the half of the room that has
+ * something in it (40° apart is a different photograph, not a duplicate) and directions with less
+ * than a couple of metres in front of them are dropped outright while better ones remain.
+ */
+function pickYaws(capture: { x: number; z: number; yaw: number }, first: number, room: Pick<RoomGeometry, 'width' | 'depth'>, pieces: { x: number; z: number }[]): number[] {
+  const diag = Math.hypot(room.width, room.depth);
+  const runOf = (yaw: number) => runToWall(room, capture.x, capture.z, yaw);
+  const score = (yaw: number) => {
+    // A wall in your face is not a listing photograph; depth of view is most of the answer.
+    let s = Math.min(1, runOf(yaw) / Math.max(1, diag * 0.75));
+    for (const p of pieces) {
+      const dx = p.x - capture.x;
+      const dz = p.z - capture.z;
+      if (Math.hypot(dx, dz) < 0.2) continue;
+      const toPiece = Math.atan2(-dx, -dz);
+      const off = Math.abs(Math.atan2(Math.sin(toPiece - yaw), Math.cos(toPiece - yaw)));
+      if (off < 0.6) s += 0.4 * (1 - off / 0.6);
+    }
+    return s;
+  };
+  const apart = (a: number, b: number) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+  const candidates: { yaw: number; run: number; score: number }[] = [];
+  for (let i = 0; i < 36; i++) {
+    const yaw = first + (i * Math.PI * 2) / 36;
+    candidates.push({ yaw, run: runOf(yaw), score: score(yaw) });
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  const deepest = Math.max(...candidates.map((c) => c.run));
+  const floorRun = Math.min(1.6, deepest * 0.6);
+  const deep = candidates.filter((c) => c.run >= floorRun);
+  const picked = [first];
+  /* Four frames that all see the room beat four maximally different frames, one of which is a wall.
+     So the separation is relaxed before the "must see the room" rule is: 40° apart if the room
+     allows it, then 26°, then 16°, and only a room with nothing else to show falls through to the
+     shallow directions. */
+  for (const pass of [
+    { list: deep, sep: STILL_SEPARATION },
+    { list: deep, sep: 0.45 },
+    { list: deep, sep: 0.28 },
+    { list: candidates, sep: 0.28 },
+  ]) {
+    for (const c of pass.list) {
+      if (picked.length >= 4) break;
+      if (picked.every((y) => apart(y, c.yaw) >= pass.sep)) picked.push(c.yaw);
+    }
+    if (picked.length >= 4) break;
+  }
+  // A room too small to hold four distinct views still gets four: spread whatever is left.
+  for (let i = 1; picked.length < 4; i++) picked.push(first + (i * Math.PI) / 2);
+  return picked;
 }
 
 interface Restore {
@@ -79,7 +214,12 @@ function stageFor(scene: THREE.Scene, cam: THREE.Camera, room: RoomGeometry): Re
  * preserveDrawingBuffer because the read happens right after the render, in the same task.
  * Safe to call from inside a running r3f Canvas: the renderer's size and pixel ratio are restored.
  */
-export function captureStills(gl: THREE.WebGLRenderer, scene: THREE.Scene, room: RoomGeometry, opts?: { width?: number; height?: number; specs?: StillSpec[]; quality?: number }): Still[] {
+export function captureStills(
+  gl: THREE.WebGLRenderer,
+  scene: THREE.Scene,
+  room: RoomGeometry,
+  opts?: { width?: number; height?: number; specs?: StillSpec[]; quality?: number; camera?: THREE.Camera },
+): Still[] {
   const specs = opts?.specs ?? stillSpecs(room);
   const width = opts?.width ?? 1600;
   const height = opts?.height ?? 1000;
@@ -97,8 +237,17 @@ export function captureStills(gl: THREE.WebGLRenderer, scene: THREE.Scene, room:
     gl.setSize(width, height, false);
     for (const s of specs) {
       const cam = new THREE.PerspectiveCamera(s.fov ?? 60, width / height, 0.05, 200);
-      cam.position.set(...s.position);
-      cam.lookAt(...s.lookAt);
+      const live = s.fromCamera ? (opts?.camera as THREE.PerspectiveCamera | undefined) : undefined;
+      if (live) {
+        // The live camera's world pose, so the still is exactly the frame on screen.
+        live.updateMatrixWorld();
+        cam.position.setFromMatrixPosition(live.matrixWorld);
+        cam.quaternion.setFromRotationMatrix(live.matrixWorld);
+        if (typeof live.fov === 'number') cam.fov = s.fov ?? live.fov;
+      } else {
+        cam.position.set(...s.position);
+        cam.lookAt(...s.lookAt);
+      }
       cam.updateProjectionMatrix();
       cam.updateMatrixWorld();
       const undo = stageFor(scene, cam, room);
@@ -215,6 +364,7 @@ export type CaptureFn = (opts?: CaptureOptions) => Promise<Still[]>;
 export function StillsCapturer({ room, onReady, watermark: defaultLines }: { room: RoomGeometry; onReady: (capture: CaptureFn) => void; watermark?: string[] }) {
   const gl = useThree((s) => s.gl);
   const scene = useThree((s) => s.scene);
+  const camera = useThree((s) => s.camera);
   const roomRef = useRef(room);
   roomRef.current = room;
   const linesRef = useRef(defaultLines);
@@ -225,7 +375,7 @@ export function StillsCapturer({ room, onReady, watermark: defaultLines }: { roo
     const capture: CaptureFn = async (opts) => {
       // wait for a frame so pending loads / shadow maps are in place, then render in the same task
       await new Promise<void>((r) => requestAnimationFrame(() => r()));
-      const raw = captureStills(gl, scene, roomRef.current, opts);
+      const raw = captureStills(gl, scene, roomRef.current, { ...opts, camera });
       const lines = opts?.watermark ?? linesRef.current;
       if (!lines || !lines.length) return raw;
       const out: Still[] = [];
@@ -233,6 +383,6 @@ export function StillsCapturer({ room, onReady, watermark: defaultLines }: { roo
       return out;
     };
     onReadyRef.current(capture);
-  }, [gl, scene]);
+  }, [gl, scene, camera]);
   return null;
 }

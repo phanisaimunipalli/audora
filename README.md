@@ -73,7 +73,7 @@ Every Token Factory call is logged with tokens, latency and estimated cost to `.
 
 ## Evaluation (Nebius track)
 
-Two Token Factory tasks are measured end to end through the same proxy the product uses, so latency and cost are what a user pays. `npm run eval` (with `npm run dev` running) regenerates `evals/results/*-latest.md`.
+Three Token Factory tasks are measured end to end through the same proxy the product uses, so latency and cost are what a user pays. `npm run eval` (with `npm run dev` running) regenerates `evals/results/*-latest.md`.
 
 **1. Auto-stage** — propose a furniture arrangement for a room. The geometry engine is the judge: a layout is valid when no essential piece had to be dropped, nothing overlaps or leaves the room, the door swing is clear, the narrowest walkway is ≥ 0.75 m, and the room's essentials are present. 12 representative rooms (typical, tiny, long-and-narrow, door on a side wall, small dining, studio).
 
@@ -111,6 +111,24 @@ One measured prompt iteration ("list every loose piece first; empty only if the 
 | Qwen3-8B un-tuned (same local serving) | 0% | 0% | — | 0% | — |
 
 The student matches the teacher room for room (the one shared miss is the small dining room, where both pick a table too large for a 0.75 m walkway) after 8.7 minutes of training on 170 engine-validated examples that cost 4 cents to generate. The un-tuned 8B, served the same way (no constrained decoding), ignored the output schema in all 12 rooms and produced no usable placement, so the fine-tune buys both format compliance and layout quality. That is the flywheel the core-model doc describes: the verifier labels, the big model teaches, the small model ships.
+
+**5. Floor-plan reading** — turn the listing's floor plan into rooms with names, types and metric dimensions. This is the accuracy step: a plan that prints `12'-4" × 15'-2"` anchors that room at **±5 cm**, better than a tapped door (±4 cm at best, and only when a door is in shot) and far better than the ±30 cm a room carries with nothing at all. Corpus (`evals/plans/manifest.json`): 11 plans, 77 labelled rooms, 56 with printed dimensions — eight synthetic listing-style sheets generated from a room table by `evals/plans/make-plans.mjs` (so their ground truth is exact: feet-and-inches, metres, one mixed-unit sheet, one two-storey sheet), the app's own demo townhouse plan, and two public-domain 1911 Hector Guimard apartment plans from Wikimedia Commons as hard cases, labelled by what a human can read.
+
+| system | room recall | room type | dims returned | dims within 5% | phantom rooms | floors | mean ms | $ per plan |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| no model (product fallback) | 0% | — | 0% | 0% | 0 | 0% | 0 | 0 |
+| MiniCPM-V-4.5, model's own metres | 86% | 100% | 91% | 84% | 121 | 100% | 6.0 s | 0.0014 |
+| **MiniCPM-V-4.5 + our conversion (production)** | **86%** | **100%** | **91%** | **91%** | **27** | **100%** | 6.0 s | 0.0014 |
+
+On the eight synthetic listing plans it is exact: 47 of 47 rooms found, every room type right, every dimension within 5%, both floors of the two-storey sheet. All the loss is in the two 1911 photostats (8 of 19 hand-lettered French rooms found).
+
+Three measured findings, each of which changed the product:
+
+- **Never delegate the arithmetic.** The model returns each dimension string *verbatim* (`dimensions_text`) and `metresFromDimensions` converts it in code. Same responses, scored both ways: 84% → 91% within 5%, free. It also declared the metric 1911 plans "feet", which would have turned a 3.74 × 4.70 m bedroom into a 1.14 m cupboard, so the converter refuses a reading that makes a room too small to stand in.
+- **Enlarge a small plan before reading it.** The demo townhouse plan is 600 px wide as the listing serves it, and its labels are six pixels tall: at native size the model returned one room from one sheet; resampled to a 1600 px long edge (`preparePlanImage`) it returned twelve rooms across all three. The original file goes in, not a re-encoded copy — a JPEG pass at 600 px destroys exactly those letters.
+- **Say nothing but "Read this floor plan."** Naming the listing in the user turn ("Listing: 88 Alder Ln, Portland, OR 97214…") cut the same plan from twelve rooms to one, twice each, deterministically. The drawing is the whole task.
+
+Struggle cases: a 1911 photostat can run the model into a loop that repeats one room a hundred times (`planFromJson` caps identical rooms and the report counts the rest as phantom rooms), and the north arrow is found only 40% of the time. Neither costs the seller a number: an unread room simply is not there, and every dimension that does arrive is shown next to what the plan printed and the anchor it produces.
 
 ## Honest limits
 

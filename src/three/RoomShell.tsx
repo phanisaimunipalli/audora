@@ -25,6 +25,18 @@ export interface RoomShellProps {
   windowLight?: boolean;
   /** Emit the room's lights. Turn off if the parent scene owns lighting. */
   lights?: boolean;
+  /**
+   * The scene brings its own sun (`three/SunLight`, computed from the address and the hour). The
+   * shell keeps its fill, its ceiling bounce and its window frames, but stops emitting the studio
+   * key by the window — two suns in one room is one sun too many.
+   */
+  externalSun?: boolean;
+  /**
+   * The walls the sun is really on right now. Only their windows glow into the room and pool on the
+   * floor, so the daylight moves round the room with the hour. Undefined keeps the old behaviour:
+   * every window glows.
+   */
+  sunWalls?: WallSide[];
   /** Shadow map resolution for the sun; 'low' is kinder to phones. */
   shadowQuality?: 'low' | 'high';
 }
@@ -83,7 +95,7 @@ type Registry = { sky: THREE.Object3D[]; hallCeiling: THREE.Object3D[] };
 const TRIM = '#ece6da';
 const WALLS: WallSide[] = ['north', 'south', 'east', 'west'];
 
-function Window({ w, alongSign, room, opacity, windowLight, registry }: { w: WindowSpec; alongSign: 1 | -1; room: RoomGeometry; opacity: number; windowLight: boolean; registry: Registry }) {
+function Window({ w, alongSign, room, opacity, windowLight, glow, registry }: { w: WindowSpec; alongSign: 1 | -1; room: RoomGeometry; opacity: number; windowLight: boolean; glow: boolean; registry: Registry }) {
   const sky = useMemo(() => skyGradient(), []);
   const target = useMemo(() => new THREE.Object3D(), []);
   const skyRef = useRef<THREE.Mesh>(null);
@@ -146,7 +158,7 @@ function Window({ w, alongSign, room, opacity, windowLight, registry }: { w: Win
           depthWrite={false}
           side={THREE.DoubleSide}
           emissive="#cfe4f5"
-          emissiveIntensity={windowLight ? 0.55 : 0.2}
+          emissiveIntensity={windowLight ? (glow ? 0.55 : 0.34) : 0.2}
         />
       </mesh>
       {windowLight ? (
@@ -156,16 +168,20 @@ function Window({ w, alongSign, room, opacity, windowLight, registry }: { w: Win
             <planeGeometry args={[w.width * 3.4, w.height * 2.8]} />
             <meshBasicMaterial map={sky} fog={false} toneMapped={false} />
           </mesh>
-          {/* glow into the room */}
-          <spotLight position={[0, w.height / 2 + 0.4, -0.5]} target={target} intensity={30} angle={0.75} penumbra={0.7} decay={1.7} distance={10} color="#ffe9cf" />
-          <primitive object={target} position={[0, -cy, Math.min(2.4, room.depth * 0.45)]} />
+          {/* glow into the room — only from the windows the sun is actually on */}
+          {glow ? (
+            <>
+              <spotLight position={[0, w.height / 2 + 0.4, -0.5]} target={target} intensity={30} angle={0.75} penumbra={0.7} decay={1.7} distance={10} color="#ffe9cf" />
+              <primitive object={target} position={[0, -cy, Math.min(2.4, room.depth * 0.45)]} />
+            </>
+          ) : null}
         </>
       ) : null}
     </group>
   );
 }
 
-function Wall({ room, wall, color, opacity, hallway, windowLight, visibleRef, registry }: { room: RoomGeometry; wall: WallSide; color: string; opacity: number; hallway: boolean; windowLight: boolean; visibleRef: (g: THREE.Group | null) => void; registry: Registry }) {
+function Wall({ room, wall, color, opacity, hallway, windowLight, glow, visibleRef, registry }: { room: RoomGeometry; wall: WallSide; color: string; opacity: number; hallway: boolean; windowLight: boolean; glow: boolean; visibleRef: (g: THREE.Group | null) => void; registry: Registry }) {
   const segs = useMemo(() => wallSegments(room, wall), [room, wall]);
   const bump = useMemo(() => wallBump(), []);
   const cove = useMemo(() => coveGradient(), []);
@@ -225,7 +241,7 @@ function Wall({ room, wall, color, opacity, hallway, windowLight, visibleRef, re
         <meshBasicMaterial map={cove} color="#000000" transparent depthWrite={false} opacity={0.75 * opacity} polygonOffset polygonOffsetFactor={-1} />
       </mesh>
       {windows.map((w, i) => (
-        <Window key={`w${i}`} w={w} alongSign={alongSign} room={room} opacity={opacity} windowLight={windowLight} registry={registry} />
+        <Window key={`w${i}`} w={w} alongSign={alongSign} room={room} opacity={opacity} windowLight={windowLight} glow={glow} registry={registry} />
       ))}
       {door ? (
         <group position={[alongSign * door.offset, 0, 0]}>
@@ -333,8 +349,12 @@ export function RoomShell({
   hallway = true,
   windowLight = true,
   lights = true,
+  externalSun = false,
+  sunWalls,
   shadowQuality = 'high',
 }: RoomShellProps) {
+  /** Every window glows unless the caller says which walls the sun is on. */
+  const litWall = (w: WallSide) => !sunWalls || sunWalls.includes(w);
   const walls = useRef<Record<WallSide, THREE.Group | null>>({ north: null, south: null, east: null, west: null });
   const ceiling = useRef<THREE.Mesh | null>(null);
   const registry = useMemo<Registry>(() => ({ sky: [], hallCeiling: [] }), []);
@@ -413,13 +433,14 @@ export function RoomShell({
         </mesh>
       ) : null}
       {WALLS.map((w) => (
-        <Wall key={w} room={room} wall={w} color={wallColor} opacity={opacity} hallway={hallway} windowLight={windowLight} registry={registry} visibleRef={(g) => (walls.current[w] = g)} />
+        <Wall key={w} room={room} wall={w} color={wallColor} opacity={opacity} hallway={hallway} windowLight={windowLight} glow={litWall(w)} registry={registry} visibleRef={(g) => (walls.current[w] = g)} />
       ))}
-      {windowLight ? room.windows.map((w, i) => <LightPool key={`pool${i}`} room={room} w={w} />) : null}
+      {windowLight ? room.windows.filter((w) => litWall(w.wall)).map((w, i) => <LightPool key={`pool${i}`} room={room} w={w} />) : null}
       {lights ? (
         <>
           <hemisphereLight args={['#fff2e2', '#3d3128', 0.55]} />
           <ambientLight intensity={0.16} />
+          {externalSun ? null : (
           <directionalLight
             position={sun.position.toArray()}
             target={sunTarget}
@@ -437,7 +458,8 @@ export function RoomShell({
             shadow-camera-top={span * 0.8}
             shadow-camera-bottom={-span * 0.8}
           />
-          <primitive object={sunTarget} position={sun.target.toArray()} />
+          )}
+          {externalSun ? null : <primitive object={sunTarget} position={sun.target.toArray()} />}
           <pointLight position={[0, room.height - 0.25, 0]} intensity={7} color="#ffe4c4" distance={14} decay={1.8} />
         </>
       ) : null}

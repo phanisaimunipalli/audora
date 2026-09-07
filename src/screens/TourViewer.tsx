@@ -13,21 +13,27 @@ import { RoomShell } from '@/three/RoomShell';
 import { OrbitRig, PhotoRig } from '@/three/OrbitRig';
 import { WalkControls } from '@/three/WalkControls';
 import { buildWalkMask, type WalkMask } from '@/three/walkMask';
-import { MarbleWorld, useMarbleFrame, type MarbleWorldStatus } from '@/three/MarbleWorld';
+import { MarbleWorld, useMarbleFrame, type GeometryView, type MarbleWorldStatus } from '@/three/MarbleWorld';
 import { AdaptiveDpr } from '@/three/splat/AdaptiveDpr';
 import { captureYaw } from '@/three/splat/frame';
-import { CaptureLight } from '@/three/CaptureLight';
+import { CaptureLight, externalSunScale, type LightBudget, type PanoramaLight } from '@/three/CaptureLight';
+import { describeSun, windowPositions, type SunDescription } from '@/three/lighting/describe';
+import { SunLight } from '@/three/SunLight';
+import { effectiveHeading, sunState, type SunState } from '@/engine/siteSun';
 import { MeasureTool } from '@/three/MeasureTool';
 import { Minimap } from '@/three/Minimap';
 import { TouchJoystick } from '@/three/TouchJoystick';
 import { StagingLayer } from '@/three/furniture/StagingLayer';
 import { AnchorChip } from '@/components/AnchorChip';
-import { WorldLayers } from '@/components/WorldLayers';
 import { FurnitureTest } from '@/components/FurnitureTest';
 import { Button, IconButton, Kbd, Segmented, Spinner, StagedLabel, cx } from '@/components/ui';
 import { Icon } from '@/components/icons';
 import { isTouchDevice, sessionOnce, trackEvent } from './viewer/analytics';
 import { copyText, publicUrl } from './viewer/share';
+import { TimeOfDay } from './viewer/TimeOfDay';
+import { ExplodedLayer } from './viewer/ExplodedLayer';
+import { LayersPanel } from './viewer/LayersPanel';
+import { usePortraitLayers, type PortraitLayers } from './viewer/layers';
 import { freeSpawn } from './viewer/spawn';
 import { MODE_LABEL, allowedMode, defaultMode, floorOffsetOf, hasPano, isReal, layerLoading, layerReady, loadPill, type MarbleStatusMap } from './viewer/marble';
 
@@ -103,10 +109,20 @@ interface SceneProps {
   splatReady: boolean;
   /** The panorama's texture is on screen; only then is it safe to hide the measured room. */
   panoReady: boolean;
+  /** The real sun for this address at the chosen instant, or null when the tour has no site. */
+  sky: SunState | null;
+  /** Which of the portrait layers are switched on. */
+  layers: PortraitLayers;
+  /** The furniture layer is lifted off the photograph for a moment. */
+  exploded: boolean;
+  /** How the Geometry layer draws the collider when it is on. */
+  geometryView: GeometryView;
+  /** What the photograph turned out to be lighting the room with — for the Layers panel. */
+  onCaptureLight: (info: { light: PanoramaLight; budget: LightBudget } | null) => void;
   editable: boolean;
 }
 
-function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus, splatReady, panoReady, editable }: SceneProps) {
+function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus, splatReady, panoReady, sky, layers, exploded, geometryView, onCaptureLight, editable }: SceneProps) {
   const mode = useViewer((s) => s.mode);
   const tool = useViewer((s) => s.tool);
   const showStaging = useViewer((s) => s.showStaging);
@@ -121,24 +137,38 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
   const real = isReal(world) ? world : undefined;
   const floorOffset = floorOffsetOf(room);
   const frame = useMarbleFrame(real ?? NO_WORLD, room.anchor.metresPerUnit, floorOffset);
+  /* Photo view's camera and rig belong to the *mode*; whether the photograph is actually drawn
+     belongs to the *layer*. Keeping them apart is what lets the Layers panel take the capture away
+     without throwing the buyer out of the room they were standing in. */
   const photo = mode === 'photo' && hasPano(real);
-  const wantSplat = mode === 'walk' && showSplat && Boolean(real?.spzUrl);
+  const showPhoto = layers.photo;
+  const wantSplat = mode === 'walk' && showSplat && showPhoto && Boolean(real?.spzUrl);
   const splat = wantSplat && splatReady;
   /* The panorama is up in about a second and the smallest splat in two or three, so while the splat
      streams the buyer stands in the photograph rather than in the procedural stand-in — and it stays
      there afterwards, behind the splat, as the sky the reconstruction does not reach (and as the
      room's light). See MarbleWorld: nothing here is ever a black frame. */
   const panoBackdrop = wantSplat && hasPano(real);
-  const showPanoLayer = photo || panoBackdrop;
+  const showPanoLayer = (photo && showPhoto) || panoBackdrop;
   /** The photo layer is actually on screen — only then is it safe to take the measured room away. */
   const photoOnly = showPanoLayer && panoReady;
   /** Furniture is being composited onto a real capture, so it must borrow that capture's light. */
   const composite = photoOnly || splat;
+  /** The address's own sun is up: it, not the panorama's estimate, casts the furniture's shadows. */
+  const sunUp = Boolean(sky && sky.intensity > 0.01);
   const walkPieces = useMemo(() => [...(showStaging ? room.staging : []), ...buyerPieces], [showStaging, room.staging, buyerPieces]);
   const walking = mode === 'walk' && tool !== 'measure';
   const span = Math.max(room.geometry.width, room.geometry.depth);
   // The panorama doubles as the room's light: PMREM environment plus a sun estimated from it.
   const [panoTex, setPanoTex] = useState<Texture | null>(null);
+  /* What that measurement came out as. It drives the Layers panel's readout, and it is also what
+     tells an *external* sun (the address's own, `SunLight`) how hard to shine so the two lights add
+     up to one room rather than to two. */
+  const [light, setLight] = useState<PanoramaLight | null>(null);
+  const [budget, setBudget] = useState<LightBudget | null>(null);
+  useEffect(() => {
+    onCaptureLight(light && budget ? { light, budget } : null);
+  }, [light, budget, onCaptureLight]);
 
   // The minimap and "test my furniture" ask where the viewer stands; in photo view that is the
   // capture point, which never moves.
@@ -174,7 +204,12 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
         timer = window.setTimeout(build, 8);
         return;
       }
-      const m = buildWalkMask(collider, { seed: { x: px, z: pz }, reach: Math.max(8, span) });
+      const m = buildWalkMask(collider, {
+        seed: { x: px, z: pz },
+        reach: Math.max(8, span),
+        // The mask never claims floor outside the room the tour states (see WalkMaskOptions.limit).
+        limit: { halfWidth: room.geometry.width / 2, halfDepth: room.geometry.depth / 2 },
+      });
       setWalkMask(m);
       if (import.meta.env.DEV) window.__audoraWalkMask = m;
     };
@@ -183,7 +218,7 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
       dead = true;
       window.clearTimeout(timer);
     };
-  }, [collider, px, pz, span]);
+  }, [collider, px, pz, span, room.geometry.width, room.geometry.depth]);
   const home = useMemo(() => ({ x: px, z: pz }), [px, pz]);
 
   /* Under a real capture the measured shell is not a stand-in any more, it is a milky box drawn
@@ -198,9 +233,44 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
       {/* Sorting half a million splats is per-pixel work; the sharp frame comes back the moment the
           buyer stops moving, which is the only moment they can see it. */}
       <AdaptiveDpr enabled={splat} />
-      {composite ? <CaptureLight texture={panoTex} groupRotationY={frame.rotationY} span={span} /> : null}
+      {/* The real sun owns the shadows whenever the address gives us one; the panorama keeps giving
+          the room its colour and its level (the environment map), which is what a photograph's own
+          light is for. Below the horizon the estimated sun takes the shadows back. */}
+      {composite ? (
+        /* `catcher` rather than `shadows`: switching the Shadows layer off must take the shadow off
+           the photographed floor without changing the light the furniture is lit by, or the whole
+           room dims when the buyer only asked to see the shadow go. */
+        <CaptureLight
+          texture={panoTex}
+          groupRotationY={frame.rotationY}
+          span={span}
+          floor={{ width: room.geometry.width, depth: room.geometry.depth }}
+          shadows={!sunUp}
+          catcher={layers.shadows}
+          onLight={setLight}
+          onBudget={setBudget}
+        />
+      ) : null}
+      {sky ? (
+        <SunLight
+          room={room.geometry}
+          sun={sky}
+          composite={composite}
+          intensity={composite ? externalSunScale(budget, sky.intensity) : 1}
+          shadows={layers.shadows}
+          shadowOpacity={composite ? budget?.shadowOpacity : undefined}
+        />
+      ) : null}
       {shell ? (
-        <RoomShell room={room.geometry} cullNearWalls={mode === 'orbit'} showGrid={mode === 'orbit'} showCeiling={mode === 'walk'} lights={!composite} />
+        <RoomShell
+          room={room.geometry}
+          cullNearWalls={mode === 'orbit'}
+          showGrid={mode === 'orbit'}
+          showCeiling={mode === 'walk'}
+          lights={!composite}
+          externalSun={Boolean(sky)}
+          sunWalls={sky?.walls}
+        />
       ) : null}
       {photo && showGeometry ? <FloorGrid span={span} /> : null}
       {real ? (
@@ -217,25 +287,31 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
           showPano={showPanoLayer}
           showSplat={wantSplat}
           showGeometry={showGeometry && Boolean(real.colliderUrl)}
+          geometryView={geometryView}
+          showOccluder={layers.occluder && composite && Boolean(real.colliderUrl)}
           onStatus={onMarbleStatus}
           onCollider={setCollider}
           onPanoTexture={setPanoTex}
         />
       ) : null}
-      <StagingLayer
-        room={room.geometry}
-        pieces={room.staging}
-        buyerPieces={buyerPieces}
-        showSeller={showStaging}
-        contactShadows={composite}
-        editable={editable && tool !== 'measure'}
-        lockSeller
-        selectedId={selectedId}
-        onSelect={setSelectedId}
-        onChange={(pieces, owner) => {
-          if (owner === 'buyer') onBuyerChange(pieces);
-        }}
-      />
+      {layers.furniture ? (
+        <ExplodedLayer active={exploded}>
+          <StagingLayer
+            room={room.geometry}
+            pieces={room.staging}
+            buyerPieces={buyerPieces}
+            showSeller={showStaging}
+            contactShadows={composite && layers.shadows}
+            editable={editable && tool !== 'measure' && !exploded}
+            lockSeller
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onChange={(pieces, owner) => {
+              if (owner === 'buyer') onBuyerChange(pieces);
+            }}
+          />
+        </ExplodedLayer>
+      ) : null}
       {photo ? (
         <>
           <PhotoRig origin={frame.position} initialYaw={yaw} fov={photoFov} onFov={setPhotoFov} resetKey={room.id} drift={tool !== 'measure'} />
@@ -292,7 +368,6 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   const setTool = useViewer((s) => s.setTool);
   const showStaging = useViewer((s) => s.showStaging);
   const setShowStaging = useViewer((s) => s.setShowStaging);
-  const showSplat = useViewer((s) => s.showSplat);
   const setShowSplat = useViewer((s) => s.setShowSplat);
   const showGeometry = useViewer((s) => s.showGeometry);
   const setShowGeometry = useViewer((s) => s.setShowGeometry);
@@ -303,6 +378,31 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   const locked = useViewer((s) => s.locked);
   const resetViewer = useViewer((s) => s.reset);
   const coarsePose = useViewer(useShallow((s) => (isFirstPerson(s.mode) ? coarse(s.pose) : null)));
+
+  /* ---- the real sun ----
+     The tour's site gives the place, the room (or the building) gives the heading, and the hour
+     slider gives the instant. `sunState` turns the three into one direction, one colour and one
+     sentence, which the scene's light and the HUD's readout both read from. The chosen instant is
+     parked on the tour so the next visitor opens on it. */
+  const site = tour?.site;
+  const heading = effectiveHeading(site?.heading, room?.northWallHeading);
+  const setPreviewTime = useAudora((s) => s.setPreviewTime);
+  const [previewTime, setLocalPreviewTime] = useState<number>(() => site?.previewTime ?? Date.now());
+  useEffect(() => {
+    setLocalPreviewTime(useAudora.getState().tours[tourId]?.site?.previewTime ?? Date.now());
+  }, [tourId]);
+  const hasSite = Boolean(site);
+  useEffect(() => {
+    if (!hasSite) return;
+    const id = window.setTimeout(() => setPreviewTime(tourId, previewTime), 600);
+    return () => window.clearTimeout(id);
+  }, [hasSite, previewTime, tourId, setPreviewTime]);
+  const siteLat = site?.lat;
+  const siteLon = site?.lon;
+  const sky = useMemo(
+    () => (siteLat != null && siteLon != null ? sunState(new Date(previewTime), siteLat, siteLon, heading) : null),
+    [siteLat, siteLon, previewTime, heading],
+  );
 
   const [buyerByRoom, setBuyerByRoom] = useState<Record<string, PlacedPiece[]>>({});
   const buyerPieces = useMemo(() => (room ? buyerByRoom[room.id] ?? [] : []), [buyerByRoom, room]);
@@ -316,6 +416,13 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
 
   const [testOpen, setTestOpen] = useState(false);
   const [layersOpen, setLayersOpen] = useState(false);
+  /* The portrait stack: photo, furniture, shadows, occluder — plus the exploded preview. Local to
+     this screen on purpose (see ./layers): it is an inspection control, not a preference. */
+  const { layers, setLayer, reset: resetLayers, exploded, explode } = usePortraitLayers();
+  const [geometryView, setGeometryView] = useState<GeometryView>('wireframe');
+  const [captureLight, setCaptureLight] = useState<{ light: PanoramaLight; budget: LightBudget } | null>(null);
+  const onCaptureLight = useCallback((info: { light: PanoramaLight; budget: LightBudget } | null) => setCaptureLight(info), []);
+  const [timeOpen, setTimeOpen] = useState(false);
   const [hint, setHint] = useState(false);
   const hintShown = useRef<Partial<Record<ViewMode, boolean>>>({});
   const [teleport, setTeleport] = useState<Pose | null>(null);
@@ -370,6 +477,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
     st.setTool('select');
     st.setSelectedId(null);
     setMarbleStatus({});
+    resetLayers();
     const legal = allowedMode(st.mode, world);
     if (legal !== st.mode) st.setMode(legal);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -414,8 +522,8 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   /* The card sits in the middle of the frame; a panel opening under it would be half hidden behind
      it with nothing to say so. Opening one is also proof the hint has been read. */
   useEffect(() => {
-    if (layersOpen || testOpen) setHint(false);
-  }, [layersOpen, testOpen]);
+    if (layersOpen || testOpen || timeOpen) setHint(false);
+  }, [layersOpen, testOpen, timeOpen]);
 
   /* keyboard: Esc closes tools and panels */
   useEffect(() => {
@@ -424,12 +532,13 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
       const st = useViewer.getState();
       if (st.tool === 'measure') st.setTool('select');
       else if (layersOpen) setLayersOpen(false);
+      else if (timeOpen) setTimeOpen(false);
       else if (testOpen) setTestOpen(false);
       setHint(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [testOpen, layersOpen]);
+  }, [testOpen, layersOpen, timeOpen]);
 
   /* the room switcher scrolls; the room you are in must be the one you can see */
   useEffect(() => {
@@ -495,6 +604,30 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
     setShowStaging(next);
     if (publicMode && tour) trackEvent(tour.id, 'toggle', { roomId: room?.id, item: next ? 'staging on' : 'see it bare' });
   };
+
+  /* One switch, seen twice: the Photo row and the store's `showSplat` are the same decision, so the
+     panel can never claim the capture is on while the store has it off. */
+  const onLayerChange = useCallback(
+    (key: keyof PortraitLayers, value: boolean) => {
+      setLayer(key, value);
+      if (key === 'photo') setShowSplat(value);
+      if (publicMode && tour) trackEvent(tour.id, 'toggle', { roomId: room?.id, item: `${key} ${value ? 'on' : 'off'}` });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [setLayer, setShowSplat, publicMode, tour?.id, room?.id],
+  );
+
+  /* "Light ahead on the left · 62% directional" — the estimate the furniture is actually lit by,
+     said relative to the way the buyer is facing, because that is the only frame a person in a room
+     has. The bearing follows the coarse pose, so it does not re-render the HUD as you turn. */
+  const sunDescription = useMemo<SunDescription | null>(() => {
+    if (!captureLight || !room) return null;
+    return describeSun(captureLight.light.sun, {
+      facing: coarsePose?.yaw,
+      windows: windowPositions(room.geometry),
+      directionalShare: captureLight.budget.directionalShare,
+    });
+  }, [captureLight, room, coarsePose?.yaw]);
 
   const toggleGeometry = () => {
     const next = !showGeometry;
@@ -571,7 +704,22 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
         loadingLabel={mode === 'photo' ? 'Developing the photograph…' : 'Building the room…'}
         onReady={() => setSceneReady(true)}
       >
-        <Scene room={room} world={world} buyerPieces={buyerPieces} onBuyerChange={setBuyerPieces} spawn={spawn} onMarbleStatus={onMarbleStatus} splatReady={splatReady} panoReady={panoReady} editable={buyerPieces.length > 0} />
+        <Scene
+          room={room}
+          world={world}
+          buyerPieces={buyerPieces}
+          onBuyerChange={setBuyerPieces}
+          spawn={spawn}
+          onMarbleStatus={onMarbleStatus}
+          splatReady={splatReady}
+          panoReady={panoReady}
+          sky={sky}
+          layers={layers}
+          exploded={exploded}
+          geometryView={geometryView}
+          onCaptureLight={onCaptureLight}
+          editable={buyerPieces.length > 0}
+        />
       </SceneCanvas>
 
       {hideHud ? null : (
@@ -653,34 +801,61 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
               </div>
 
               <div className="pointer-events-auto order-last col-span-2 flex min-w-0 max-w-full flex-col items-center gap-2 justify-self-center sm:order-none sm:col-span-1">
+                {timeOpen && site ? (
+                  <TimeOfDay
+                    lat={site.lat}
+                    lon={site.lon}
+                    heading={heading}
+                    date={new Date(previewTime)}
+                    onChange={(d) => setLocalPreviewTime(d.getTime())}
+                    onClose={() => setTimeOpen(false)}
+                    place={site.displayName}
+                  />
+                ) : null}
                 {layersOpen && layerWorld ? (
-                  <WorldLayers
+                  <LayersPanel
                     roomId={room.id}
                     world={layerWorld}
+                    layers={layers}
+                    onLayer={onLayerChange}
+                    exploded={exploded}
+                    onExplode={explode}
                     showGeometry={showGeometry}
                     onGeometry={toggleGeometry}
-                    showSplat={showSplat}
-                    onSplat={mode === 'walk' ? setShowSplat : undefined}
+                    geometryView={geometryView}
+                    onGeometryView={setGeometryView}
+                    sun={sunDescription}
+                    envIntensity={captureLight?.budget.envMapIntensity ?? null}
+                    hasCapture={isReal(world)}
+                    photoHint={mode === 'orbit' ? 'The dollhouse draws the measured room; walk to stand in the capture.' : undefined}
                     onClose={() => setLayersOpen(false)}
                   />
                 ) : null}
-                {measurement?.metres != null ? (
-                  <div className="glass animate-rise flex items-center gap-2 rounded-full px-3 py-1.5">
-                    <Icon.Ruler size={14} className="text-accent-2" />
-                    <span className="mono text-sm text-ink">{measurement.metres.toFixed(2)} m</span>
-                    <span className="mono text-xs text-ink-3">± {cmUncertainty}cm</span>
-                    <button type="button" className="text-ink-3 hover:text-ink" onClick={() => setMeasurement(null)} aria-label="Clear measurement">
-                      <Icon.X size={14} />
-                    </button>
-                  </div>
-                ) : tool === 'measure' ? (
-                  <div className="glass animate-fade rounded-full px-3 py-1.5 text-xs text-ink-2">
-                    Click two points to measure. <span className="mono text-ink-3">± {cmUncertainty}cm</span>
-                  </div>
-                ) : pill ? (
-                  <div className={cx('glass animate-fade flex items-center gap-2 rounded-full px-3 py-1.5 text-xs', pill.tone === 'error' ? 'text-warn' : 'text-ink-2')}>
-                    {pill.tone === 'loading' ? <Spinner size={12} /> : pill.tone === 'error' ? <Icon.Warning size={12} /> : <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-hidden />}
-                    <span className={pill.tone === 'info' ? 'mono text-[11px]' : undefined}>{pill.label}</span>
+                {/* One status slot: the measurement, the measure hint, or what the capture is doing.
+                    While the Layers panel is open the slot keeps its height whether or not anything
+                    is in it — a load pill mounting under an open panel used to push it 39 px up the
+                    screen mid-click, so a tap aimed at Geometry landed on the row above it. */}
+                {layersOpen || measurement?.metres != null || tool === 'measure' || pill ? (
+                  <div className={cx('flex items-center justify-center', layersOpen && 'min-h-[30px]')}>
+                    {measurement?.metres != null ? (
+                      <div className="glass animate-rise flex items-center gap-2 rounded-full px-3 py-1.5">
+                        <Icon.Ruler size={14} className="text-accent-2" />
+                        <span className="mono text-sm text-ink">{measurement.metres.toFixed(2)} m</span>
+                        <span className="mono text-xs text-ink-3">± {cmUncertainty}cm</span>
+                        <button type="button" className="text-ink-3 hover:text-ink" onClick={() => setMeasurement(null)} aria-label="Clear measurement">
+                          <Icon.X size={14} />
+                        </button>
+                      </div>
+                    ) : tool === 'measure' ? (
+                      <div className="glass animate-fade rounded-full px-3 py-1.5 text-xs text-ink-2">
+                        Click two points to measure. <span className="mono text-ink-3">± {cmUncertainty}cm</span>
+                      </div>
+                    ) : pill ? (
+                      <div className={cx('glass animate-fade flex items-center gap-2 rounded-full px-3 py-1.5 text-xs', pill.tone === 'error' ? 'text-warn' : 'text-ink-2')}>
+                        {pill.tone === 'loading' ? <Spinner size={12} /> : pill.tone === 'error' ? <Icon.Warning size={12} /> : <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-hidden />}
+                        <span className={pill.tone === 'info' ? 'mono text-[11px]' : undefined}>{pill.label}</span>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -695,8 +870,14 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
                     <Icon.Ruler size={15} />
                   </IconButton>
                   {layerWorld ? (
-                    <IconButton label={layersOpen ? 'Close the capture layers' : 'Capture layers and floor height'} active={layersOpen || showGeometry} onClick={() => setLayersOpen((v) => !v)} className="h-8 w-8 shrink-0">
+                    <IconButton label={layersOpen ? 'Close the layers' : 'Layers · the photograph, the furniture and its shadow'} active={layersOpen || showGeometry} onClick={() => setLayersOpen((v) => !v)} className="h-8 w-8 shrink-0">
                       <Icon.Layers size={15} />
+                    </IconButton>
+                  ) : null}
+                  {/* The sun that will actually be in this room, at the hour the buyer picks. */}
+                  {site ? (
+                    <IconButton label={timeOpen ? 'Close the time of day' : 'Time of day · the real sun'} active={timeOpen} onClick={() => setTimeOpen((v) => !v)} className="h-8 w-8 shrink-0">
+                      <Icon.Sun size={15} />
                     </IconButton>
                   ) : null}
                   <Button size="sm" variant={testOpen ? 'secondary' : 'buyer'} onClick={() => setTestOpen((v) => !v)} className="shrink-0">

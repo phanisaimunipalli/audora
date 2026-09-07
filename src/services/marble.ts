@@ -1,4 +1,4 @@
-import type { ProviderStatus, Room, RoomWorld, Tier, WorldBoundsRecord, WorldWallOpening, WorldWallRect } from '@/state/types';
+import type { PhotoAngle, PhotoRecord, ProviderStatus, Room, RoomWorld, Tier, WorldBoundsRecord, WorldWallOpening, WorldWallRect } from '@/state/types';
 import type { RawGeometry, WallSide, WindowSpec } from '@/engine/types';
 import { applyScale, plausibility, unitsFromMetres, WALL_BAND_MARGIN_M, WINDOW_HEAD_M, WINDOW_SILL_M } from '@/engine/anchor';
 import { mockRawGeometry } from './mockWorld';
@@ -759,10 +759,15 @@ export interface SplatTransform {
  *   `position.y = -ground_plane_offset` with the camera left at the origin.
  * - **Draft** carries neither, so `metresPerUnit` comes from the room's anchor.
  *
- * The floor itself comes from `bounds.floorY` whenever the collider has been read — the mesh's own
- * floor plane, which is the one you can see in the panorama (see `fetchColliderBounds`). It beats
- * both `ground_plane_offset` (15 cm high on the full-quality demo world) and `bounds.minY` (4 cm low
- * on the draft one), which are the fallbacks in that order.
+ * **The floor, in order of preference: `ground_plane_offset`, then `bounds.floorY`, then
+ * `bounds.minY`.** Marble publishes `ground_plane_offset` only with a full-quality world's metric
+ * semantics, and where it publishes one it is right: measured against the world's own Gaussians —
+ * the thing the buyer actually sees — the flat's splat floor lands 1.2 cm above y = 0 with the
+ * ground plane and 16 cm above it with the collider's floor slab, which is what made furniture look
+ * sunk into the photographed floorboards. (The earlier reading, that the ground plane sat 15 cm
+ * *above* the floor, compared it with the collider mesh rather than with the splat; the collider is
+ * the one that is 15 cm out.) A draft world publishes no ground plane, so there `bounds.floorY` —
+ * the densest horizontal slab in the mesh — still stands, with `bounds.minY` behind it.
  *
  * `bounds`, when present, additionally turn and centre the room on the origin — around the **same**
  * rectangle `rawFromBounds` measured the room with (`bounds.walls` when the wall band produced one,
@@ -784,9 +789,17 @@ export function splatTransform(world: WorldPlacement, metresPerUnit: number, flo
   const metric = msf != null && msf > 0;
   const s = metric ? (msf as number) : metresPerUnit > 0 ? metresPerUnit : 1;
   const b = world.bounds;
-  // Height of the capture point above Audora's floor: the model's own estimate when it has one,
-  // otherwise the drop from the camera to the lowest point of the collider.
-  const captureY = b?.floorY != null ? -b.floorY * s : metric && world.groundPlaneOffset != null ? world.groundPlaneOffset : b ? -b.minY * s : 0;
+  // Height of the capture point above Audora's floor. Marble's own ground plane when the world
+  // carries metric semantics (measured against its splat: 1.2 cm), else the collider's floor plane,
+  // else the drop from the camera to the lowest point of the mesh.
+  const captureY =
+    metric && world.groundPlaneOffset != null
+      ? world.groundPlaneOffset
+      : b?.floorY != null
+        ? -b.floorY * s
+        : b
+          ? -b.minY * s
+          : 0;
   // The same rectangle the room is measured with, in the same axes (see `roomRect`). The capture
   // point sits at its origin, so putting the room centre on ours is one subtraction.
   const rect = roomRect(b);
@@ -899,11 +912,62 @@ export async function providerStatus(): Promise<ProviderStatus> {
 }
 
 /** Kick off a Marble generation for a room photo. Returns immediately with the operation id. */
+/* ---------- what a room sends to Marble ----------
+ * One photo is the floor of the product; more angles are the ceiling. `room.photo` is the primary
+ * shot (the one the anchor was tapped on) and `room.photos` holds the extra angles in the order the
+ * seller added them, up to `MAX_ROOM_PHOTOS` between them.
+ *
+ * When the seller says which way an angle faces, that becomes Marble's `azimuth`: degrees round the
+ * capture point with the primary shot at 0, matching the Front / Left / Right the Marble UI offers.
+ * An unlabelled angle sends no azimuth at all, which is the documented "work it out yourself" mode —
+ * a wrong hint is worse than none. */
+
+/** Marble's own cap in reconstruction mode; the create flow stops the seller at six. */
+export const MAX_ROOM_PHOTOS = 6;
+
+/** Where an angle faces, relative to the room's primary photo (declared on the stored photo record). */
+export type { PhotoAngle };
+
+export const AZIMUTH_FOR_ANGLE: Record<PhotoAngle, number> = { centre: 0, right: 90, back: 180, left: 270 };
+
+export const ANGLE_LABELS: Record<PhotoAngle, string> = {
+  centre: 'Straight ahead',
+  left: 'Turned left',
+  right: 'Turned right',
+  back: 'From the far side',
+};
+
+/** Every photo a room will send, primary first. */
+export function roomPhotos(room: Pick<Room, 'photo' | 'photos'>): PhotoRecord[] {
+  return [...(room.photo ? [room.photo] : []), ...(room.photos ?? [])].slice(0, MAX_ROOM_PHOTOS);
+}
+
+/** The images and azimuth hints a room's generation request carries. */
+export function generationImages(room: Pick<Room, 'photo' | 'photos'>): { dataUrl: string; azimuth?: number }[] {
+  return roomPhotos(room).map((p, i) => {
+    const angle = p.angle;
+    // The primary shot defines 0°, so it never needs a hint of its own.
+    if (i === 0 || !angle) return { dataUrl: p.dataUrl };
+    return { dataUrl: p.dataUrl, azimuth: AZIMUTH_FOR_ANGLE[angle] };
+  });
+}
+
 export async function startGeneration(room: Room, tier: Tier): Promise<{ operationId: string; worldId?: string }> {
-  if (!room.photo) throw new Error('This room has no photo to reconstruct from.');
+  const images = generationImages(room);
+  if (!images.length) throw new Error('This room has no photo to reconstruct from.');
   const op = await api<MarbleOperation>('/api/marble/generate', {
     method: 'POST',
-    body: JSON.stringify({ imageDataUrl: room.photo.dataUrl, tier, displayName: `Audora · ${room.name}` }),
+    body: JSON.stringify({
+      images,
+      // Kept so an older server (or a replay of a stored request) still gets the primary shot.
+      imageDataUrl: images[0].dataUrl,
+      tier,
+      displayName: `Audora · ${room.name}`,
+      textPrompt:
+        images.length > 1
+          ? 'One residential room photographed from several angles. All the images are the same room; keep the real geometry and do not invent extra space.'
+          : undefined,
+    }),
   });
   return { operationId: op.operation_id, worldId: op.metadata?.world_id };
 }

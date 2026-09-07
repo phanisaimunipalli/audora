@@ -7,6 +7,7 @@ import { plural, usd as fmtUsd } from '@/lib/format';
 import { Chip, StagedLabel, cx } from '@/components/ui';
 import { Icon } from '@/components/icons';
 import { latestJobFor, isActiveJob, providerName, type TourStatus } from './jobMeta';
+import { SiteCard } from './SiteCard';
 import { TierChip } from './TierChip';
 
 const SOURCE_LABEL: Record<string, string> = { zillow: 'Zillow', redfin: 'Redfin', realtor: 'Realtor.com', rightmove: 'Rightmove' };
@@ -142,6 +143,9 @@ export function HubHeader({
           );
         })}
       </div>
+
+      {/* Where the listing is, and which way its windows face: the provenance of the tour's sun. */}
+      <SiteCard tour={tour} rooms={rooms} />
     </header>
   );
 }

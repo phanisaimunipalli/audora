@@ -16,3 +16,4 @@ evals/results/ft-*/adapter/tokenizer.json
 !evals/results/stager-distill.summary.json
 .pr-body.md
 .claude/settings.local.json
+.data

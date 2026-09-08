@@ -10,6 +10,7 @@ import {
   fetchWorld,
   panoUrlOf,
   pollOperation,
+  providerStatus,
   startGeneration,
   waitForPano,
   worldFromMarble,
@@ -93,6 +94,26 @@ function failRoom(roomId: string) {
   s.updateRoom(roomId, { status: 'failed' });
 }
 
+/**
+ * The model id the server will really run for this tier, from `/api/status`.
+ *
+ * It is part of the recipe and therefore part of the hash, so guessing it is not a small thing: a
+ * room started before the status check answered would hash differently from the same room started
+ * after it did, and the recorded model would not be the one the server ran (`MARBLE_DRAFT_MODEL` /
+ * `MARBLE_FULL_MODEL` override the defaults server-side). So it is resolved here, once, and a
+ * generation that cannot learn it fails loudly instead of recording a model it invented.
+ */
+async function marbleModelId(tier: Tier): Promise<string> {
+  const key = tier === 'full' ? 'marbleFull' : 'marbleDraft';
+  const known = useAudora.getState().providers.models?.[key];
+  if (known) return known;
+  const fresh = await providerStatus();
+  useAudora.getState().setProviders(fresh);
+  const resolved = fresh.models?.[key];
+  if (!resolved) throw new Error('The server has not said which Marble model it runs. Check that it is reachable and try again.');
+  return resolved;
+}
+
 async function startJob(job: Job) {
   const { updateJob, rooms } = useAudora.getState();
   const room = rooms[job.roomId];
@@ -101,8 +122,14 @@ async function startJob(job: Job) {
     // Mark it running before the request leaves so a tab that takes over the lease mid-request never starts it twice.
     updateJob(job.id, { status: 'running', startedAt: Date.now(), progress: 1, step: 'Starting the reconstruction', lastPollAt: Date.now() + 8000 });
     try {
-      const { operationId, worldId } = await startGeneration(room, job.tier);
-      updateJob(job.id, { status: 'running', operationId, worldId, progress: 2, step: stepFor(2), lastPollAt: 0 });
+      // The recipe names the model the server will actually run and the tour's site; the hash,
+      // seed and prompt it was sent with ride on the job until the world lands (finaliseMarbleJob).
+      const { tours } = useAudora.getState();
+      const { operationId, worldId, recipeHash, seed, prompt } = await startGeneration(room, job.tier, {
+        modelId: await marbleModelId(job.tier),
+        site: tours[job.tourId]?.site,
+      });
+      updateJob(job.id, { status: 'running', operationId, worldId, recipeHash, seed, prompt, progress: 2, step: stepFor(2), lastPollAt: 0 });
     } catch (e: any) {
       const message: string = e?.message || 'Could not start generation';
       updateJob(job.id, { status: 'failed', error: message, finishedAt: Date.now() });
@@ -225,7 +252,9 @@ async function finaliseMarbleJob(job: Job, op: MarbleOperation, elapsed: number)
     return;
   }
   const w = world;
-  finishJob(job, () => worldFromMarble(room, job.tier, w, op.cost?.total_credits ?? undefined, Math.round(elapsed), bounds));
+  // Provenance travels from the job (set when the generation started) onto the world it produced.
+  const provenance = { recipeHash: job.recipeHash, seed: job.seed, prompt: job.prompt };
+  finishJob(job, () => worldFromMarble(room, job.tier, w, op.cost?.total_credits ?? undefined, Math.round(elapsed), bounds, provenance));
 }
 
 async function tick() {

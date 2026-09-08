@@ -1,5 +1,7 @@
 # Audora
 
+Where this is going: `docs/PRODUCT.md` (an AI-generated Matterport for rentals: renters use it, leasing teams pay, marketplaces distribute it).
+
 **Matterport, but AI generated.** One photo of an empty room becomes a walkable, honestly measured 3D space that a buyer can test their own furniture inside.
 
 - Seller or agent: paste a listing URL or upload room photos, tap the door in each photo (the *scale anchor*), hit Generate.
@@ -38,7 +40,7 @@ same `/api/*` handler the dev server uses so keys never reach the browser.
 | Build command | `npm install && npm run build` |
 | Start command | `npm start` |
 | Health check path | `/healthz` |
-| Environment | `WORLDLABS_API_KEY`, `NEBIUS_API_KEY`, `VITE_SHADEMAP_KEY` (build-time: it is inlined into the bundle, so redeploy after changing it), optional `MARBLE_MAX_GENERATIONS` |
+| Environment | `WORLDLABS_API_KEY`, `NEBIUS_API_KEY`, `VITE_SHADEMAP_KEY` (build-time: it is inlined into the bundle, so redeploy after changing it), optional `MARBLE_MAX_GENERATIONS`, and — for the backend — `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `PIPELINE_VERSION` |
 
 `PORT` and `HOST` are read from the environment (Render sets `PORT`). The AI cost log under
 `.audora/` is written to the instance's disk and does not survive a redeploy; that is fine, it only
@@ -57,6 +59,48 @@ feeds the evaluation write-up.
 
 With a Marble key present, generation is **live by default**. Turn on *Prefer simulated reconstruction* in `/settings` while developing.
 
+## Backend (Supabase)
+
+**`docs/BACKEND.md` is the contract** — what a unit needs as input, the determinism rules, the
+prompt compilation, the pipeline, the schema and the route table. `supabase/migrations/` is the
+schema and `server/` is the implementation (plain `node:http` and `fetch` against PostgREST,
+Storage and Auth; no `express`, no `supabase-js`).
+
+It is opt-in. With `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` unset, `/api/status` reports
+`backend: false`, every `/api/v1/*` route answers `503 {"error":"backend not configured"}`, no job
+worker starts, and the app keeps its browser-local store — which is the demo and offline path.
+
+```bash
+supabase start                                   # local Postgres, PostgREST, Storage, Auth
+supabase db reset                                # applies supabase/migrations/0001 and 0002
+# copy the printed URL and keys into .env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY
+MARBLE_MOCK=1 npm run dev                        # the whole pipeline, no World Labs key, no credits
+curl -s localhost:5173/api/status | jq .backend  # true once the keys are set
+```
+
+`supabase/migrations/0002_claim_jobs.sql` must be applied before the worker can claim anything —
+without it every tick fails on `rpc/claim_jobs` and no job ever starts. Hosted: `supabase link
+--project-ref <ref>` then `supabase db push`, and set the three keys on the host.
+
+To act on the API without signing in, mint an organisation (`createOrgWithOwner` in
+`server/auth.ts`) and put its id in `AUDORA_DEV_ORG`; it is ignored when `NODE_ENV=production`, and
+a real `Authorization: Bearer <supabase access token>` always wins over it.
+
+| Variable | What it does |
+| --- | --- |
+| `SUPABASE_URL` | `https://<ref>.supabase.co`, or `http://127.0.0.1:54321` locally. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server only; it bypasses row-level security and is never shipped. |
+| `SUPABASE_ANON_KEY` | For the browser client (auth + realtime); public by design. |
+| `PIPELINE_VERSION` | Bump to invalidate every recipe on purpose (default `1`). Every room regenerates. |
+| `MARBLE_MOCK` | `1` runs the worker against the built-in mock provider: no key, no credits. |
+| `AUDORA_DEV_ORG` | Local only: act as this organisation's owner when no token is sent. |
+
+Determinism is the point (`docs/BACKEND.md` §2): every photo is canonicalised and hashed, a room's
+request is a canonical JSON **recipe**, `recipe_hash = sha256(recipe)` and Marble's seed is its
+first 32 bits, `disable_recaption` keeps the compiled prompt verbatim, and `worlds.recipe_hash` is
+unique among non-failed worlds — so the same inputs attach the world they already made instead of
+spending credits again.
+
 ## How it is built
 
 ```
@@ -67,6 +111,9 @@ src/state/      zustand store persisted to localStorage; the job runner (deep-re
                 BroadcastChannel collaboration; demo seed.
 src/services/   marble.ts (World Labs), ai.ts (Nebius Token Factory), listing.ts, mockWorld.ts
 server/api.ts   /api/* proxy mounted on the Vite server; keys stay here.
+server/         the Supabase backend (docs/BACKEND.md): recipe.ts + prompt.ts (the hash and the
+                compiled prompt), photos.ts (canonical copies), db/storage/auth.ts (PostgREST,
+                Storage, GoTrue over fetch), pipeline.ts, worker.ts (the job queue), routes.ts.
 src/three/      react-three-fiber room shell, walk/orbit controls, Spark splat layer,
                 measure tool, minimap, listing stills.
 src/screens/    tour viewer, stage editor, publish, insights.

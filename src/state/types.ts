@@ -121,6 +121,15 @@ export interface RoomWorld {
   credits?: number;
   usd?: number;
   seconds?: number;
+  /**
+   * Provenance (docs/BACKEND.md section 2): the sha256 of the canonical recipe this world was asked
+   * for with, the Marble seed derived from it (its first 32 bits), and the compiled text prompt
+   * Marble was told to use verbatim. Set on real Marble worlds by `startGeneration`; a simulated
+   * world has none.
+   */
+  recipeHash?: string;
+  seed?: number;
+  prompt?: string;
 }
 
 /**
@@ -321,6 +330,13 @@ export interface Job {
    * says "Upgrading to full quality" / "Full quality is ready" instead of "generating".
    */
   upgrade?: boolean;
+  /**
+   * What the generation was actually asked for (`startGeneration`): recipe hash, seed and compiled
+   * prompt. Carried on the job so a reload between start and finish still lands them on the world.
+   */
+  recipeHash?: string;
+  seed?: number;
+  prompt?: string;
   /** Set when the completion has been shown to the user (badge / notification). */
   seen: boolean;
 }
@@ -362,6 +378,12 @@ export interface Settings {
 export interface ProviderStatus {
   nebius: boolean;
   marble: boolean;
+  /**
+   * Whether the Supabase backend is configured on the server (`/api/status`, docs/BACKEND.md §8).
+   * False means every `/api/v1` route answers 503 and the app keeps this browser-local store, which
+   * is the offline and demo path; the adapter switches over on this one flag.
+   */
+  backend?: boolean;
   models?: Record<string, string>;
   liveGenerations?: number;
   maxGenerations?: number;

@@ -59,6 +59,11 @@ export function MeasuredPanel({ room, world, cameraHeight, pano, status, onClose
 
         <div className="mt-2">
           <MetricRow label="Model" value={world?.model} />
+          <MetricRow
+            label="Recipe"
+            value={world?.recipeHash ? `${world.seed != null ? `seed ${world.seed} · ` : ''}${world.recipeHash.slice(0, 12)}` : undefined}
+            title={world?.recipeHash ? `Marble seed and the first 12 hex digits of the recipe hash (sha256 ${world.recipeHash}). The same photos, prompt, tier and model always ask for the same world.` : 'No recipe was recorded for this world.'}
+          />
           <MetricRow label="Metric scale" value={world?.metricScaleFactor ? `${world.metricScaleFactor.toFixed(4)}` : undefined} title="Metres per raw unit, when the model reports one." />
           <MetricRow label="Ground plane" value={world?.groundPlaneOffset != null ? `${world.groundPlaneOffset.toFixed(3)} m` : undefined} />
           <MetricRow label="Panorama" value={panoLabel} />

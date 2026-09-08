@@ -12,7 +12,7 @@ export const WIZARD_STEPS = [
   { key: 'launch', label: 'Launch', blurb: 'Generate' },
 ] as const;
 
-export function Stepper({ step, done, onJump }: { step: number; done: boolean[]; onJump: (i: number) => void }) {
+export function Stepper({ step, done, furthest = step, onJump }: { step: number; done: boolean[]; furthest?: number; onJump: (i: number) => void }) {
   // Six steps do not fit a 390 px phone at full size: the row scrolls, fades at the live edge and
   // carries an arrow, rather than clipping "Rooms" mid-word with nothing to say there is more.
   const railRef = useRef<HTMLOListElement>(null);
@@ -31,7 +31,10 @@ export function Stepper({ step, done, onJump }: { step: number; done: boolean[];
       {WIZARD_STEPS.map((s, i) => {
         const active = i === step;
         const complete = done[i] && i < step;
-        const reachable = i <= step || done.slice(0, i).every(Boolean);
+        /* A step you have already been through stays reachable, whether or not you answered it —
+           two of the six are optional and say so, and gating on `done` alone left "Skip the site"
+           disabling Anchor and Launch for the rest of the flow. `done` still drives the tick. */
+        const reachable = i <= Math.max(step, furthest) || done.slice(0, i).every(Boolean);
         return (
           <li key={s.key} className="flex shrink-0 items-center gap-1">
             <button

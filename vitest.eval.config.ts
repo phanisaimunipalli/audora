@@ -3,7 +3,9 @@ import path from 'node:path';
 
 /** `npm run eval` — evaluation runs (they call the running dev server at :5173 for live models). */
 export default defineConfig({
-  resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
+  // `@shared` before `@`: Vite matches string aliases by prefix (same order as vite.config.ts), and
+  // the reconstruction eval measures and fuses through shared/.
+  resolve: { alias: { '@shared': path.resolve(__dirname, 'shared'), '@': path.resolve(__dirname, 'src') } },
   test: {
     environment: 'node',
     include: ['evals/**/*.eval.ts'],

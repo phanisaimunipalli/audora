@@ -13,11 +13,17 @@ what gets built. `docs/BACKEND.md` is the pipeline contract underneath it.
 | Ceiling error | Reconstructed ceiling height versus the printed or anchored height | under 10 cm |
 | Orientation error | Room yaw in the unit frame versus the plan's north arrow | under 10° |
 | Opening error | Door and window positions along the wall versus the plan | under 30 cm |
-| Adjacency | Every plan door leads to the right neighbouring room | 100 % |
+| Adjacency | Every plan door leads to the right neighbouring room | 100 % of the adjacency we have |
 | Determinism | Same photos, plan, dimensions and address give the same recipe hash and the same attached world | always |
 
 Every published room shows its own numbers: the anchor with its ±, and a "plan says / model
 measures" line per dimension. Nothing is presented as more certain than its residual.
+
+One caveat on the adjacency row, so it is not read as more than it is: the plan parser returns room
+names, types, printed dimensions and door *counts* — it does not say which rooms a door joins. So
+adjacency is **inferred** (`shared/unitGraph.ts`: rooms open off the nearest hallway, or are chained
+in the order the sheet draws them) and the graph says so in `UnitGraph.adjacency`. Until the vision
+schema gains a doors field naming both rooms, this row measures our inference, not the drawing.
 
 ## 2. Sources of truth and their uncertainty
 
@@ -48,7 +54,9 @@ Deterministic, pure, unit-tested.
 4. **Intake that earns accuracy.** Two to four angles per room (corner and doorway), a quality gate
    (blur, exposure, occupied room, HDR merge) that asks for a retake, a per-room "plan says /
    photo shows" confirmation, and reconstruction mode (`reconstruct_images`) whenever a room has
-   more than one photo.
+   more than one photo — one threshold, in `shared/marbleLimits.ts`, read by the browser recipe,
+   the server recipe and the Marble request, so the launch step cannot promise the seller one
+   thing while the request carries another.
 5. **Tier policy.** Draft for the instant preview; full quality (`marble-1.1`, `marble-1.1-plus`
    for large or open-plan rooms) for the published model, because only full returns metric scale.
    Both are part of the recipe; cost is shown before generating.

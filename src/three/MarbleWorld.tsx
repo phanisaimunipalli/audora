@@ -14,21 +14,16 @@ export const GEOMETRY_COLOR = '#7c6cf0';
 export const GEOMETRY_OPACITY = 0.3;
 
 /**
- * The collider `.glb` comes out of Marble's mesher with y flipped rather than rotated: x right,
- * y up, z forward is a *reflection* of the capture frame, so drawing it as delivered mirrors the
- * room. Mirroring x inside the Marble group puts it back — and lines it up with the SPZ splat,
- * which is a proper rotation of the same capture (rotX π; see SplatWorld) and needs no mirror.
+ * The reflection that puts a delivered collider mesh back into the splat's frame.
  *
- * Verified on the demo world 24be684c against public/demo/empty-room-corner-windows.jpg: with this
- * mirror, looking from the capture point into the room puts the tall window on the LEFT wall and the
- * small window on the far wall, and the wireframe hugs the panorama's walls. Without it the room is
- * a mirror image of the photograph.
- *
- * The mirror is also why the horizontal map is `(x, z) → (x, −z)` rather than a plain 180° turn:
- * raw +x is our EAST, not our west. `three/splat/frame.ts` writes the whole convention down, and
- * the group's `rotationY = π + yaw` carries the room's own turn on top of it.
+ * **Defined once in `shared/collider.ts`** — where the measurement that depends on it lives — and
+ * re-exported here because this is where the three.js side reaches for it. Two copies of a sign
+ * convention is how a room ends up measured in one frame and drawn in another; see that file for
+ * why the mesh is a reflection rather than a rotation, and `three/splat/frame.ts` for the whole
+ * raw → world map the group's `rotationY = π + yaw` sits on top of.
  */
-export const COLLIDER_MIRROR: [number, number, number] = [-1, 1, 1];
+export { COLLIDER_MIRROR } from '@shared/collider';
+import { COLLIDER_MIRROR } from '@shared/collider';
 
 /** How the Geometry layer draws the reconstruction's mesh when it is switched on. */
 export type GeometryView = 'wireframe' | 'occluder';

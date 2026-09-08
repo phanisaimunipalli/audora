@@ -29,6 +29,7 @@ import { StepFloorPlan } from '@/screens/create/StepFloorPlan';
 import { StepRooms, type UrlImportState } from '@/screens/create/StepRooms';
 import { StepAnchor } from '@/screens/create/StepAnchor';
 import { StepLaunch, simulatedOnly } from '@/screens/create/StepLaunch';
+import { blockedRooms } from '@/screens/create/intake';
 import { DEMO_ANALYSIS, drawDemoRoomPhoto } from '@/screens/create/demoPhoto';
 import {
   DEMO_LISTING,
@@ -119,6 +120,13 @@ export default function NewTour() {
 
   const [restored] = useState(() => loadDraft(demo));
   const [step, setStep] = useState(restored?.step ?? 0);
+  /* How far the seller has actually got. `done` cannot answer that: the Site and the Floor plan
+     steps are optional and offer "Skip the site", but skipping leaves their `done` false forever, so
+     a stepper gated on `done` alone disables every later entry for the rest of the flow — the seller
+     steps back and can never jump forward again. Reachability is about where you have been;
+     completeness is about whether the step was answered, and the two are different questions. */
+  const [furthest, setFurthest] = useState(restored?.step ?? 0);
+  useEffect(() => setFurthest((f) => Math.max(f, step)), [step]);
   const [listing, setListing] = useState<DraftListing>(() => restored?.listing ?? (demo ? { ...DEMO_LISTING } : emptyListing()));
   const [site, setSite] = useState<TourSite | null>(restored?.site ?? null);
   const [plan, setPlan] = useState<DraftPlan>(() => restored?.plan ?? emptyDraftPlan());
@@ -203,6 +211,7 @@ export default function NewTour() {
   const startOver = () => {
     clearDraft();
     setStep(0);
+    setFurthest(0);
     setListing(demo ? { ...DEMO_LISTING } : emptyListing());
     setSite(null);
     setPlan(emptyDraftPlan());
@@ -409,7 +418,11 @@ export default function NewTour() {
     listing.address.trim().length > 0,
     Boolean(site),
     Boolean(plan.plan?.floors.length),
-    rooms.length > 0,
+    /* A room whose primary photo the quality gate rejected does not go past this step until the
+       seller retakes it or accepts it deliberately (docs/ACCURACY.md 3.4). The same rule disables
+       Generate on the launch step; blocking here is what stops the seller from finding out at the
+       end. `blockedRooms` is the single reader — StepRooms names which rooms and why. */
+    rooms.length > 0 && blockedRooms(rooms).length === 0,
     rooms.length > 0 && rooms.every((r) => isAnchored(r) || r.recipe?.method === 'skip'),
     false,
   ];
@@ -533,7 +546,7 @@ export default function NewTour() {
         </Callout>
       ) : null}
 
-      <Stepper step={step} done={done} onJump={setStep} />
+      <Stepper step={step} done={done} furthest={furthest} onJump={setStep} />
 
       {demo && step === 0 ? (
         <Callout tone="info" title="Demo listing">

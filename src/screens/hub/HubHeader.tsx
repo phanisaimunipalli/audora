@@ -1,13 +1,16 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { bestWorld } from '@/state/store';
+import { bestWorld, useAudora } from '@/state/store';
 import { credits as fmtCredits, tourQuality } from '@/state/publish';
+import { stagingEnabled } from '@/state/staging';
 import type { Job, Room, Tour } from '@/state/types';
-import { plural, usd as fmtUsd } from '@/lib/format';
+import { plural, timeAgo, usd as fmtUsd } from '@/lib/format';
 import { Chip, StagedLabel, cx } from '@/components/ui';
 import { RailArrow, useRail } from '@/components/Rail';
 import { Icon } from '@/components/icons';
 import { latestJobFor, isActiveJob, providerName, type TourStatus } from './jobMeta';
+import { AccuracySummary } from './AccuracyCard';
+import { dimensionedRooms } from '@/services/floorplan';
 import { SiteCard } from './SiteCard';
 import { TierChip } from './TierChip';
 
@@ -45,6 +48,15 @@ export function HubHeader({
      to say "full quality" the moment five jobs were queued (before a single full world existed) and
      "draft quality" forever after a room was upgraded one at a time. */
   const quality = tourQuality(rooms);
+  /* docs/ACCURACY.md 3.7: with staging deferred the unit leads with what it measures, the plan it
+     was measured against and when its model was made — not with how it is furnished. */
+  const stagingOn = useAudora((s) => stagingEnabled(s.settings));
+  const newestWorld = worlds.reduce<number | undefined>((a, w) => (a == null || w.createdAt > a ? w.createdAt : a), undefined);
+  const planned = tour.floorPlan ? dimensionedRooms(tour.floorPlan).length : 0;
+  const lead = [
+    tour.floorPlan ? `floor plan · ${planned} room${planned === 1 ? '' : 's'} with printed dimensions` : 'no floor plan',
+    newestWorld ? `model ${timeAgo(newestWorld)}` : 'no model yet',
+  ].join(' · ');
 
   /* The room rail scrolls sideways, and a mouse has no sideways. Without this the wheel does
      nothing at all over the rail — not the page, not the rail — and the last room sits clipped at
@@ -93,13 +105,19 @@ export function HubHeader({
               </a>
             ) : null}
           </div>
+          {/* What the model measured, what it was measured against, and when it was made. */}
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <AccuracySummary rooms={rooms} />
+            <span className="mono text-[11px] text-dim">{lead}</span>
+          </div>
           {tour.summary ? <p className="mt-2 max-w-2xl text-sm text-ink-3">{tour.summary}</p> : null}
         </div>
         <div className="flex flex-col items-start gap-2 md:max-w-[42%] md:items-end">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 md:justify-end">
             {/* Credit totals are money, so they get thousands separators — everywhere. */}
             {meta ? <span className="mono text-[11px] text-dim md:text-right" title={metaTitle}>{meta}</span> : null}
-            <StagedLabel />
+            {/* "Digitally staged" discloses furniture that is not there; with staging off there is none. */}
+            {stagingOn ? <StagedLabel /> : null}
           </div>
           <Link to={`/t/${tour.shareId}`} target="_blank" className="inline-flex items-center gap-1.5 text-sm text-ink-2 hover:text-ink">
             <Icon.Share size={14} /> Public link <span className="mono text-xs text-ink-3">/t/{tour.shareId}</span>

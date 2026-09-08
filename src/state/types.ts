@@ -2,6 +2,9 @@ import type { AnchorSpec, PlacedPiece, ProceduralKind, RawGeometry, RoomGeometry
 import type { StagingStyle } from '@/engine/autostage';
 // Type-only: the parsed shape lives next to the parser (services/floorplan), and a tour stores it whole.
 import type { FloorPlan } from '@/services/floorplan';
+// Type-only: metric fusion is shared code (compiled into both the browser and the worker), and the
+// worker writes exactly this record onto the room — see docs/ACCURACY.md section 2.
+import type { RoomMeasurement } from '@shared/fusion';
 
 export type Tier = 'draft' | 'full';
 export type Provider = 'marble' | 'mock';
@@ -183,6 +186,18 @@ export interface Room {
    */
   planDims?: PlanDimensions;
   analysis?: PhotoAnalysis;
+  /**
+   * What the collider actually measured, fused with every other constraint — the room's scale, its
+   * 1σ, a 0..1 confidence, one residual per source, a flag naming both numbers wherever a source
+   * disagrees, and the "plan says / model measures" line per dimension (`shared/fusion.ts`).
+   *
+   * Written by the worker after `copy_assets` (docs/ACCURACY.md 3.2), served per room by the public
+   * tour, and read by the hub's AccuracyCard. The type is the server's own `rooms.measurement`
+   * shape, so what is stored, served and shown is one object and not three that agree by hand.
+   * Absent until a room has been measured, and absent forever on a simulated one. It is a *report*,
+   * never an input: `geometry` stays the room's own numbers.
+   */
+  measurement?: RoomMeasurement;
   raw: RawGeometry;
   anchor: AnchorSpec;
   geometry: RoomGeometry;
@@ -373,6 +388,15 @@ export interface Settings {
   sound: boolean;
   agentName: string;
   brandColor: string;
+  /**
+   * Staging and furniture layering — the Stage tab, auto-stage, the staging editor and the buyer's
+   * furniture test. **Off by default** (docs/ACCURACY.md section 3.7): the product is the accurate
+   * model of the unit, so the hub, the wizard and the viewer lead with measurements, the plan and
+   * the model date. Every code path stays in place behind this flag; read it through
+   * `stagingEnabled(settings)` in `@/state/staging`, which is where "undefined means off" lives, and
+   * never as a bare boolean.
+   */
+  stagingEnabled?: boolean;
 }
 
 export interface ProviderStatus {

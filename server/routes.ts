@@ -41,12 +41,16 @@ import {
   TIERS,
   unitDocument,
   unitJobs,
+  updateRoom,
+  type AnchorJson,
   type CreateRoomInput,
   type PipelineDb,
   type PipelineStorage,
   type PlanContext,
+  type PlanDimsJson,
   type Row,
   type SiteJson,
+  type UpdateRoomInput,
 } from './pipeline.js';
 import type { RecipeTier } from './recipe.js';
 import { providerFor } from './worker.js';
@@ -160,6 +164,54 @@ function tierOf(value: unknown): RecipeTier {
   throw new PipelineError(400, `tier must be draft or full, got ${JSON.stringify(value)}`);
 }
 
+/**
+ * The fields a room PATCH may carry (docs/BACKEND.md §1: a room's corrections are its label, its
+ * order, its plan dimensions, its anchor and which way its windows face). A key that is absent is
+ * left alone; a key sent as `null` clears that column, which is how an anchor or a dimension is
+ * withdrawn rather than corrected. `planDims` and `anchor` are documents and are replaced whole,
+ * not merged: sending `{width}` alone drops the depth that was there, because a half-merged
+ * dimension pair is exactly the kind of number nobody could explain afterwards.
+ *
+ * Both spellings are accepted — `planDims` and `plan_dims` — because the seller's screens speak the
+ * camelCase of `src/state/types.ts` while the row this ends up in is snake_case, and refusing one
+ * of the two would only be a spelling test. The values themselves are validated in the pipeline,
+ * where the rounding rule that keeps them out of the recipe hash also lives.
+ */
+function roomPatch(b: Row): UpdateRoomInput {
+  const pick = (camel: string, snake: string): unknown => (b[camel] !== undefined ? b[camel] : b[snake]);
+  const patch: UpdateRoomInput = {};
+  if (b.name !== undefined) {
+    const name = str(b.name);
+    if (!name) throw new PipelineError(400, 'A room needs a name.');
+    patch.name = name;
+  }
+  if (b.type !== undefined) {
+    const type = str(b.type);
+    if (!type) throw new PipelineError(400, 'type must be a room type.');
+    patch.type = type;
+  }
+  const order = pick('sortOrder', 'sort_order');
+  if (order !== undefined) {
+    const n = num(order);
+    if (n === undefined) throw new PipelineError(400, 'sortOrder must be a number.');
+    patch.sortOrder = n;
+  }
+  const dims = pick('planDims', 'plan_dims');
+  if (dims !== undefined) patch.planDims = dims === null ? null : (dims as PlanDimsJson);
+  if (b.anchor !== undefined) patch.anchor = b.anchor === null ? null : (b.anchor as AnchorJson);
+  const heading = pick('northWallHeading', 'north_wall_heading');
+  if (heading !== undefined) {
+    if (heading === null) patch.northWallHeading = null;
+    else {
+      const n = num(heading);
+      if (n === undefined) throw new PipelineError(400, 'northWallHeading must be a number of degrees.');
+      patch.northWallHeading = n;
+    }
+  }
+  if (!Object.keys(patch).length) throw new PipelineError(400, 'Send at least one of name, type, sortOrder, planDims, anchor or northWallHeading.');
+  return patch;
+}
+
 /* ---------- the router ---------- */
 
 /**
@@ -247,6 +299,27 @@ async function route(req: V1Request, res: V1Response, ctx: V1Context, method: st
       rooms: Array.isArray(b.rooms) ? (b.rooms as CreateRoomInput[]) : [],
     });
     return json(res, 201, created);
+  }
+
+  // One room of a unit: the corrections a seller makes after the plan was read (a dimension, the
+  // anchor, the label). Matched before the single-leaf pattern below, which stops at one segment.
+  m = /^\/api\/v1\/units\/([^/]+)\/rooms\/([^/]+)$/.exec(path);
+  if (m && method === 'PATCH') {
+    const [, rawUnitId, rawRoomId] = m;
+    const unit = decodeURIComponent(rawUnitId);
+    const roomId = decodeURIComponent(rawRoomId);
+    if (!UUID.test(unit)) return json(res, 404, { error: 'No such unit.' });
+    if (!UUID.test(roomId)) return json(res, 404, { error: 'No such room.' });
+    const b = await body(req, ctx);
+    const updated = await updateRoom(db, org, unit, roomId, roomPatch(b), (ctx.now ?? Date.now)());
+    return json(res, 200, {
+      room: updated.room,
+      changed: updated.changed,
+      measurement: updated.measurement,
+      // Nothing was invalidated: this says whether the next `generate` would build a new world
+      // (docs/BACKEND.md §2 rule 5), which is the only sense in which a recipe can be stale.
+      recipe: updated.recipe,
+    });
   }
 
   m = /^\/api\/v1\/units\/([^/]+)(\/[a-z-]+)?$/.exec(path);

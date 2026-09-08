@@ -357,7 +357,8 @@ server/worker.ts      the provider port (marble | mock), claim_jobs, generate �
 server/routes.ts      §6 exactly: handleV1(req, res, ctx), mounted first inside handleApi
 server/api.ts         unchanged /api/* proxy + the v1 mount + startBackendWorker()
 server/marbleRequest.ts  the browser flow's /api/marble/generate → worlds:generate mapping
-src/services/marblePrompt.ts  the browser copy of the prompt renderer (see "one compiler" below)
+server/mockAssets.ts  a real .glb of a real room, so the mock provider exercises the measurement
+src/services/marblePrompt.ts  re-export of shared/marblePrompt.ts (see "shared/" below)
 src/services/marble.ts        the browser recipe: PIPELINE_VERSION, browserRecipe, seed, tags
 ```
 
@@ -375,19 +376,24 @@ src/services/marble.ts        the browser recipe: PIPELINE_VERSION, browserRecip
   `world_prompt`, next to the `text_prompt` it is about and beside `reconstruct_images` / `is_pano`.
   `server/recipe.ts` (the pipeline) and `server/marbleRequest.ts` (the browser flow) now agree
   field for field, and both shapes are pinned in tests, so they can only ever be wrong together.
-- **One prompt compiler, two copies.** `server/prompt.ts` and `src/services/marblePrompt.ts` carry
-  a byte-identical renderer between explicit markers, because `server/` must not import `src/` and
-  `src/` must not import `server/` (vite.config.ts type-imports `server/api.ts`, so an import the
-  other way would pull the dev server into the bundle). `tests/prompt-parity.test.ts` compares the
-  two marked regions character for character *and* compiles the same facts through both. Only the
-  small mapper differs: `roomPromptFacts` (a `Room` from the store) against `defaultRoomContext` +
-  `buildRecipe` (the stored rows).
+- **`shared/` is the only code both sides import.** `server/` must not import `src/` and `src/` must
+  not import `server/` (vite.config.ts type-imports `server/api.ts`, so an import the other way
+  would pull the dev server into the bundle). Anything the worker and the viewer must agree on
+  *exactly* therefore lives in `shared/`: the collider measurement, metric fusion, the unit graph,
+  the prompt compiler, the recipe encoder and Marble's request limits. The browser reaches it as
+  `@shared/*` (a Vite alias and a tsconfig path); the server reaches it as `../shared/*.js`, and
+  `tsconfig.server.json` compiles both into `dist-server/server/` + `dist-server/shared/`.
+  `server/prompt.ts` and `src/services/marblePrompt.ts` are now re-exports of
+  `shared/marblePrompt.ts`, and `tests/prompt-parity.test.ts` asserts the two sides resolve to the
+  *same function object* rather than to two copies that happen to match. Only the mapper differs:
+  `roomPromptFacts` (a `Room` from the store) against `defaultRoomContext` + `buildRecipe` (rows).
 - **server/ compiles twice.** `tsconfig.node.json` (bundler, type-check only, what the Vite plugin
-  needs) and `tsconfig.server.json` (NodeNext, emits `dist-server/`), so every relative import
-  inside `server/` carries the `.js` extension and every file that touches Node globals declares
-  `/// <reference types="node" />`. Nothing in `server/` imports from `src/`; the few types and
-  numbers that mirror the app (`AZIMUTH_FOR_ANGLE`, `RoomType`) are copied with a pointer to their
-  source and pinned by a test.
+  needs) and `tsconfig.server.json` (NodeNext, `rootDir: "."`, emits `dist-server/`), so every
+  relative import inside `server/` and `shared/` carries the `.js` extension and every file that
+  touches Node globals declares `/// <reference types="node" />`. The production entry point is
+  therefore `dist-server/server/prod.js`, which is what `npm start` runs. Nothing in `server/`
+  imports from `src/`; the few types and numbers that mirror the app (`AZIMUTH_FOR_ANGLE`,
+  `RoomType`) are copied with a pointer to their source and pinned by a test.
 - **Structural ports, not classes.** The pipeline and the worker are written against `PipelineDb` /
   `PipelineStorage` / `WorldProvider`, which `server/db.ts`, `server/storage.ts` and the Marble
   provider satisfy and the tests implement in memory (`tests/support/backend.ts`). That is why the
@@ -399,10 +405,96 @@ src/services/marble.ts        the browser recipe: PIPELINE_VERSION, browserRecip
   the queue, the asset copy, publication and the public tour with no key and no credits. Live
   generation stays behind the credit guard (`MARBLE_MAX_GENERATIONS`, default 3).
 
-Not implemented yet, and named so nobody looks for them: **the collider measurement in step 5**
-(`copy_assets` copies the assets and stops, so `worlds.bounds` and `rooms.geometry` are null on a
-backend-generated world; the wall-rectangle fit and the metric room live in the browser, in
-`src/services/marble.ts`, and a reader of the public tour has the collider URL to run it on), the
+## Accuracy: shared metric code, fusion, unit assembly, tier policy, staging deferred (2026-09-08, integrator)
+
+The contract is `docs/ACCURACY.md`. The product is the accurate 3D model of a unit built from its
+real photos and its floor plan; staging waits. What that meant in code:
+
+### `shared/` — the code the worker and the viewer must not disagree about
+
+```
+shared/collider.ts     a dependency-free .glb reader + the whole measurement: floor/ceiling slabs,
+                       the wall-band rectangle with its openings, roomRect, rawFromBounds,
+                       isOneRoom, COLLIDER_MIRROR. measureColliderGlb(bytes) is bytes → room.
+shared/fusion.ts       fuseScale(constraints) → one scale, its σ, a 0..1 confidence, one residual
+                       per source and a flag naming both numbers past 2σ. roomFromFusion gives the
+                       "plan says 3.75 m · model measures 3.41 m (−0.34 m)" line per dimension.
+                       orientPlan settles which printed dimension is the rectangle's width.
+                       RoomMeasurement — the record a measured room stores — is defined here.
+shared/unitGraph.ts    the plan as a graph: rooms, inferred adjacency, a deterministic layout, the
+                       plan↔capture quarter turn, and matchPortals → the doorways you walk through.
+shared/marblePrompt.ts the one prompt compiler. shared/canonical.ts the one recipe encoder.
+shared/marbleLimits.ts Marble's image limits and the rule that decides reconstruction mode.
+```
+
+Both builds compile `shared/`; the browser imports `@shared/*`, the server `../shared/*.js`.
+
+### The measurement happens on the server, once
+
+After `copy_assets` the worker downloads the collider it just uploaded and calls `measureRoom`
+(`server/pipeline.ts` §10) — `rawFromBounds` → constraints (plan width/depth ±5 cm, the anchor with
+its own ±, a printed ceiling ±3 cm or the standard 2.44 m ±12 cm, Marble's `metric_scale_factor`
+±5 %) → `fuseScale` → `roomFromFusion` → `isOneRoom`. It writes `worlds.bounds`, `worlds.raw`,
+`rooms.geometry`, `rooms.raw`, `rooms.measurement` and `rooms.measured_at` (migration 0004), and
+the public tour serves the measurement per room. A measurement failure is logged, never fatal: the
+assets are already paid for. `PATCH /api/v1/units/:id/rooms/:roomId` re-fuses inline, so correcting
+a plan dimension updates the room's numbers in the same request without regenerating anything.
+
+Two passes, for the one case the wall fit gets wrong: when the metric result is not one room
+(Marble reconstructed through an open door) the rectangle is set aside as `method: 'aabb'`, the
+confidence goes to 0 and a flag says so — but **the scale is kept**, because the room's own walls
+are still the best evidence for what a raw unit is worth.
+
+### The unit as one model
+
+`buildUnitGraph(plan)` turns the parsed plan into rooms, adjacency and doors. The parser returns no
+positions and no adjacency, so both are derived and the graph says so (`positions: 'adjacency'`,
+`adjacency: 'inferred'`): rooms open off the nearest hallway, or are chained in sheet order where
+there is none. `matchPortals` pairs each plan door with the nearest measured opening on the same
+wall within 0.5 m, recovering the quarter turn between the plan's frame and the capture's; a door
+with no measured opening is still a portal, marked `source: 'plan'` and drawn dashed. `Portals.tsx`
+draws them in 3D and `UnitMap.tsx` draws the storey with "you are here". The viewer only offers a
+doorway into a room the tour actually has — a plan room nobody photographed appears on the map and
+has no portal, which is the honest version of a room with no capture.
+
+### Intake, tier policy and staging
+
+`src/screens/create/intake.ts` holds the intake policy (the three-angle plan, the photo quality
+gate, the plan/photo confirmation) and the tier rule: full quality routes a room over 30 m² or an
+open plan to `marble-1.1-plus`. That choice is now real, not advisory — it goes into the recipe
+*and* onto the request, and `modelFor` in `server/marbleRequest.ts` allowlists it against the
+tier's own model and its `-plus` sibling. `reconstruct_images` is set from the second photo up
+(`shared/marbleLimits.ts`), which is what makes a second angle buy accuracy.
+
+`Settings.stagingEnabled` is **false by default**, and `src/state/staging.ts` is the single reader.
+With it off the hub's room list leads with each room's measurements (`AccuracyCard`), the viewer's
+`MeasuredPanel` carries the plan-vs-model lines, and the staging entry points — the editor, its
+links, Auto-stage, the buyer's furniture test, the staged label and the staging layer itself — are
+hidden rather than deleted. The hub's tab is called **Rooms** with staging off and **Stage** with it
+on; it is never removed, because the accuracy cards live in it, and `?tab=stage` still resolves.
+
+### What the eval says
+
+`evals/reconstruction.eval.ts` measures six synthetic rooms whose ground truth is exact by
+construction. It never generates and needs no keys. Median dimension error **0.12 %**, worst
+0.42 %, orientation exact on all six, ceiling within 1.3 cm, determinism 6/6. Scaled from the
+assumed ceiling alone the median is 5.97 % — the anchor, not the reconstruction, is the error
+budget, which is the whole argument for the floor plan.
+
+
+### Still to build (named so nobody looks for them)
+
+From the accuracy pass: **the room world is not yawed onto plan north**. The quarter turn is
+recovered (`matchPortals().quarters`, `UnitRoom.yawToNorth`) and the unit map applies it, so the
+map is right today, but the rendered capture is still drawn in its own frame. Doing it properly
+means threading one extra quarter turn through the single existing rotation path
+(`roomRect` → `splatTransform` → `marbleFrame` → `MarbleWorld`) and folding `rooms.geometry`'s door
+and window walls by the same turn — a second rotation path would be worse than the gap. Also:
+`shared/fusion.ts` accepts an EXIF field-of-view prior but nothing converts focal length and sensor
+size into one; adjacency is inferred because the plan parser returns no doors, so the "every plan
+door leads to the right room" row of the contract is measured against our own inference.
+
+From the backend run: the
 `analyze`, `parse_plan` and `stage` job handlers (the queue, retries and backoff are generic over the kind — they are one `case` each
 in `runJob`; until then `POST /api/v1/units/:id/floor-plan` enqueues `parse_plan` only when the
 caller did **not** post an already-parsed plan, so the wizard's own browser-side reader never

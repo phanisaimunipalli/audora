@@ -67,6 +67,17 @@ export interface DraftRoom {
   recipe?: AnchorRecipe;
   /** A demo photo drawn in the browser. Never sent to a live reconstruction. */
   synthetic?: boolean;
+  /**
+   * The seller was told this room's primary photo is too poor to reconstruct and said "use anyway".
+   * Cleared whenever the primary photo changes, so the decision is always about the photo on screen
+   * (`intake.ts` is the gate; `roomIntake(room).blocked` is what it produces).
+   */
+  photoAccepted?: boolean;
+  /**
+   * The seller looked at "plan says 3.75 × 4.10 m / photo shows this room" and said yes. Cleared by
+   * any re-map, because a confirmation is about one pairing and not about the room.
+   */
+  planConfirmed?: boolean;
 }
 
 export interface DraftListing {
@@ -291,7 +302,8 @@ export function canAddPhoto(room: DraftRoom): boolean {
  */
 export function withPhoto(room: DraftRoom, photo: DraftPhoto): DraftRoom {
   if (!canAddPhoto(room)) return room;
-  if (!room.photo) return { ...room, source: 'photo', photo, hints: photoHints(photo) };
+  // A new primary photo is a new decision: "use anyway" was about the shot that has just been replaced.
+  if (!room.photo) return { ...room, source: 'photo', photo, hints: photoHints(photo), photoAccepted: undefined };
   return { ...room, photos: [...(room.photos ?? []), photo] };
 }
 
@@ -308,6 +320,8 @@ export function withoutPhoto(room: DraftRoom, index: number): DraftRoom {
     hints: primary ? photoHints(primary) : [],
     // A room with no photo left is measurements only: the anchor step has no image to tap on.
     source: primary ? 'photo' : 'measured',
+    // Dropping the primary shot promotes a different one, so its quality has not been accepted yet.
+    photoAccepted: index === 0 ? undefined : room.photoAccepted,
   };
 }
 
@@ -369,10 +383,11 @@ export function withPlanRoom(room: DraftRoom, ref: DraftPlanRoomRef | undefined)
   if (!ref) {
     // Unmatching a room drops the plan's numbers; a photo room falls back to the photo's proportions.
     const raw = room.photo ? rawForPhoto(room.photo, room.name, room.type) : room.measured ? rawFromMeasurements(room.measured) : room.raw;
-    return { ...room, planRoom: undefined, raw, recipe: room.recipe?.method === 'floorplan' ? undefined : room.recipe };
+    return { ...room, planRoom: undefined, raw, recipe: room.recipe?.method === 'floorplan' ? undefined : room.recipe, planConfirmed: undefined };
   }
   const type = planRoomType(ref.name);
-  const next: DraftRoom = { ...room, planRoom: ref, name: ref.name, type };
+  // A confirmation is about one pairing: re-mapping to a different plan room asks the question again.
+  const next: DraftRoom = { ...room, planRoom: ref, name: ref.name, type, planConfirmed: ref.key === room.planRoom?.key ? room.planConfirmed : undefined };
   if (ref.width == null || ref.depth == null) return next;
   const measured: Measurements = { width: ref.width, depth: ref.depth, height: PLAN_CEILING_M };
   return { ...next, raw: rawFromMeasurements(measured), recipe: { method: 'floorplan', metres: ref.width } };

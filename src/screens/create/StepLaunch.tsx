@@ -10,6 +10,18 @@ import { eta } from '@/lib/format';
 import { AnchorChip } from '@/components/AnchorChip';
 import { Button, Callout, Chip, Field, Input, Toggle, cx } from '@/components/ui';
 import { Icon } from '@/components/icons';
+import {
+  DEFAULT_PUBLISH_TIER,
+  FULL_PLUS_MODEL,
+  PLUS_AREA_M2,
+  TIER_COPY,
+  blockedRooms,
+  intakeSummary,
+  modelForRoom,
+  simulatedRoom,
+  tierPlan,
+  type TierModels,
+} from './intake';
 import { ROOM_TYPE_LABELS, draftGeometry, finalAnchor, isAnchored, type DraftListing, type DraftRoom } from './types';
 
 export interface StepLaunchProps {
@@ -23,8 +35,12 @@ export interface StepLaunchProps {
   onLaunch: () => void;
 }
 
-/** Rooms that can never go to a live reconstruction: no photo, or a browser-drawn demo photo. */
-export const simulatedOnly = (r: DraftRoom) => !r.photo || !!r.synthetic;
+/**
+ * Rooms that can never go to a live reconstruction: no photo, or a browser-drawn demo photo.
+ * The rule lives in `./intake` beside the cost arithmetic that depends on it; this is the name the
+ * create flow already imports.
+ */
+export const simulatedOnly = simulatedRoom;
 
 export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail, launching, onLaunch }: StepLaunchProps) {
   const providers = useAudora((s) => s.providers);
@@ -38,7 +54,19 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
   const remaining = providers.maxGenerations != null ? Math.max(0, providers.maxGenerations - (providers.liveGenerations ?? 0)) : undefined;
   const mockSeconds = quality === 'draft' ? settings.mockDraftSeconds : settings.mockFullSeconds;
   const unanchored = rooms.filter((r) => !isAnchored(r));
-  const model = quality === 'draft' ? providers.models?.marbleDraft ?? 'marble-1.0-draft' : providers.models?.marbleFull ?? 'marble-1.1';
+
+  /* docs/ACCURACY.md 3.4 and 3.5: what the intake gate is still holding, and what each tier would
+     actually cost and run *for these rooms* — the model per room included, because a large or
+     open-plan room goes to `marble-1.1-plus` and the seller should see that before they pay. */
+  const tierModels: TierModels = { marbleDraft: providers.models?.marbleDraft, marbleFull: providers.models?.marbleFull };
+  const live = provider === 'marble';
+  const plans: Record<Tier, ReturnType<typeof tierPlan>> = {
+    draft: tierPlan(rooms, 'draft', { live, models: tierModels }),
+    full: tierPlan(rooms, 'full', { live, models: tierModels }),
+  };
+  const plan = plans[quality];
+  const intake = intakeSummary(rooms);
+  const blocked = blockedRooms(rooms);
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
@@ -49,7 +77,8 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
             {(['draft', 'full'] as Tier[]).map((t) => {
               const i = TIER_INFO[t];
               const on = quality === t;
-              const tierModel = t === 'draft' ? providers.models?.marbleDraft ?? DRAFT_MODEL : providers.models?.marbleFull ?? FULL_MODEL;
+              const p = plans[t];
+              const copy = TIER_COPY[t];
               return (
                 <button
                   key={t}
@@ -57,26 +86,74 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
                   onClick={() => onQuality(t)}
                   className={cx('flex flex-col gap-2 rounded-2xl border p-4 text-left transition-colors', on ? 'border-accent bg-accent/5 ring-accent' : 'border-line bg-surface hover:bg-surface-2')}
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <span className="text-base text-ink">{i.label}</span>
-                    {t === 'draft' ? <Chip tone="accent">recommended to start</Chip> : <Chip mono>what buyers walk</Chip>}
+                    {t === DEFAULT_PUBLISH_TIER ? <Chip tone="accent">the published model</Chip> : <Chip mono>instant preview</Chip>}
                   </div>
+                  <div className="text-[13px] font-medium text-ink-2">{copy.headline}</div>
+                  {/* Cost per tier, before generating: the total for THIS run, not a rate card. */}
                   <div className="mono text-sm text-ink-2">
-                    ~{t === 'draft' ? '1 minute' : '10 minutes'} · {fmtCredits(i.credits)} credits · ~${i.usd.toFixed(2)}/room
+                    ~{t === 'draft' ? '1 minute' : '10 minutes'} a room ·{' '}
+                    {p.liveRooms ? (
+                      <>
+                        {fmtCredits(p.credits)} credits · ~${p.usd.toFixed(2)} for {p.liveRooms} room{p.liveRooms === 1 ? '' : 's'}
+                      </>
+                    ) : (
+                      'simulated · free'
+                    )}
                   </div>
-                  <div className="mono text-[11px] text-ink-3">{tierModel}</div>
-                  <div className="text-xs text-ink-3">{i.blurb}</div>
+                  <div className="mono text-[11px] text-ink-3">{p.models.length ? p.models.join(' · ') : t === 'draft' ? DRAFT_MODEL : FULL_MODEL}</div>
+                  <div className="text-xs text-ink-3">{copy.body}</div>
                 </button>
               );
             })}
           </div>
           {/* The tier story, said once at the point where the seller first meets it. */}
           <p className="text-xs text-ink-3">
-            Start with drafts: they are quick and they are what you stage against. When the listing is ready, <strong className="font-medium text-ink-2">Publish</strong>{' '}
-            offers a full <span className="mono">{FULL_MODEL}</span> reconstruction for every room (<span className="mono">{fmtCredits(TIER_INFO.full.credits)} credits ≈ $
-            {TIER_INFO.full.usd.toFixed(2)}</span> each, about ten minutes) and shows the total before it spends anything. Buyers always get the best world a room has, so the
-            draft stays walkable until the full one lands.
+            Only full quality returns Marble’s own <span className="mono">metric_scale_factor</span>, which is why the published model defaults to it: fusion weighs that
+            estimate against the plan’s ±5 cm and your anchor, and a draft simply has nothing to weigh. Start with drafts if you want to look first —{' '}
+            <strong className="font-medium text-ink-2">Publish</strong> then offers full <span className="mono">{FULL_MODEL}</span> for every room (
+            <span className="mono">
+              {fmtCredits(TIER_INFO.full.credits)} credits ≈ ${TIER_INFO.full.usd.toFixed(2)}
+            </span>{' '}
+            each) and shows the total before it spends anything. Buyers always get the best world a room has.
           </p>
+          {plans.full.plusRooms ? (
+            <Callout tone="info" title={`${plans.full.plusRooms} room${plans.full.plusRooms === 1 ? '' : 's'} go to ${FULL_PLUS_MODEL} at full quality`}>
+              A room over <span className="mono">{PLUS_AREA_M2} m²</span> of printed floor, or one the plan calls open plan, loses its far end on the standard model. The
+              larger model is charged at the same full-quality rate.
+            </Callout>
+          ) : null}
+        </section>
+
+        {/* docs/ACCURACY.md 3.4: how each room's photographs reach Marble. */}
+        <section className="flex flex-col gap-3">
+          <div className="micro">Photos per room</div>
+          <div className="panel flex flex-col gap-3 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Chip mono tone={intake.reconstruction.multiAngle ? 'ok' : 'warn'}>
+                {intake.reconstruction.multiAngle} of {intake.photoRooms} photo room{intake.photoRooms === 1 ? '' : 's'} have more than one angle
+              </Chip>
+              {intake.reconstruction.reconstructed ? (
+                <Chip mono tone="accent">
+                  reconstruct_images · {intake.reconstruction.reconstructed} room{intake.reconstruction.reconstructed === 1 ? '' : 's'}
+                </Chip>
+              ) : null}
+            </div>
+            <p className="text-xs text-ink-3">{intake.reconstruction.text}</p>
+            {intake.accepted.length ? (
+              <div className="text-xs text-ink-2">
+                <span className="text-ink">{intake.accepted.length}</span> room{intake.accepted.length === 1 ? '' : 's'} you chose to use anyway with a poor photo:{' '}
+                <span className="text-ink-3">{intake.accepted.map((r) => r.name).join(', ')}</span>. Their measurements will carry it.
+              </div>
+            ) : null}
+            {intake.unconfirmed.length ? (
+              <div className="text-xs text-ink-2">
+                <span className="text-ink">{intake.unconfirmed.length}</span> plan pairing{intake.unconfirmed.length === 1 ? '' : 's'} not confirmed yet:{' '}
+                <span className="text-ink-3">{intake.unconfirmed.map((r) => r.roomName).join(', ')}</span>. Go back to Rooms to check them against the drawing.
+              </div>
+            ) : null}
+          </div>
         </section>
 
         <section className="flex flex-col gap-3">
@@ -87,10 +164,14 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
                 <Chip tone="accent">
                   <span className="h-1.5 w-1.5 rounded-full bg-ink" /> Live · World Labs Marble
                 </Chip>
-                <Chip mono>{model}</Chip>
+                {plan.models.map((m) => (
+                  <Chip key={m} mono>
+                    {m}
+                  </Chip>
+                ))}
                 <Chip mono tone="accent">
-                  ~{fmtCredits(info.credits)} credits × {liveRooms} room{liveRooms === 1 ? '' : 's'} = ~{fmtCredits(info.credits * liveRooms)} credits · ~$
-                  {(info.usd * liveRooms).toFixed(2)}
+                  ~{fmtCredits(info.credits)} credits × {plan.liveRooms} room{plan.liveRooms === 1 ? '' : 's'} = ~{fmtCredits(plan.credits)} credits · ~$
+                  {plan.usd.toFixed(2)}
                 </Chip>
               </div>
               <p className="text-xs text-ink-3">
@@ -165,6 +246,8 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
             {rooms.map((r) => {
               const g = draftGeometry(r);
               const a = finalAnchor(r);
+              const choice = modelForRoom(r, quality, tierModels);
+              const sim = provider === 'marble' && simulatedOnly(r);
               return (
                 <li key={r.id} className="flex gap-3 rounded-xl border border-line bg-surface p-2">
                   <div className="h-12 w-16 shrink-0 overflow-hidden rounded-lg border border-line bg-surface">
@@ -174,27 +257,40 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
                     <div className="flex items-center gap-2">
                       <span className="truncate text-sm text-ink">{r.name}</span>
                       <span className="text-[11px] text-ink-3">{ROOM_TYPE_LABELS[r.type]}</span>
-                      {provider === 'marble' && simulatedOnly(r) ? <Chip mono className="!text-[10px]">simulated</Chip> : null}
+                      {sim ? <Chip mono className="!text-[10px]">simulated</Chip> : null}
                     </div>
                     <div className="mono text-xs text-ink-2">
                       {g.width.toFixed(2)} × {g.depth.toFixed(2)} × {g.height.toFixed(2)} m
                     </div>
+                    {/* Which model this particular room goes to, and why, before a credit is spent. */}
+                    {!sim ? (
+                      <div className="mono text-[10.5px] text-ink-3" title={choice.text}>
+                        {choice.model}
+                        {choice.reason ? ` · ${choice.reason === 'open-plan' ? 'open plan' : 'large room'}` : ''}
+                      </div>
+                    ) : null}
                     <AnchorChip anchor={a} size="sm" className="mt-1 max-w-full" />
                   </div>
                 </li>
               );
             })}
           </ul>
+          {blocked.length ? (
+            <Callout tone="danger" title={`${blocked.length} room${blocked.length === 1 ? '' : 's'} blocked on photo quality`}>
+              {blocked.map((b) => b.name).join(', ')}. Go back to <strong className="font-medium text-ink-2">Rooms</strong> and retake the photo, or accept it there with “use
+              anyway”.
+            </Callout>
+          ) : null}
           {unanchored.length ? (
             <Callout tone="warn">
               {unanchored.length} room{unanchored.length === 1 ? ' has' : 's have'} no anchor. Their numbers will be a ±30 cm guess until you anchor them from the hub.
             </Callout>
           ) : null}
-          <Button variant="primary" size="lg" loading={launching} disabled={!rooms.length || !listing.address.trim()} onClick={onLaunch} className="w-full">
+          <Button variant="primary" size="lg" loading={launching} disabled={!rooms.length || !listing.address.trim() || blocked.length > 0} onClick={onLaunch} className="w-full">
             <Icon.Sparkles size={18} /> Generate {rooms.length} room{rooms.length === 1 ? '' : 's'}
           </Button>
           <div className="mono text-center text-[11px] text-ink-3">
-            {provider === 'marble' ? `~${fmtCredits(info.credits * liveRooms)} credits · ${eta(info.realSeconds)} per room` : `simulated · free · ~${mockSeconds}s per room`}
+            {provider === 'marble' ? `~${fmtCredits(plan.credits)} credits · ${eta(info.realSeconds)} per room` : `simulated · free · ~${mockSeconds}s per room`}
           </div>
         </div>
       </aside>

@@ -18,6 +18,7 @@ import {
   type MarbleWorld,
   type WorldBounds,
 } from '@/services/marble';
+import { modelForModelRoom, modelRoomOf } from '@/screens/create/intake';
 import { chime, sendNotification, setTitleBadge } from '@/lib/notify';
 import { uid } from '@/lib/ids';
 import { toast, useAudora } from './store';
@@ -103,15 +104,26 @@ function failRoom(roomId: string) {
  * `MARBLE_FULL_MODEL` override the defaults server-side). So it is resolved here, once, and a
  * generation that cannot learn it fails loudly instead of recording a model it invented.
  */
-async function marbleModelId(tier: Tier): Promise<string> {
+async function marbleModels(tier: Tier): Promise<{ marbleDraft?: string; marbleFull?: string }> {
   const key = tier === 'full' ? 'marbleFull' : 'marbleDraft';
-  const known = useAudora.getState().providers.models?.[key];
-  if (known) return known;
+  const known = useAudora.getState().providers.models;
+  if (known?.[key]) return known;
   const fresh = await providerStatus();
   useAudora.getState().setProviders(fresh);
-  const resolved = fresh.models?.[key];
-  if (!resolved) throw new Error('The server has not said which Marble model it runs. Check that it is reachable and try again.');
-  return resolved;
+  if (!fresh.models?.[key]) throw new Error('The server has not said which Marble model it runs. Check that it is reachable and try again.');
+  return fresh.models;
+}
+
+/**
+ * The model this room is reconstructed with: the tier's own, or `marble-1.1-plus` for an open plan
+ * or a room the plan draws bigger than 30 m² (docs/ACCURACY.md 3.5).
+ *
+ * The choice goes into the recipe *and* onto the request, so the model the launch step showed the
+ * seller is the model that runs and the model the recipe hash names. The server still allowlists it
+ * (`modelFor`, server/marbleRequest.ts) — naming one here cannot make it run something arbitrary.
+ */
+async function marbleModelId(room: Room, tier: Tier): Promise<string> {
+  return modelForModelRoom(modelRoomOf(room), tier, await marbleModels(tier)).model;
 }
 
 async function startJob(job: Job) {
@@ -126,7 +138,7 @@ async function startJob(job: Job) {
       // seed and prompt it was sent with ride on the job until the world lands (finaliseMarbleJob).
       const { tours } = useAudora.getState();
       const { operationId, worldId, recipeHash, seed, prompt } = await startGeneration(room, job.tier, {
-        modelId: await marbleModelId(job.tier),
+        modelId: await marbleModelId(room, job.tier),
         site: tours[job.tourId]?.site,
       });
       updateJob(job.id, { status: 'running', operationId, worldId, recipeHash, seed, prompt, progress: 2, step: stepFor(2), lastPollAt: 0 });

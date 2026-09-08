@@ -1,6 +1,12 @@
 /**
- * The tour hub: progress while generating, then Tour / Stage / Publish / Insights.
+ * The tour hub: progress while generating, then Tour / Rooms / Publish / Insights.
  * Tab and selected room live in the query string so links land on the right view.
+ *
+ * The rooms tab is the per-room list. With staging deferred (docs/ACCURACY.md 3.7) it leads with
+ * each room's measurements and is called "Rooms"; with `Settings.stagingEnabled` on, the same list
+ * grows the furniture controls back and is called "Stage". The tab itself is never removed —
+ * hiding it would take the accuracy cards with it — but the old `?tab=stage` links still resolve,
+ * and `resolveTab` catches anything else that is no longer a tab.
  */
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
@@ -16,9 +22,12 @@ import { GeneratingView } from '@/screens/hub/GeneratingView';
 import { RoomCard } from '@/screens/hub/RoomCard';
 import { UpgradeBanner } from '@/screens/hub/UpgradeBanner';
 import { latestJobFor, tourStatus } from '@/screens/hub/jobMeta';
+import { resolveTab, stagingEnabled } from '@/state/staging';
 
-type Tab = 'tour' | 'stage' | 'publish' | 'insights';
-const TABS: Tab[] = ['tour', 'stage', 'publish', 'insights'];
+type Tab = 'tour' | 'rooms' | 'publish' | 'insights';
+const TABS: Tab[] = ['tour', 'rooms', 'publish', 'insights'];
+/** Links shared before the tab was renamed. Same panel, so they land where they always did. */
+const TAB_ALIASES: Record<string, Tab> = { stage: 'rooms' };
 
 export default function TourHub() {
   const { tourId = '' } = useParams();
@@ -27,7 +36,9 @@ export default function TourHub() {
   const jobs = useTourJobs(tourId);
   const markJobsSeen = useAudora((s) => s.markJobsSeen);
   const [params, setParams] = useSearchParams();
-  const tab: Tab = TABS.includes(params.get('tab') as Tab) ? (params.get('tab') as Tab) : 'tour';
+  const stagingOn = useAudora((s) => stagingEnabled(s.settings));
+  const requested = params.get('tab');
+  const tab: Tab = resolveTab((requested && TAB_ALIASES[requested]) || (requested as Tab | null), TABS, { stagingEnabled: stagingOn });
   const roomParam = params.get('room') ?? undefined;
   const [showTabs, setShowTabs] = useState(false);
 
@@ -126,7 +137,9 @@ export default function TourHub() {
               onChange={(t) => setQuery({ tab: t })}
               options={[
                 { value: 'tour', label: 'Tour', icon: <Icon.Walk size={15} /> },
-                { value: 'stage', label: 'Stage', icon: <Icon.Sofa size={15} /> },
+                stagingOn
+                  ? { value: 'rooms', label: 'Stage', icon: <Icon.Sofa size={15} /> }
+                  : { value: 'rooms', label: 'Rooms', icon: <Icon.Ruler size={15} /> },
                 { value: 'publish', label: 'Publish', icon: <Icon.Share size={15} /> },
                 { value: 'insights', label: 'Insights', icon: <Icon.Chart size={15} /> },
               ]}
@@ -151,7 +164,7 @@ export default function TourHub() {
             </div>
           ) : null}
 
-          {tab === 'stage' ? (
+          {tab === 'rooms' ? (
             <div className="grid gap-4 lg:grid-cols-2">
               {rooms.map((room) => (
                 <RoomCard key={room.id} tour={tour} room={room} job={latestJobFor(jobs, room.id)} onView={view} />

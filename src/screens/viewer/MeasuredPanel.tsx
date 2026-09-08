@@ -6,11 +6,17 @@
  * collider came back, the eye height, where the floor was put, the room's own size and the anchor
  * every one of those numbers is derived from. Anything the reconstruction did not report is printed
  * faint and named, never guessed at and never left blank.
+ *
+ * With staging deferred (docs/ACCURACY.md 3.7) this panel is what the viewer leads with, so it also
+ * carries the accuracy contract: once the worker has measured the room it prints the "plan says /
+ * model measures" line per dimension, the fused confidence, and every disagreement in words.
+ * `roomAccuracy` grades them; nothing is computed here.
  */
 import type { Room, RoomWorld } from '@/state/types';
 import { AnchorChip } from '@/components/AnchorChip';
 import { Icon } from '@/components/icons';
 import { cx } from '@/components/ui';
+import { roomAccuracy, type AccuracyLine } from '@/screens/hub/accuracy';
 import { HudPanel, MetricRow, PanelLabel, PanelNote } from './hud';
 import { layerReady, type MarbleStatusMap } from './marble';
 
@@ -40,8 +46,20 @@ function footnote(world: RoomWorld | undefined, real: boolean): string {
   return 'Draft renders return no metric scale. The floor is set by hand, so treat fit as indicative.';
 }
 
+/** ok / warn / bad, in the design language's own three tones. */
+const LEVEL_TONE: Record<AccuracyLine['level'], string> = {
+  ok: 'text-ink-2',
+  warn: 'text-gold',
+  bad: 'text-danger',
+  unknown: 'text-faint',
+};
+
 export function MeasuredPanel({ room, world, cameraHeight, pano, status, onClose, className }: MeasuredPanelProps) {
   const real = world?.provider === 'marble' && Boolean(world.panoUrl || world.spzUrl || world.colliderUrl);
+  const accuracy = roomAccuracy(room);
+  // Only lines that had a source to compare against say anything a reader can act on; a dimension
+  // nothing stated is already in the "Room" row above.
+  const compared = accuracy.lines.filter((l) => l.level !== 'unknown');
   const panoLabel = pano ? `${pano.w}×${pano.h}` : world?.panoUrl ? (status && layerReady(status, 'pano') ? 'loaded' : 'loading…') : undefined;
   const g = room.geometry;
   // A card on a laptop, the full width of the sheet on a phone.
@@ -74,6 +92,27 @@ export function MeasuredPanel({ room, world, cameraHeight, pano, status, onClose
           <MetricRow label="Room" value={`${g.width.toFixed(2)} × ${g.depth.toFixed(2)} m`} />
           <MetricRow label="Ceiling" value={`${g.height.toFixed(2)} m`} />
         </div>
+
+        {accuracy.measured && compared.length ? (
+          <div className="mt-2.5 border-t border-line pt-2.5">
+            <PanelLabel>Plan vs model</PanelLabel>
+            <div className="mt-1.5 flex flex-col gap-1">
+              {compared.map((l) => (
+                <div key={l.dimension} className={cx('text-[11px] leading-snug', LEVEL_TONE[l.level])} title={`${l.dimension}: ${l.errorText} from what the plan states`}>
+                  {l.text}
+                </div>
+              ))}
+            </div>
+            <div className="mono mt-1.5 text-[11px] text-faint">
+              {accuracy.scale != null ? `${accuracy.scale.toFixed(4)} m/unit ± ${((accuracy.sigmaRel ?? 0) * 100).toFixed(1)} % · ` : ''}
+              {accuracy.confidenceChip}
+              {accuracy.method === 'aabb' ? ' · bounding box' : ''}
+            </div>
+            {accuracy.flags.map((f) => (
+              <div key={f} className="mt-1.5 text-[11px] leading-snug text-gold">{f}</div>
+            ))}
+          </div>
+        ) : null}
 
         <div className="mt-2.5 border-t border-line pt-2.5">
           <AnchorChip anchor={room.anchor} size="sm" className="max-w-full" />

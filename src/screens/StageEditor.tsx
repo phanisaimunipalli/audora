@@ -6,6 +6,7 @@ import { STYLE_LABELS, pieceId, type StagingStyle } from '@/engine/autostage';
 import { fitReport, pieceStatus } from '@/engine/fit';
 import { clampToRoom } from '@/engine/geometry';
 import { bestWorld, selectRoom, toast, useAudora, useTourRooms } from '@/state/store';
+import { STAGING_OFF_COPY, stagingEnabled } from '@/state/staging';
 import { useCollab } from '@/state/collab';
 import type { Room, Tour } from '@/state/types';
 import { aiAutoStage } from '@/services/ai';
@@ -62,6 +63,30 @@ export function StageEditor({ tourId, roomId }: StageEditorProps) {
   const tour = useAudora((s) => s.tours[tourId]);
   const room = useAudora(selectRoom(roomId));
   const rooms = useTourRooms(tourId);
+  /* Staging deferred (docs/ACCURACY.md 3.7): the editor's own entry point. The links into it are
+     hidden while the setting is off, but a bookmark or a shared URL still lands here, so the route
+     answers for itself rather than opening an editor the product is not currently offering. */
+  const stagingOn = useAudora((s) => stagingEnabled(s.settings));
+  if (!stagingOn) {
+    return (
+      <div className="flex h-dvh items-center justify-center bg-bg p-6">
+        <EmptyState
+          title={STAGING_OFF_COPY.title}
+          body={STAGING_OFF_COPY.body}
+          action={
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <Link to={tour ? `/tours/${tourId}` : '/tours'}>
+                <Button variant="primary">Back to {tour ? tour.title : 'tours'}</Button>
+              </Link>
+              <Link to="/settings">
+                <Button variant="secondary">Open settings</Button>
+              </Link>
+            </div>
+          }
+        />
+      </div>
+    );
+  }
   if (!tour || !room) {
     return (
       <div className="flex h-dvh items-center justify-center bg-bg p-6">

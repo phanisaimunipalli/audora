@@ -103,6 +103,19 @@ export function StepFloorPlan({ plan, roomCount, planRoomCount, onFile, onDemo, 
                   </ul>
                 ) : null}
 
+                {/* A plan whose dimensions the model could not read is still worth keeping — it names
+                    the rooms and their floors — but it contributes nothing to any room's scale, and
+                    every accuracy claim downstream is built on printed dimensions. Saying so here is
+                    the difference between a seller who taps a door in each room and one who finds out
+                    at the end that no room has a plan constraint. `public/demo/floorplan-townhouse.webp`
+                    is exactly this case: 3 floors, 19 rooms, 0 dimensions. */}
+                {rooms.length && !dimensionedRooms(parsed).length ? (
+                  <Callout tone="warn" title="This plan printed no dimensions we could read">
+                    Its room names and floors are still useful, but nothing here will constrain a room’s size — no “plan says / model measures” line, and no ±5 cm plan
+                    anchor. Every room will need its own anchor at the Anchor step: tap a door, an outlet or a wall you have measured.
+                  </Callout>
+                ) : null}
+
                 {rooms.length ? (
                   <>
                     <div className="flex flex-wrap items-center justify-between gap-2">

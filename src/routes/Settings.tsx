@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAudora } from '@/state/store';
 import { seedDemo } from '@/state/seed';
+import { stagingEnabled } from '@/state/staging';
 import { requestNotifications, notificationPermission } from '@/lib/notify';
 import { Button, Card, Chip, Field, Input, SectionTitle, Toggle, Callout } from '@/components/ui';
 
@@ -37,6 +38,20 @@ export default function Settings() {
         <div className="micro">Reconstruction</div>
         <Toggle checked={settings.preferMock} onChange={(v) => set({ preferMock: v })} label="Prefer simulated reconstruction (no credits spent, even with a Marble key)" />
         {providers.marble ? <p className="mono text-xs text-dim">live generations this server session: {providers.liveGenerations ?? 0} / {providers.maxGenerations ?? 3} (raise MARBLE_MAX_GENERATIONS in .env)</p> : null}
+      </Card>
+      {/* docs/ACCURACY.md 3.7: the product is the measured model of the unit. Staging is not
+          deleted, it is switched off — every code path is still here behind this one flag. */}
+      <Card className="flex flex-col gap-4">
+        <div className="micro">Staging and furniture</div>
+        <Toggle
+          checked={stagingEnabled(settings)}
+          onChange={(v) => set({ stagingEnabled: v })}
+          label="Enable staging (Stage tab, auto-stage, the staging editor, the buyer’s furniture test)"
+        />
+        <p className="text-sm text-dim">
+          Off by default. Audora leads with the accurate model of the unit: its dimensions against the floor plan, the anchor and the model date. Turning this on brings the
+          staging editor and the buyer’s “does my sofa fit” test back; nothing you have staged is deleted while it is off.
+        </p>
       </Card>
       <Card className="flex flex-col gap-4">
         <div className="micro">Simulated generation timing (mock mode)</div>

@@ -21,6 +21,8 @@ import { SunLight } from '@/three/SunLight';
 import { effectiveHeading, sunState, type SunState } from '@/engine/siteSun';
 import { MeasureTool } from '@/three/MeasureTool';
 import { Minimap } from '@/three/Minimap';
+import { Portals } from '@/three/Portals';
+import { showsStaging } from '@/state/staging';
 import { TouchJoystick } from '@/three/TouchJoystick';
 import { StagingLayer } from '@/three/furniture/StagingLayer';
 import { AnchorChip } from '@/components/AnchorChip';
@@ -36,7 +38,9 @@ import { usePortraitLayers, type PortraitLayers } from './viewer/layers';
 import { freeSpawn } from './viewer/spawn';
 import { HudPill, HudPillLink, PillDivider, RoomStrip, TierTag, TopBar, Wordmark, tierWord } from './viewer/hud';
 import { MeasuredPanel } from './viewer/MeasuredPanel';
+import { UnitMap } from './viewer/UnitMap';
 import { MODE_LABEL, allowedMode, defaultMode, floorOffsetOf, hasPano, isReal, layerLoading, layerReady, loadPill, type MarbleStatusMap } from './viewer/marble';
+import { arrivalPose, buildUnitGraph, floorBounds, linkRooms, matchPortals, roomOf, type Portal, type PortalMatch, type UnitGraph } from '@shared/unitGraph';
 
 export interface TourViewerProps {
   tourId: string;
@@ -122,10 +126,14 @@ interface SceneProps {
   onCaptureLight: (info: { light: PanoramaLight; budget: LightBudget } | null) => void;
   /** The panorama's pixel size, for "WHAT THE MODEL MEASURED". */
   onPanoSize: (size: { w: number; h: number } | null) => void;
+  /** The doorways out of this room, matched to the plan (`shared/unitGraph`). Empty without a plan. */
+  portals: readonly Portal[];
+  /** The buyer walked through, or clicked, one of them. */
+  onPortal: (portal: Portal) => void;
   editable: boolean;
 }
 
-function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus, splatReady, panoReady, sky, layers, exploded, geometryView, onCaptureLight, onPanoSize, editable }: SceneProps) {
+function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus, splatReady, panoReady, sky, layers, exploded, geometryView, onCaptureLight, onPanoSize, portals, onPortal, editable }: SceneProps) {
   const mode = useViewer((s) => s.mode);
   const tool = useViewer((s) => s.tool);
   const showStaging = useViewer((s) => s.showStaging);
@@ -334,6 +342,9 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
       ) : (
         <OrbitRig room={room.geometry} resetKey={room.id} />
       )}
+      {/* The doorways this room shares with the rest of the flat. Not in the dollhouse: from above
+          the room is a diagram, and the unit plan is what shows how it joins the others. */}
+      <Portals portals={portals} height={room.geometry.height} enabled={isFirstPerson(mode) && tool !== 'measure'} walking={walking} onEnter={onPortal} />
       <MeasureTool room={room.geometry} enabled={tool === 'measure'} uncertaintyM={room.anchor.uncertaintyM} />
     </>
   );
@@ -373,6 +384,51 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
     return wanted ?? rooms.find((r) => r.status === 'ready') ?? rooms[0];
   }, [rooms, localRoomId]);
   const world = bestWorld(room);
+
+  /* ---- the unit as one model (docs/ACCURACY.md 3.3) ----
+     The listing plan is the only thing that knows this flat is one flat: `buildUnitGraph` turns it
+     into rooms, their places and the doors between them, `linkRooms` says which tour room is which
+     room on the drawing, and `matchPortals` puts each of those doors on the opening the collider
+     actually measured in the room the buyer is standing in. Without a plan every one of these is
+     empty and the viewer behaves exactly as it did. */
+  const floorPlan = tour?.floorPlan;
+  const unit = useMemo<UnitGraph | null>(() => (floorPlan?.floors?.length ? buildUnitGraph(floorPlan) : null), [floorPlan]);
+  const planRefs = useMemo(
+    () => (unit ? linkRooms(unit, rooms.map((r) => ({ id: r.id, name: r.name, planRoomName: r.planDims?.planRoomName, floor: r.planDims?.floor }))) : {}),
+    [unit, rooms],
+  );
+  const roomIdForRef = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const [id, ref] of Object.entries(planRefs)) out[ref] = id;
+    return out;
+  }, [planRefs]);
+  /** One room's doorways, in its own metric frame — the same call for the room we are in and the one we are entering. */
+  const portalsFor = useCallback(
+    (r: Room | undefined): PortalMatch => {
+      const ref = r ? planRefs[r.id] : undefined;
+      if (!unit || !r || !ref) return { portals: [], quarters: 0, matched: 0 };
+      return matchPortals({
+        graph: unit,
+        roomRef: ref,
+        geometry: r.geometry,
+        openings: bestWorld(r)?.bounds?.walls?.openings ?? [],
+        /* The openings are in the provider's raw units. The scale that turns them into the frame the
+           portals are drawn in is the room's OWN anchor — `Room.geometry` is `applyScale(raw,
+           anchor.metresPerUnit)` (state/store), and a doorway has to land on that room's walls. */
+        metresPerUnit: r.anchor.metresPerUnit,
+      });
+    },
+    [unit, planRefs],
+  );
+  /* Only doorways that lead somewhere the buyer can actually stand. A plan usually draws rooms the
+     seller never photographed — a hall, a kitchen — and `matchPortals` reports those doors because
+     they are on the drawing; drawing a doorway that does nothing when you walk into it is worse
+     than not drawing it. The unit map still shows those rooms, greyed, so the flat stays whole. */
+  const doorways = useMemo(() => {
+    const all = portalsFor(room);
+    const walkable = all.portals.filter((p) => roomIdForRef[p.toRoomRef]);
+    return walkable.length === all.portals.length ? all : { ...all, portals: walkable };
+  }, [portalsFor, room, roomIdForRef]);
 
   const mode = useViewer((s) => s.mode);
   const setMode = useViewer((s) => s.setMode);
@@ -427,6 +483,11 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   );
 
   const [testOpen, setTestOpen] = useState(false);
+  /* Staging deferred (docs/ACCURACY.md 3.7). The seller's furniture layer, the buyer's furniture
+     test and the "digitally staged" label are the three staging surfaces this screen owns; each is
+     hidden, not deleted, and the viewer leads with MeasuredPanel's numbers instead. */
+  const stagingLayerOn = useAudora((s) => showsStaging(s.settings, 'staging-layer'));
+  const furnitureTestOn = useAudora((s) => showsStaging(s.settings, 'furniture-test'));
   const [layersOpen, setLayersOpen] = useState(false);
   /* "What the model measured" is up by default on a laptop and behind its pill on a phone, where it
      would otherwise cover the room it is describing. */
@@ -443,6 +504,11 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   const [hint, setHint] = useState(false);
   const hintShown = useRef<Partial<Record<ViewMode, boolean>>>({});
   const [teleport, setTeleport] = useState<Pose | null>(null);
+  /* Where the buyer lands in the room they are walking INTO. It cannot be a teleport yet — the room
+     has not changed — and the room-change effect below is what turns it into one, so that walking
+     through a doorway puts them just inside the next room's matching door rather than back at its
+     own capture point. */
+  const arrival = useRef<{ roomId: string; pose: Pose } | null>(null);
   const [marbleStatus, setMarbleStatus] = useState<MarbleStatusMap>({});
   const [fullscreen, setFullscreen] = useState(false);
   /* The canvas has drawn its first frame. Until then the viewport is the loading placeholder, and
@@ -469,6 +535,10 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   const captureFacing = captureYaw(captureFrame);
   const spawn = useMemo<Pose>(() => {
     if (teleport) return teleport;
+    // Read on this render rather than waiting for the effect below to turn it into a teleport: the
+    // room has already changed, and one frame spent at the capture point would be a visible jump
+    // out of the doorway the buyer just walked through.
+    if (arrival.current && arrival.current.roomId === room?.id) return arrival.current.pose;
     if (!room) return { x: 0, z: 0, yaw: 0 };
     const base = realWorld ? { x: captureX, z: captureZ, yaw: captureFacing } : undefined;
     return freeSpawn(room.geometry, room.staging, base);
@@ -489,7 +559,10 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
      new one streams). The mode carries over — unless this room has no panorama to stand in, in
      which case photo view falls back to walking. */
   useEffect(() => {
-    setTeleport(null);
+    // A room reached through a doorway starts at that doorway; any other room change starts fresh.
+    const landing = arrival.current;
+    arrival.current = null;
+    setTeleport(landing && landing.roomId === room?.id ? landing.pose : null);
     const st = useViewer.getState();
     st.setTool('select');
     st.setSelectedId(null);
@@ -542,6 +615,16 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   useEffect(() => {
     if (layersOpen || testOpen || timeOpen || (narrow && measuredOpen)) setHint(false);
   }, [layersOpen, testOpen, timeOpen, narrow, measuredOpen]);
+
+  /* The scene, the minimap, the walk mask and the fit verdict all read `showStaging`, so switching
+     it off is what actually removes the seller's furniture — hiding the toggle alone would leave a
+     staged room on screen with no way back. The buyer's own panel is closed for the same reason. */
+  useEffect(() => {
+    if (!stagingLayerOn) setShowStaging(false);
+  }, [stagingLayerOn, setShowStaging]);
+  useEffect(() => {
+    if (!furnitureTestOn) setTestOpen(false);
+  }, [furnitureTestOn]);
 
   /* keyboard: Esc closes tools and panels */
   useEffect(() => {
@@ -603,6 +686,29 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
       if (st.mode !== 'walk') setMode('walk');
     },
     [setMode, room, buyerPieces],
+  );
+
+  /**
+   * Through a doorway. The room on the other side has a doorway back — the same opening, measured
+   * from inside it — so the buyer steps out of *that* one, facing into the room, rather than being
+   * dropped at its capture point. Photo view has no way to walk, so going through starts walking.
+   */
+  const onPortal = useCallback(
+    (portal: Portal) => {
+      const nextId = roomIdForRef[portal.toRoomRef];
+      const next = rooms.find((r) => r.id === nextId);
+      if (!next || next.id === room?.id) return;
+      const back = portalsFor(next).portals.find((p) => p.toRoomRef === planRefs[room?.id ?? '']);
+      const pose = back ? arrivalPose(back, next.geometry) : null;
+      // `freeSpawn` for the same reason walking always uses it: landing inside the sofa behind the
+      // door leaves the buyer stuck against it.
+      arrival.current = pose ? { roomId: next.id, pose: freeSpawn(next.geometry, next.staging, pose) } : null;
+      if (useViewer.getState().mode === 'photo') setMode('walk');
+      setLocalRoomId(next.id);
+      onRoomChange?.(next.id);
+      if (publicMode && tourId) trackEvent(tourId, 'toggle', { roomId: next.id, item: `door to ${portal.toName}` });
+    },
+    [roomIdForRef, rooms, room?.id, portalsFor, planRefs, setMode, onRoomChange, publicMode, tourId],
   );
 
   const changeMode = (m: ViewMode) => {
@@ -698,11 +804,23 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   }
 
   const cmUncertainty = Math.max(1, Math.round(room.anchor.uncertaintyM * 100));
-  // The plan keeps the room's aspect inside a box whose longer side is `planSize` px.
-  const planSize = narrow || touch ? 96 : 140;
-  const planW = room.geometry.width + 1.1;
-  const planH = room.geometry.depth + 1.1;
-  const plan = planW >= planH ? { w: planSize, h: (planSize * planH) / planW } : { w: (planSize * planW) / planH, h: planSize };
+  /* The corner plan. With a listing plan behind it that is the whole flat with the buyer standing
+     in one of its rooms; without one it is this room, measured from its own collider. The unit map
+     only takes over when the plan really places this room among others — a one-room plan, or a room
+     the plan never named, is better served by the room's own drawing. */
+  const unitRef = unit ? planRefs[room.id] : undefined;
+  const unitRoom = unit && unitRef ? roomOf(unit, unitRef) : undefined;
+  const unitBox = unit && unitRoom ? floorBounds(unit, unitRoom.floorIndex) : null;
+  const showUnit = Boolean(unit && unitRef && unitBox && unit.rooms.filter((r) => r.floorIndex === unitRoom!.floorIndex).length > 1);
+  /* The unit map carries room names and printed dimensions and the room map does not, so it needs
+     the room to draw them: at 178 px a five-room storey put "Living room" on screen 2.8 px tall.
+     It is also given a floor on the short axis, because a wide storey (rooms chained along one
+     line) would otherwise letterbox down to a strip too shallow for a name and a dimension. */
+  const planSize = showUnit ? (narrow || touch ? 168 : 252) : narrow || touch ? 96 : 140;
+  const planW = showUnit && unitBox ? unitBox.maxX - unitBox.minX + 1.8 : room.geometry.width + 1.1;
+  const planH = showUnit && unitBox ? unitBox.maxZ - unitBox.minZ + 1.8 : room.geometry.depth + 1.1;
+  const planFit = planW >= planH ? { w: planSize, h: (planSize * planH) / planW } : { w: (planSize * planW) / planH, h: planSize };
+  const plan = showUnit ? { w: planFit.w, h: Math.max(planFit.h, narrow || touch ? 96 : 132) } : planFit;
   const jobFor = (id: string) => jobs.filter((j) => j.roomId === id && (j.status === 'queued' || j.status === 'running')).pop();
   const stagingForVerdict = showStaging ? room.staging : [];
   // Anything real enough to have layers worth switching: the panel also carries the floor nudge.
@@ -741,6 +859,8 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
           geometryView={geometryView}
           onCaptureLight={onCaptureLight}
           onPanoSize={onPanoSize}
+          portals={doorways.portals}
+          onPortal={onPortal}
           editable={buyerPieces.length > 0}
         />
       </SceneCanvas>
@@ -794,14 +914,20 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
                 </HudPill>
                 {/* Black, not blue: this is a chrome toggle sitting beside four black/white siblings.
                     The buyer's blue belongs to the piece, its dimension chip and the verdict card. */}
-                <HudPill active={testOpen} onClick={() => setTestOpen((v) => !v)} icon={<Icon.Sofa size={14} />} title="Test your own furniture in this room">
-                  {testOpen ? 'Close' : 'Test my furniture'}
-                  {buyerPieces.length ? <span className="mono text-[11px] opacity-70">{buyerPieces.length}</span> : null}
-                </HudPill>
-                <PillDivider />
-                <HudPill square active={!showStaging} onClick={toggleStaging} aria-label={showStaging ? 'See it bare' : 'Show staging'} title={showStaging ? 'See it bare' : 'Show staging'}>
-                  {showStaging ? <Icon.EyeOff size={15} /> : <Icon.Eye size={15} />}
-                </HudPill>
+                {furnitureTestOn ? (
+                  <HudPill active={testOpen} onClick={() => setTestOpen((v) => !v)} icon={<Icon.Sofa size={14} />} title="Test your own furniture in this room">
+                    {testOpen ? 'Close' : 'Test my furniture'}
+                    {buyerPieces.length ? <span className="mono text-[11px] opacity-70">{buyerPieces.length}</span> : null}
+                  </HudPill>
+                ) : null}
+                {stagingLayerOn ? (
+                  <>
+                    <PillDivider />
+                    <HudPill square active={!showStaging} onClick={toggleStaging} aria-label={showStaging ? 'See it bare' : 'Show staging'} title={showStaging ? 'See it bare' : 'Show staging'}>
+                      {showStaging ? <Icon.EyeOff size={15} /> : <Icon.Eye size={15} />}
+                    </HudPill>
+                  </>
+                ) : null}
                 {site ? (
                   <HudPill square active={timeOpen} onClick={() => setTimeOpen((v) => !v)} aria-label="Time of day" title={timeOpen ? 'Close the time of day' : 'Time of day · the real sun'}>
                     <Icon.Sun size={15} />
@@ -850,11 +976,26 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
               {/* the plan, the anchor and the disclosure — the three things that must never leave the screen */}
               <div className="flex flex-col items-start gap-1.5 justify-self-start">
                 <div className="glass pointer-events-auto hidden rounded-2xl p-2 sm:block" style={{ width: plan.w + 16 }}>
-                  <Minimap room={room.geometry} pieces={room.staging} buyerPieces={buyerPieces} showSeller={showStaging} selectedId={selectedId} uncertaintyM={room.anchor.uncertaintyM} onClick={teleportTo} style={{ height: plan.h + 22 }} className="w-full" />
+                  {showUnit && unit ? (
+                    <UnitMap
+                      graph={unit}
+                      activeRoomRef={unitRef}
+                      quarters={doorways.quarters}
+                      onPickRoom={(ref) => {
+                        const id = roomIdForRef[ref];
+                        if (id) switchRoom(id);
+                      }}
+                      onWalkTo={teleportTo}
+                      style={{ height: plan.h + 26 }}
+                      className="w-full"
+                    />
+                  ) : (
+                    <Minimap room={room.geometry} pieces={room.staging} buyerPieces={buyerPieces} showSeller={showStaging} selectedId={selectedId} uncertaintyM={room.anchor.uncertaintyM} onClick={teleportTo} style={{ height: plan.h + 22 }} className="w-full" />
+                  )}
                 </div>
                 <div className="pointer-events-auto flex max-w-[60vw] flex-wrap items-center gap-1.5">
                   <AnchorChip anchor={room.anchor} size="sm" className="max-w-full bg-[color:var(--color-glass)] backdrop-blur-md" />
-                  <StagedLabel className="bg-[color:var(--color-glass)] backdrop-blur-md" />
+                  {stagingLayerOn ? <StagedLabel className="bg-[color:var(--color-glass)] backdrop-blur-md" /> : null}
                 </div>
               </div>
 
@@ -968,7 +1109,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
           ) : null}
 
           {/* the buyer's own furniture: the prototype's right-hand glass panel, a bottom sheet on a phone */}
-          {testOpen ? (
+          {testOpen && furnitureTestOn ? (
             <div className="glass animate-rise absolute inset-x-0 bottom-0 z-40 max-h-[70vh] rounded-t-2xl md:inset-x-auto md:bottom-[92px] md:right-3.5 md:top-[var(--hud-top,52px)] md:max-h-none md:w-[340px] md:rounded-2xl">
               <FurnitureTest
                 room={room}

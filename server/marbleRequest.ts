@@ -15,6 +15,7 @@
  */
 
 import { MARBLE_MAX_IMAGES, MARBLE_PLAIN_IMAGES, SEED_MAX } from './recipe.js';
+import { reconstructsImages } from '../shared/marbleLimits.js';
 
 /**
  * Marble takes 4 images in a multi-image prompt, or 8 in reconstruction mode, and its seed is a
@@ -61,6 +62,28 @@ export interface MarbleModelIds {
   full: string;
 }
 
+/**
+ * Full quality has a larger sibling for rooms one `marble-1.1` loses the far end of — an open plan,
+ * or more than 30 m² of floor (docs/ACCURACY.md 3.5, `modelForRoom` in src/screens/create/intake.ts).
+ * The suffix is the whole rule, so a deployment that renames its models keeps it.
+ */
+export const MARBLE_PLUS_SUFFIX = '-plus';
+
+/**
+ * The model this request may run.
+ *
+ * The caller names one because the *recipe* names one: the model id is hashed into the recipe, so a
+ * server that quietly ran something else would record a hash for a world it did not ask for. It is
+ * still an allowlist and not a passthrough — this endpoint spends money — so only the tier's own
+ * model and its `-plus` sibling are accepted, and anything else falls back to the tier's default
+ * rather than being sent to the provider.
+ */
+export function modelFor(tier: unknown, requested: unknown, models: MarbleModelIds): string {
+  const base = tier === 'full' ? models.full : models.draft;
+  if (typeof requested !== 'string' || !requested) return base;
+  return requested === base || requested === `${base}${MARBLE_PLUS_SUFFIX}` ? requested : base;
+}
+
 /** Split a base64 image data URL into the bytes and the extension Marble wants (`jpg`, `png`, ...). */
 export function dataUrlToBase64(dataUrl: string): { base64: string; extension: string } {
   const m = /^data:image\/(\w+);base64,(.*)$/s.exec(dataUrl);
@@ -100,7 +123,8 @@ export function mergeTags(raw: unknown): string[] {
  * them — and `imageDataUrl` stays for the single-photo callers. An `azimuth` (degrees round the
  * capture point, 0 = the first shot) tells Marble where each angle faces instead of making it guess.
  * Shape per the World API's own schema: `multi_image_prompt: [{ azimuth?, content: { source,
- * data_base64, extension } }]`, with `reconstruct_images` once there are more than four.
+ * data_base64, extension } }]`, with `reconstruct_images` from two angles up (docs/ACCURACY.md 3.4:
+ * more than one photo of a room means it is reconstructed, not described).
  */
 export function marbleGenerateRequest(body: any, models: MarbleModelIds): MarbleGenerateResult {
   const angles: { dataUrl: string; azimuth?: number }[] =
@@ -138,7 +162,7 @@ export function marbleGenerateRequest(body: any, models: MarbleModelIds): Marble
             ...(s.azimuth == null ? {} : { azimuth: s.azimuth }),
             content: { source: 'data_base64', data_base64: s.base64, extension: s.extension },
           })),
-          reconstruct_images: shots.length > MARBLE_PLAIN_IMAGES,
+          reconstruct_images: reconstructsImages(shots.length),
           text_prompt: textPrompt,
           ...recaption,
         };
@@ -146,7 +170,7 @@ export function marbleGenerateRequest(body: any, models: MarbleModelIds): Marble
   return {
     request: {
       display_name: String(body?.displayName || 'Audora room').slice(0, 64),
-      model: body?.tier === 'full' ? models.full : models.draft,
+      model: modelFor(body?.tier, body?.model, models),
       tags: mergeTags(body?.tags),
       permission: { public: false, allow_id_access: true },
       ...(seed === undefined ? {} : { seed }),

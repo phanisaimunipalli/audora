@@ -8,7 +8,14 @@ import { audoraApi } from './server/api.ts';
 // VITE_ is used for secrets, so nothing secret ever ships to the browser.
 export default defineConfig({
   plugins: [react(), tailwindcss(), audoraApi()],
-  resolve: { alias: { '@': path.resolve(import.meta.dirname, 'src') } },
+  // `@shared` must come first: Vite matches string aliases by prefix, and a bare '@' would
+  // otherwise swallow '@shared/…'. The same two mappings are in tsconfig.app.json/node.json.
+  resolve: {
+    alias: {
+      '@shared': path.resolve(import.meta.dirname, 'shared'),
+      '@': path.resolve(import.meta.dirname, 'src'),
+    },
+  },
   server: { port: 5173, watch: { ignored: ['**/.audora/**', '**/evals/results/**', '**/dist/**'] } },
   build: {
     chunkSizeWarningLimit: 1500,

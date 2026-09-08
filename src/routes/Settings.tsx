@@ -30,8 +30,8 @@ export default function Settings() {
         </Callout>
         <Callout tone="info" title={providers.nebius ? 'Nebius Token Factory is live' : 'Nebius Token Factory is mocked'}>
           {providers.nebius
-            ? `Photo analysis uses ${providers.models?.vision}, staging uses ${providers.models?.text}, quick parsing uses ${providers.models?.fast}.`
-            : 'Add NEBIUS_API_KEY to .env to run photo analysis, auto staging and listing copy on open models. The rule-based fallbacks stay in place either way.'}
+            ? `Photo analysis uses ${providers.models?.vision}, listing copy uses ${providers.models?.text}, quick parsing uses ${providers.models?.fast}.`
+            : 'Add NEBIUS_API_KEY to .env to run photo analysis, the listing copy and the renter-activity insights on open models. The rule-based fallbacks stay in place either way.'}
         </Callout>
       </Card>
       <Card className="flex flex-col gap-4">
@@ -46,11 +46,11 @@ export default function Settings() {
         <Toggle
           checked={stagingEnabled(settings)}
           onChange={(v) => set({ stagingEnabled: v })}
-          label="Enable staging (Stage tab, auto-stage, the staging editor, the buyer’s furniture test)"
+          label="Enable staging (Stage tab, auto-stage, the staging editor, the renter’s furniture test)"
         />
         <p className="text-sm text-dim">
-          Off by default. Audora leads with the accurate model of the unit: its dimensions against the floor plan, the anchor and the model date. Turning this on brings the
-          staging editor and the buyer’s “does my sofa fit” test back; nothing you have staged is deleted while it is off.
+          Staging is deferred while the product concentrates on the accurate model of the unit — its dimensions against the floor plan, the anchor and the model date. Turn it
+          on to see the staging editor and the furniture test. Nothing you have staged is deleted while it is off, and “AI-generated from photos” stays on every model either way.
         </p>
       </Card>
       <Card className="flex flex-col gap-4">
@@ -59,11 +59,11 @@ export default function Settings() {
           <Field label="Draft world, seconds"><Input type="number" min={5} value={settings.mockDraftSeconds} onChange={(e) => set({ mockDraftSeconds: Number(e.target.value) })} /></Field>
           <Field label="Full world, seconds"><Input type="number" min={5} value={settings.mockFullSeconds} onChange={(e) => set({ mockFullSeconds: Number(e.target.value) })} /></Field>
         </div>
-        <Toggle checked={settings.sound} onChange={(v) => set({ sound: v })} label="Play a chime when a tour finishes" />
+        <Toggle checked={settings.sound} onChange={(v) => set({ sound: v })} label="Play a chime when a unit finishes generating" />
       </Card>
       <Card className="flex flex-col gap-4">
         <div className="micro">Notifications</div>
-        <p className="text-sm text-dim">Generation takes minutes. Allow notifications and you can leave the tab; we will tell you when the tour is ready.</p>
+        <p className="text-sm text-dim">Generation takes minutes. Allow notifications and you can leave the tab; we will tell you when the unit is ready.</p>
         {perm === 'granted' ? (
           <Chip mono className="self-start">browser notifications on</Chip>
         ) : perm === 'unsupported' ? (
@@ -76,7 +76,7 @@ export default function Settings() {
         )}
       </Card>
       <Card className="flex flex-col gap-4">
-        <div className="micro">Agent identity</div>
+        <div className="micro">Leasing team identity</div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Name"><Input value={settings.agentName} onChange={(e) => set({ agentName: e.target.value })} /></Field>
           <Field label="Brand colour">
@@ -90,7 +90,7 @@ export default function Settings() {
       </Card>
       <Card className="flex flex-col gap-3">
         <div className="micro">Data</div>
-        <p className="text-sm text-dim">Everything lives in this browser's storage. Reset clears your tours and re-seeds the demo listing.</p>
+        <p className="text-sm text-dim">Everything lives in this browser's storage. Reset clears your units and re-seeds the demo unit.</p>
         <div>
           <ResetButton onReset={() => { resetAll(); seedDemo(); }} />
         </div>
@@ -103,7 +103,7 @@ function ResetButton({ onReset }: { onReset: () => void }) {
   const [armed, setArmed] = useState(false);
   return (
     <Button variant="danger" onClick={() => { if (armed) { onReset(); setArmed(false); } else { setArmed(true); window.setTimeout(() => setArmed(false), 4000); } }}>
-      {armed ? 'Click again to confirm' : 'Reset and re-seed demo'}
+      {armed ? 'Click again to confirm' : 'Reset and re-seed the demo unit'}
     </Button>
   );
 }

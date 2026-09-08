@@ -54,7 +54,7 @@ export function AccuracyCard({ room, compact, className, now }: AccuracyCardProp
       ) : null}
 
       {/* Why the chip says what it says. Shown for a measured room too, because "no confidence" and
-          "the plan is the only source" are the two states a seller can actually act on. */}
+          "the plan is the only source" are the two states a leasing team can actually act on. */}
       {!a.measured || a.confidenceLabel === 'none' || (a.independentSources != null && a.independentSources <= 1) ? (
         <p className="text-xs text-ink-3">{a.confidenceText}</p>
       ) : null}

@@ -4,8 +4,8 @@ import { bestWorld, useAudora } from '@/state/store';
 import { credits as fmtCredits, tourQuality } from '@/state/publish';
 import { stagingEnabled } from '@/state/staging';
 import type { Job, Room, Tour } from '@/state/types';
-import { plural, timeAgo, usd as fmtUsd } from '@/lib/format';
-import { Chip, StagedLabel, cx } from '@/components/ui';
+import { availableLabel, plural, timeAgo, usd as fmtUsd } from '@/lib/format';
+import { Chip, SourceLabel, StagedLabel, cx, stagedLabelShows } from '@/components/ui';
 import { RailArrow, useRail } from '@/components/Rail';
 import { Icon } from '@/components/icons';
 import { latestJobFor, isActiveJob, providerName, type TourStatus } from './jobMeta';
@@ -31,7 +31,15 @@ export function HubHeader({
   selectedRoomId?: string;
   onSelectRoom: (id: string) => void;
 }) {
-  const facts = [tour.price, tour.beds != null && `${tour.beds} bd`, tour.baths != null && `${tour.baths} ba`, tour.sqft != null && `${tour.sqft.toLocaleString()} sqft`].filter(Boolean) as string[];
+  /* Rent and the available date are what a renter decides against, so they lead the fact line. */
+  const available = availableLabel(tour.availableFrom);
+  const facts = [
+    tour.price,
+    available && `available ${available}`,
+    tour.beds != null && `${tour.beds} bd`,
+    tour.baths != null && `${tour.baths} ba`,
+    tour.sqft != null && `${tour.sqft.toLocaleString()} sqft`,
+  ].filter(Boolean) as string[];
   const worlds = rooms.map(bestWorld).filter(Boolean) as NonNullable<ReturnType<typeof bestWorld>>[];
   const credits = worlds.reduce((a, w) => a + (w.provider === 'marble' ? w.credits ?? 0 : 0), 0);
   const spent = worlds.reduce((a, w) => a + (w.provider === 'marble' ? w.usd ?? 0 : 0), 0);
@@ -51,6 +59,7 @@ export function HubHeader({
   /* docs/ACCURACY.md 3.7: with staging deferred the unit leads with what it measures, the plan it
      was measured against and when its model was made — not with how it is furnished. */
   const stagingOn = useAudora((s) => stagingEnabled(s.settings));
+  const stagedPieces = rooms.reduce((n, r) => n + r.staging.length, 0);
   const newestWorld = worlds.reduce<number | undefined>((a, w) => (a == null || w.createdAt > a ? w.createdAt : a), undefined);
   const planned = tour.floorPlan ? dimensionedRooms(tour.floorPlan).length : 0;
   const lead = [
@@ -98,7 +107,7 @@ export function HubHeader({
           <h1 className="display mt-2 text-3xl leading-tight text-ink md:text-4xl">{tour.title}</h1>
           <div className="mt-1 text-sm text-ink-2">{tour.address}</div>
           <div className="mono mt-1 flex flex-wrap items-center gap-x-2 text-sm text-ink-2">
-            {facts.length ? facts.join(' · ') : <span className="text-ink-3">no listing facts</span>}
+            {facts.length ? facts.join(' · ') : <span className="text-ink-3">no unit details yet</span>}
             {tour.listingUrl ? (
               <a href={tour.listingUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-sans text-xs text-ink-2 hover:text-ink">
                 <Icon.Link size={12} /> {SOURCE_LABEL[tour.listingSource ?? ''] ?? 'Listing'} ↗
@@ -116,8 +125,10 @@ export function HubHeader({
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 md:justify-end">
             {/* Credit totals are money, so they get thousands separators — everywhere. */}
             {meta ? <span className="mono text-[11px] text-dim md:text-right" title={metaTitle}>{meta}</span> : null}
-            {/* "Digitally staged" discloses furniture that is not there; with staging off there is none. */}
-            {stagingOn ? <StagedLabel /> : null}
+            {/* The permanent claim: this unit's model was generated from its photographs. */}
+            <SourceLabel />
+            {/* "Digitally staged" is the separate claim about furniture — only when there is some. */}
+            {stagedLabelShows(stagedPieces, stagingOn) ? <StagedLabel /> : null}
           </div>
           <Link to={`/t/${tour.shareId}`} target="_blank" className="inline-flex items-center gap-1.5 text-sm text-ink-2 hover:text-ink">
             <Icon.Share size={14} /> Public link <span className="mono text-xs text-ink-3">/t/{tour.shareId}</span>
@@ -170,7 +181,7 @@ export function HubHeader({
         </div>
       </div>
 
-      {/* Where the listing is, and which way its windows face: the provenance of the tour's sun. */}
+      {/* Where the unit is, and which way its windows face: the provenance of its sun. */}
       <SiteCard tour={tour} rooms={rooms} />
     </header>
   );

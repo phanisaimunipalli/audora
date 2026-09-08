@@ -44,6 +44,8 @@ import { planRoomRef, rawFromMeasurements, withPlanRoom, withoutPhoto, type Draf
 import type { FlatPlanRoom } from '../src/services/floorplan';
 import { DRAFT_MODEL, FULL_MODEL } from '../src/state/publish';
 import { STAGING_SURFACES, hiddenStagingSurfaces, resolveTab, showsStaging, stagingEnabled, visibleTabs } from '../src/state/staging';
+import { stagedLabelShows } from '../src/components/ui';
+import { disclosure, embedSnippet } from '../src/screens/viewer/share';
 import {
   CEILING_OK_M,
   DIMENSION_OK_PCT,
@@ -431,7 +433,7 @@ describe('stagingEnabled hides the entry points', () => {
       expect(showsStaging({ stagingEnabled: false }, surface)).toBe(false);
       expect(showsStaging({ stagingEnabled: true }, surface)).toBe(true);
     }
-    // The list is the contract: the Stage tab, auto-stage, the editor, the buyer's furniture test
+    // The list is the contract: the Stage tab, auto-stage, the editor, the renter's furniture test
     // and the staging layer in the scene.
     expect(STAGING_SURFACES).toEqual(['stage-tab', 'auto-stage', 'editor', 'furniture-test', 'staging-layer']);
   });
@@ -445,6 +447,40 @@ describe('stagingEnabled hides the entry points', () => {
     expect(resolveTab('stage', tabs, { stagingEnabled: true })).toBe('stage');
     expect(resolveTab('publish', tabs)).toBe('publish');
     expect(resolveTab(null, tabs)).toBe('tour');
+  });
+});
+
+/* ---------- the two provenance labels (docs/COPY.md) ---------- */
+
+describe('the label rule', () => {
+  it('shows "digitally staged" only for a room that has pieces, with staging on', () => {
+    // Staging off: nothing to disclose, whatever is stored on the room.
+    expect(stagedLabelShows(0, false)).toBe(false);
+    expect(stagedLabelShows(7, false)).toBe(false);
+    // Staging on, but this room is bare: still nothing to disclose.
+    expect(stagedLabelShows(0, true)).toBe(false);
+    // Both: the claim is true, so it is made.
+    expect(stagedLabelShows(1, true)).toBe(true);
+  });
+
+  it('says AI-generated from photos, checked against the plan, with the uncertainty and the warning', () => {
+    const line = disclosure(['Living room: door · 2.03 m · ±4 cm']);
+    expect(line.startsWith('AI-generated from photos.')).toBe(true);
+    expect(line).toContain('checked against its floor plan');
+    expect(line).toContain('Living room: door · 2.03 m · ±4 cm');
+    expect(line).toContain('± uncertainty');
+    expect(line).toContain('Verify any measurement before you rely on it.');
+    // Never the furniture claim: that is StagedLabel's job and it is deferred.
+    expect(line.toLowerCase()).not.toContain('digitally staged');
+    expect(line.toLowerCase()).not.toContain('furniture');
+    // With no anchors it still reads as a sentence rather than an empty bracket.
+    expect(disclosure()).not.toContain('()');
+  });
+
+  it('puts that same line in the embed snippet, so the iframe and the page agree', () => {
+    const snippet = embedSnippet('oak1247', 'Unit 3');
+    expect(snippet).toContain(disclosure());
+    expect(snippet.toLowerCase()).not.toContain('digitally staged');
   });
 });
 

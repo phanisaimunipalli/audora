@@ -1,6 +1,6 @@
 /**
  * The horizontal rail affordance the prototype's bottom strip has and ours did not: a fade at the
- * live edge **and** a pair of arrows, so a buyer on a phone can see that Fullscreen, Share and
+ * live edge **and** a pair of arrows, so a renter on a phone can see that Fullscreen, Share and
  * Layers exist at all rather than discovering them by accident.
  *
  * `useRail` watches one scroller and says which way it can still go; `RailArrow` is the button.

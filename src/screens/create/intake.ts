@@ -8,14 +8,14 @@
  *   is the floor of the product; the third is where a room stops guessing at its far wall.
  * - **A quality gate.** The numbers `preparePhoto` already measured (brightness, darkFraction,
  *   detail, aspect) plus the vision model's own `quality` become one verdict. A *poor* primary
- *   photo blocks the room until it is retaken or the seller explicitly says "use anyway" — an
+ *   photo blocks the room until it is retaken or the leasing team explicitly says "use anyway" — an
  *   accepted bad photo is a decision on the record, not a silent downgrade.
  * - **Plan says / photo shows.** The mapping between the rooms the plan produced and the photos the
- *   seller uploaded, with the state of each pairing, so the confirmation row has nothing to decide.
+ *   leasing team uploaded, with the state of each pairing, so the confirmation row has nothing to decide.
  * - **Tier policy.** Which Marble model a room should be reconstructed with, and what it costs.
  *
  * Conventions: pure and deterministic (no clock, no randomness, no I/O), thresholds named as
- * constants with the reason beside them, and every verdict carries the sentence a seller reads.
+ * constants with the reason beside them, and every verdict carries the sentence a leasing team reads.
  */
 import type { RoomType } from '@/engine/types';
 import { MARBLE_RECONSTRUCT_MIN_IMAGES, reconstructsImages } from '@shared/marbleLimits';
@@ -31,7 +31,7 @@ import { draftGeometry, draftPhotos, planDimensionsOf, type DraftPhoto, type Dra
 export interface AngleSlot {
   key: 'corner' | 'doorway' | 'opposite' | 'extra';
   label: string;
-  /** What to do, said as an instruction the seller can follow standing in the room. */
+  /** What to do, said as an instruction someone can follow standing in the room. */
   hint: string;
 }
 
@@ -178,7 +178,7 @@ export interface RoomIntake {
   /** The verdict on the *primary* photo — the one the anchor is tapped on. */
   verdict: PhotoVerdict;
   angles: AngleState;
-  /** The seller pressed "use anyway"; the room may be generated with a poor photo. */
+  /** The leasing team pressed "use anyway"; the room may be generated with a poor photo. */
   accepted: boolean;
   /** Blocks Continue: a poor primary photo that has not been accepted. */
   blocked: boolean;
@@ -221,7 +221,7 @@ export function blockedRooms(rooms: DraftRoom[]): RoomIntake[] {
   return rooms.map(roomIntake).filter((r) => r.blocked);
 }
 
-/** Rooms with a photo that is usable but not good, and that the seller has not already accepted. */
+/** Rooms with a photo that is usable but not good, and that has not already been accepted. */
 export function warnedRooms(rooms: DraftRoom[]): RoomIntake[] {
   return rooms.map(roomIntake).filter((r) => !r.blocked && r.verdict.level === 'fair');
 }
@@ -454,15 +454,15 @@ export function tierPlan(rooms: DraftRoom[], tier: Tier, opts: { live?: boolean;
   };
 }
 
-/** The one-sentence difference between the tiers, said at the point the seller chooses. */
+/** The one-sentence difference between the tiers, said at the point the leasing team chooses. */
 export const TIER_COPY: Record<Tier, { headline: string; body: string }> = {
   draft: {
     headline: 'Instant preview, no metric scale',
-    body: 'About a minute a room. Marble returns geometry up to scale only, so every dimension comes from your anchor and the plan. Good enough to look at and to stage against; not what a buyer should measure.',
+    body: 'About a minute a room. Marble returns geometry up to scale only, so every dimension comes from your anchor and the plan. Good enough to look at and to stage against; not what a renter should measure.',
   },
   full: {
     headline: 'The published model, with metric scale',
-    body: 'About ten minutes a room. Full quality is the only tier that returns Marble’s own metric_scale_factor, which fusion weighs against the plan and the anchor. This is the model a buyer walks and measures.',
+    body: 'About ten minutes a room. Full quality is the only tier that returns Marble’s own metric_scale_factor, which fusion weighs against the plan and the anchor. This is the model a renter walks and measures.',
   },
 };
 
@@ -472,9 +472,9 @@ export const DEFAULT_PUBLISH_TIER: Tier = 'full';
 /* ---------- 3.5b: plan says / photo shows ---------- */
 
 export type PlanRowState =
-  /** Matched to a plan room with printed dimensions, and confirmed by the seller. */
+  /** Matched to a plan room with printed dimensions, and confirmed by the leasing team. */
   | 'confirmed'
-  /** Matched with dimensions, waiting for the seller to say yes. */
+  /** Matched with dimensions, waiting for the leasing team to say yes. */
   | 'unconfirmed'
   /** Matched, but the plan printed no dimensions for that room. */
   | 'no-dimensions'
@@ -484,7 +484,7 @@ export type PlanRowState =
 export interface PlanPhotoRow {
   roomId: string;
   roomName: string;
-  /** The photo the seller matched, for the thumbnail. Undefined for a typed or plan-only room. */
+  /** The photo that was matched, for the thumbnail. Undefined for a typed or plan-only room. */
   thumbnail?: string;
   planKey?: string;
   planRoomName?: string;
@@ -533,7 +533,7 @@ export function planPhotoRows(rooms: DraftRoom[]): PlanPhotoRow[] {
   });
 }
 
-/** Rows still waiting on the seller. Empty means every matched room has been confirmed. */
+/** Rows still waiting on the leasing team. Empty means every matched room has been confirmed. */
 export function unconfirmedRows(rooms: DraftRoom[]): PlanPhotoRow[] {
   return planPhotoRows(rooms).filter((r) => r.state === 'unconfirmed');
 }

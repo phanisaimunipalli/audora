@@ -2,7 +2,7 @@
  * Downloading a `.spz` with byte progress and a way to cancel it.
  *
  * Spark's `SplatMesh({ url })` fetches the file itself, but that fetch cannot be aborted and reports
- * nothing until it is done — so a buyer who switches rooms mid-download keeps paying for 23 MB they
+ * nothing until it is done — so a renter who switches rooms mid-download keeps paying for 23 MB they
  * will never see, and the HUD has nothing to say meanwhile. Fetching the bytes ourselves and handing
  * them to `SplatMesh({ fileBytes })` gives us both, and costs nothing: Spark parses from memory.
  */

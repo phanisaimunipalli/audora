@@ -9,7 +9,7 @@ type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'buyer';
 type Size = 'sm' | 'md' | 'lg';
 
 /* Actions are pills. Primary is a black fill; secondary is white with a hairline; ghost is quiet
-   text that only earns a background on hover. The buyer's own actions are the one blue. */
+   text that only earns a background on hover. The renter's own actions are the one blue. */
 const VARIANTS: Record<Variant, string> = {
   primary: 'bg-accent text-white shadow-[0_6px_18px_rgba(10,10,10,0.18)] hover:bg-accent-deep hover:-translate-y-px active:translate-y-0',
   secondary: 'bg-bg text-ink border border-line-2 hover:border-ink-2 hover:bg-bg',
@@ -18,8 +18,8 @@ const VARIANTS: Record<Variant, string> = {
   buyer: 'bg-buyer text-white shadow-[0_6px_18px_rgba(29,99,255,0.22)] hover:brightness-105',
 };
 /**
- * A disabled fill is not a faded fill. `opacity-45` over the black or the buyer blue leaves white
- * text on a wash — the buyer's "Test" pill measured 1.9:1 and still looked pressable — so a filled
+ * A disabled fill is not a faded fill. `opacity-45` over the black or the renter blue leaves white
+ * text on a wash — the renter's "Test" pill measured 1.9:1 and still looked pressable — so a filled
  * variant that is switched off becomes the prototype's own "not yet" control: white, `--line-2`
  * hairline, `--faint` label.
  */
@@ -275,11 +275,44 @@ export function Callout({ tone = 'info', title, children }: { tone?: 'info' | 'w
   );
 }
 
-/** Gold dot: the one warm accent, and it means "not a photograph of what is there". */
+/*
+ * The two provenance labels, side by side so the rule between them is readable in one place
+ * (docs/COPY.md):
+ *
+ *   `SourceLabel` — "AI-generated from photos" — is **permanent**. It goes on every capture, every
+ *   still, every embed and the public page, whatever the settings say, because the model is always
+ *   a reconstruction of photographs rather than a photograph or a scan.
+ *
+ *   `StagedLabel` — "digitally staged" — is a claim about *furniture that is not in the unit*. It
+ *   appears only when a room actually carries staged pieces **and** `stagingEnabled(settings)` is
+ *   on (docs/ACCURACY.md 3.7: staging is deferred, so normally there is nothing to disclose).
+ *
+ * Both wear the gold dot: the one warm accent, and it means "not a photograph of what is there".
+ */
+
+/** The permanent provenance label. Never gated on a setting. */
+export function SourceLabel({ className }: { className?: string }) {
+  return (
+    <span className={cx('chip !text-[10.5px] font-semibold tracking-[0.14em] uppercase', className)}>
+      <span className="h-1.5 w-1.5 rounded-full bg-gold" /> AI-generated from photos
+    </span>
+  );
+}
+
+/** Furniture disclosure. Render it only when `stagedLabelShows(...)` says so. */
 export function StagedLabel({ className }: { className?: string }) {
   return (
     <span className={cx('chip !text-[10.5px] font-semibold tracking-[0.14em] uppercase', className)}>
       <span className="h-1.5 w-1.5 rounded-full bg-gold" /> digitally staged
     </span>
   );
+}
+
+/**
+ * The one rule for "digitally staged": there are staged pieces in this room, and staging is on.
+ * Pure and tiny on purpose — the hub, the viewer and the editor all ask it rather than each
+ * re-deriving half of it.
+ */
+export function stagedLabelShows(stagedPieces: number, stagingOn: boolean): boolean {
+  return stagingOn && stagedPieces > 0;
 }

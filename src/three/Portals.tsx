@@ -1,7 +1,7 @@
 /**
  * Doorways you can walk through — docs/ACCURACY.md section 3.3, "the unit as one model".
  *
- * A room's collider knows where its openings are and the listing plan knows which room is on the
+ * A room's collider knows where its openings are and the floor plan knows which room is on the
  * other side of each of them; `shared/unitGraph` puts the two together and hands this component the
  * result. What is left here is only how a doorway *looks* and how you go through it: a pane of
  * light standing in the opening with an ink frame round it, a threshold on the floor, and the name
@@ -12,11 +12,11 @@
  *   walls (`Portal.x/z`, floor y = 0), so this file does no frame arithmetic at all — it turns the
  *   group to `yaw + π` so local +z points out through the doorway and draws in that local frame.
  * - **Two ways through, one event.** Walking within {@link PORTAL_ENTER_M} of a doorway goes
- *   through it, and so does clicking it. A doorway is *armed* only once the buyer has been further
+ *   through it, and so does clicking it. A doorway is *armed* only once the renter has been further
  *   than `ARM_M` from it, so arriving next to the door you just came out of does not bounce you
  *   straight back.
  * - **Subtle.** It is drawn over a photograph, so it is white light and a hairline, never a UI
- *   colour: the buyer should see the room, and the doorway only when they look at it.
+ *   colour: the renter should see the room, and the doorway only when they look at it.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useThree } from '@react-three/fiber';
@@ -27,7 +27,7 @@ import { useViewer, type Pose } from './viewerStore';
 
 /** A standard interior door — the same 2.03 m the door anchor measures against. */
 export const PORTAL_HEIGHT_M = 2.03;
-/** How far the buyer has to get from a doorway before walking into it counts again. */
+/** How far the renter has to get from a doorway before walking into it counts again. */
 const ARM_M = 1.4;
 /** Within this, the doorway says which room it leads to. */
 const NEAR_M = 3.2;
@@ -42,14 +42,14 @@ export interface PortalsProps {
   height?: number;
   /** Off in the dollhouse: a doorway belongs to the room you are standing in. */
   enabled?: boolean;
-  /** The buyer can move, so proximity opens a doorway. In photo view only a click does. */
+  /** The renter can move, so proximity opens a doorway. In photo view only a click does. */
   walking?: boolean;
-  /** The buyer went through: switch to `portal.toRoomRef` and put them just inside it. */
+  /** The renter went through: switch to `portal.toRoomRef` and put them just inside it. */
   onEnter: (portal: Portal) => void;
 }
 
 /**
- * Every doorway out of the room the buyer is standing in.
+ * Every doorway out of the room the renter is standing in.
  *
  * Nothing here is drawn in the dollhouse — from above, the room is a diagram and the unit minimap
  * is the thing that shows how it joins the rest of the flat.
@@ -69,7 +69,7 @@ export function Portals({ portals, height = PORTAL_HEIGHT_M, enabled = true, wal
 
   /* Proximity, off the viewer's pose rather than the render loop: the walker publishes a pose
      whenever it actually moves (WalkControls), and a canvas that renders on demand must not be the
-     thing that decides whether the buyer has reached a door. */
+     thing that decides whether the renter has reached a door. */
   useEffect(() => {
     armed.current = new Set<string>();
     setNear([]);

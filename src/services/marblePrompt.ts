@@ -38,7 +38,7 @@ export const MAX_ROOM_PHOTOS = 6;
 /* ---------- the browser's facts: a Room, as the renderer above wants it ---------- */
 
 /**
- * The door the prompt can state: the anchor's own door (the seller tapped it and declared its
+ * The door the prompt can state: the anchor's own door (the leasing team tapped it and declared its
  * height, which is a fact the data contains), or else the door the vision model saw. Only one,
  * because one is all either source knows about.
  */

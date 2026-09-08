@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useAllTours, useTourJobs, useTourRooms } from '@/state/store';
 import type { Room, Tour } from '@/state/types';
-import { timeAgo } from '@/lib/format';
+import { availableLabel, timeAgo } from '@/lib/format';
 import { Chip, EmptyState, Progress, SectionTitle, cx, pillClass } from '@/components/ui';
 import { Icon } from '@/components/icons';
 import { FloorPlanSvg } from '@/screens/hub/FloorPlanSvg';
@@ -24,10 +24,12 @@ function modelDate(rooms: Room[]): number | undefined {
 }
 
 /**
- * When the unit is available, as the leasing team wrote it in the summary ("Available 1 October").
- * There is no field for it on `Tour` yet, so the card reads it back rather than inventing one.
+ * When the unit is available. `Tour.availableFrom` is the field (ISO); the sentence in the summary
+ * is only a fallback, for units created before the field existed and never edited since.
  */
 function availableFrom(tour: Tour): string | null {
+  const field = availableLabel(tour.availableFrom);
+  if (field) return field;
   const m = /\bavailable(?:\s+from)?\s+([^.,;]{3,24})/i.exec(tour.summary ?? '');
   return m ? m[1].trim() : null;
 }
@@ -113,7 +115,7 @@ function TourCard({ tour }: { tour: Tour }) {
           {available ? (
             <>
               <span className="text-faint">·</span>
-              <span>available {available.toLowerCase()}</span>
+              <span>available {available}</span>
             </>
           ) : null}
         </div>

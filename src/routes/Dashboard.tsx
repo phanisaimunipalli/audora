@@ -74,7 +74,7 @@ export default function Dashboard() {
       <SectionTitle
         eyebrow="Insights"
         title="What renters do in your units"
-        body="Renters walk the rooms at eye height and measure the walls they care about. Where they measure is where the listing is not answering the question."
+        body="Renters walk the rooms at eye height and measure the walls they care about. Where they measure is where the listing text is not answering the question."
       />
 
       <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr] lg:items-start">

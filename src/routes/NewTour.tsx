@@ -1,14 +1,14 @@
 /**
- * The seller's create flow. Six steps, all local state until "Generate":
- *   1 Listing    → address and facts (read from the URL, confirmed by the user)
+ * The leasing team's create flow. Six steps, all local state until "Generate":
+ *   1 Unit       → address, rent, available date (read from the URL, confirmed by the user)
  *   2 Site       → the address on OpenStreetMap, the building footprint, and which way the windows
- *                  face — the tour's real sun (optional; skip it and the room keeps a studio light)
- *   3 Floor plan → the listing plan read by a vision model: the room list, and metres where the
+ *                  face — the unit's real sun (optional; skip it and the room keeps a studio light)
+ *   3 Floor plan → the unit's plan read by a vision model: the room list, and metres where the
  *                  draughtsman printed them (optional; those rooms are anchored at ±5 cm)
  *   4 Rooms      → photos per room (up to six angles each), or typed measurements
  *   5 Anchor     → one real measurement per room (door / outlet / wall / floor plan)
  *   6 Launch     → quality, provider, notifications, go
- * On launch the tour and rooms are written to the store and the job runner takes over.
+ * On launch the unit and its rooms are written to the store and the job runner takes over.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
@@ -58,10 +58,10 @@ import {
   type Measurements,
 } from '@/screens/create/types';
 
-/** The plan the demo button loads: a real three-storey listing plan with no printed dimensions. */
+/** The plan the demo button loads: a real three-storey floor plan with no printed dimensions. */
 const DEMO_PLAN_URL = '/demo/floorplan-townhouse.webp';
 
-/** The plan is read from the original file and stored small: the tour keeps a copy to show. */
+/** The plan is read from the original file and stored small: the unit keeps a copy to show. */
 const PLAN_STORE_PX = 900;
 
 const num = (s: string): number | undefined => {
@@ -70,7 +70,7 @@ const num = (s: string): number | undefined => {
 };
 
 /* A best-effort snapshot of the draft so an accidental reload does not lose photos and taps.
-   It never touches the store; it is cleared the moment the tour is launched. */
+   It never touches the store; it is cleared the moment the unit is launched. */
 const DRAFT_KEY = 'audora-draft-v1';
 interface DraftSnapshot {
   step: number;
@@ -120,9 +120,9 @@ export default function NewTour() {
 
   const [restored] = useState(() => loadDraft(demo));
   const [step, setStep] = useState(restored?.step ?? 0);
-  /* How far the seller has actually got. `done` cannot answer that: the Site and the Floor plan
+  /* How far the leasing team has actually got. `done` cannot answer that: the Site and the Floor plan
      steps are optional and offer "Skip the site", but skipping leaves their `done` false forever, so
-     a stepper gated on `done` alone disables every later entry for the rest of the flow — the seller
+     a stepper gated on `done` alone disables every later entry for the rest of the flow — the team
      steps back and can never jump forward again. Reachability is about where you have been;
      completeness is about whether the step was answered, and the two are different questions. */
   const [furthest, setFurthest] = useState(restored?.step ?? 0);
@@ -240,9 +240,9 @@ export default function NewTour() {
     })();
   }, [demo, demoTick]);
 
-  /* ---------- the listing floor plan ----------
+  /* ---------- the unit's floor plan ----------
    * One vision call turns the drawing into a room list. The plan's dimensions, where it printed any,
-   * become each room's geometry AND its anchor (±5 cm) — better than anything the seller can tap on a
+   * become each room's geometry AND its anchor (±5 cm) — better than anything anyone can tap on a
    * photo — so the step runs before photos and the rooms it makes are already metric. */
 
   const readPlan = useCallback(
@@ -251,7 +251,7 @@ export default function NewTour() {
       try {
         /* The model reads the ORIGINAL file. A plan's room labels are often only a few pixels tall,
            and a JPEG pass at the plan's own small size destroys exactly them — `parseFloorPlan`
-           resizes for legibility itself. The small copy is only what the screen and the tour show. */
+           resizes for legibility itself. The small copy is only what the screen and the unit show. */
         const [raw, small] = await Promise.all([fileToDataUrl(file as File), preparePhoto(file as File, PLAN_STORE_PX, 0.72)]);
         setPlan((p) => ({ ...p, image: small, fileName }));
         const parsed = await parseFloorPlan(raw);
@@ -305,7 +305,7 @@ export default function NewTour() {
   const planOnlyCount = rooms.filter(planOnly).length;
 
   /**
-   * Turn the ticked plan rooms into draft rooms. Rooms the seller has already photographed keep their
+   * Turn the ticked plan rooms into draft rooms. Rooms already photographed keep their
    * photo and are simply refreshed with the plan's (possibly corrected) numbers; plan-only rooms that
    * have been unticked go away.
    */
@@ -333,7 +333,7 @@ export default function NewTour() {
     mapRoom(id, (r) => withPlanRoom(r, match ? planRoomRef(match) : undefined));
   };
 
-  /* ---------- more angles, and photos pasted from the listing ---------- */
+  /* ---------- more angles, and photos pasted from the listing page ---------- */
 
   const addAngles = useCallback(
     async (id: string, files: File[]) => {
@@ -355,7 +355,7 @@ export default function NewTour() {
   const removePhoto = (id: string, index: number) => mapRoom(id, (r) => withoutPhoto(r, index));
   const setPhotoAngle = (id: string, index: number, angle: PhotoAngle | undefined) => mapRoom(id, (r) => withPhotoAngle(r, index, angle));
 
-  /** Photo URLs copied off the listing. The server fetches them; the browser cannot (no CORS). */
+  /** Photo URLs copied off the listing page. The server fetches them; the browser cannot (no CORS). */
   const addPhotoUrls = useCallback(
     async (text: string) => {
       const urls = parsePhotoUrls(text);
@@ -404,7 +404,7 @@ export default function NewTour() {
     });
   const setRecipe = (id: string, recipe: AnchorRecipe | undefined) => patchRoom(id, { recipe });
   /**
-   * Typing width, depth and height over a room the plan produced means the seller measured it
+   * Typing width, depth and height over a room the plan produced means someone measured it
    * themselves, so the floor-plan recipe steps aside: the anchor becomes their tape (±2 cm) rather
    * than the drawing (±5 cm), and it tracks the number they typed instead of the one that was
    * printed. The plan room stays attached for its name and its floor.
@@ -412,15 +412,15 @@ export default function NewTour() {
   const setMeasured = (id: string, m: Measurements) =>
     mapRoom(id, (r) => ({ ...r, measured: m, raw: rawFromMeasurements(m), recipe: r.recipe?.method === 'floorplan' ? undefined : r.recipe }));
 
-  // The site and the floor plan are both optional: a tour with no address simply has no real sun, and
-  // a listing with no plan anchors each room from its photo. Neither step blocks Continue.
+  // The site and the floor plan are both optional: a unit with no address simply has no real sun, and
+  // a unit with no plan anchors each room from its photo. Neither step blocks Continue.
   const done = [
     listing.address.trim().length > 0,
     Boolean(site),
     Boolean(plan.plan?.floors.length),
     /* A room whose primary photo the quality gate rejected does not go past this step until the
-       seller retakes it or accepts it deliberately (docs/ACCURACY.md 3.4). The same rule disables
-       Generate on the launch step; blocking here is what stops the seller from finding out at the
+       leasing team retakes it or accepts it deliberately (docs/ACCURACY.md 3.4). The same rule disables
+       Generate on the launch step; blocking here is what stops them from finding out at the
        end. `blockedRooms` is the single reader — StepRooms names which rooms and why. */
     rooms.length > 0 && blockedRooms(rooms).length === 0,
     rooms.length > 0 && rooms.every((r) => isAnchored(r) || r.recipe?.method === 'skip'),
@@ -438,6 +438,7 @@ export default function NewTour() {
         listingUrl: listing.mode === 'url' && listing.url ? listing.url : undefined,
         listingSource: listing.mode === 'url' ? listing.source : undefined,
         price: listing.price.trim() || undefined,
+        availableFrom: listing.availableFrom.trim() || undefined,
         beds: num(listing.beds),
         baths: num(listing.baths),
         sqft: num(listing.sqft),
@@ -480,7 +481,7 @@ export default function NewTour() {
       });
       nav(`/tours/${tour.id}`);
     } catch (e: any) {
-      toast({ kind: 'error', title: 'Could not start the tour', body: e?.message });
+      toast({ kind: 'error', title: 'Could not start the model', body: e?.message });
       setLaunching(false);
     }
   };
@@ -512,14 +513,14 @@ export default function NewTour() {
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 md:px-6 md:py-10">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <div className="micro">New tour{demo ? ' · demo' : ''}</div>
+          <div className="micro">New unit{demo ? ' · demo' : ''}</div>
           <h1 className="display mt-1 text-3xl text-ink md:text-4xl">
             {step === 0
-              ? 'Where is the listing?'
+              ? 'Where is the unit?'
               : step === 1
                 ? 'Where does the sun come from?'
                 : step === 2
-                  ? 'Does the listing have a floor plan?'
+                  ? 'Does the unit have a floor plan?'
                   : step === 3
                     ? 'Photos of each room'
                     : step === 4
@@ -549,7 +550,7 @@ export default function NewTour() {
       <Stepper step={step} done={done} furthest={furthest} onJump={setStep} />
 
       {demo && step === 0 ? (
-        <Callout tone="info" title="Demo listing">
+        <Callout tone="info" title="Demo unit">
           Three rooms were typed in from a tape measure and one has a drawn photo, so every step works without a file. Nothing here reaches a live reconstruction; typed and demo rooms are always simulated.
         </Callout>
       ) : null}

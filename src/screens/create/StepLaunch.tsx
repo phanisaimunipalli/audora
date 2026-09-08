@@ -57,7 +57,7 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
 
   /* docs/ACCURACY.md 3.4 and 3.5: what the intake gate is still holding, and what each tier would
      actually cost and run *for these rooms* — the model per room included, because a large or
-     open-plan room goes to `marble-1.1-plus` and the seller should see that before they pay. */
+     open-plan room goes to `marble-1.1-plus` and the leasing team should see that before they pay. */
   const tierModels: TierModels = { marbleDraft: providers.models?.marbleDraft, marbleFull: providers.models?.marbleFull };
   const live = provider === 'marble';
   const plans: Record<Tier, ReturnType<typeof tierPlan>> = {
@@ -108,7 +108,7 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
               );
             })}
           </div>
-          {/* The tier story, said once at the point where the seller first meets it. */}
+          {/* The tier story, said once at the point where the leasing team first meets it. */}
           <p className="text-xs text-ink-3">
             Only full quality returns Marble’s own <span className="mono">metric_scale_factor</span>, which is why the published model defaults to it: fusion weighs that
             estimate against the plan’s ±5 cm and your anchor, and a draft simply has nothing to weigh. Start with drafts if you want to look first —{' '}
@@ -116,7 +116,7 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
             <span className="mono">
               {fmtCredits(TIER_INFO.full.credits)} credits ≈ ${TIER_INFO.full.usd.toFixed(2)}
             </span>{' '}
-            each) and shows the total before it spends anything. Buyers always get the best world a room has.
+            each) and shows the total before it spends anything. Renters always get the best world a room has.
           </p>
           {plans.full.plusRooms ? (
             <Callout tone="info" title={`${plans.full.plusRooms} room${plans.full.plusRooms === 1 ? '' : 's'} go to ${FULL_PLUS_MODEL} at full quality`}>
@@ -225,8 +225,8 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
               </Button>
               <span className="mono text-xs text-ink-3">status: {perm}</span>
             </div>
-            <Field label="Email me when it is ready" hint="Stored on the tour. Email delivery is not wired in this build; the browser notification and the in-app badge are.">
-              <Input value={email} onChange={(e) => onEmail(e.target.value)} type="email" inputMode="email" placeholder="you@agency.com" />
+            <Field label="Email me when it is ready" hint="Stored on the unit. Email delivery is not wired in this build; the browser notification and the in-app badge are.">
+              <Input value={email} onChange={(e) => onEmail(e.target.value)} type="email" inputMode="email" placeholder="you@property.com" />
             </Field>
           </div>
         </section>
@@ -236,10 +236,10 @@ export function StepLaunch({ listing, rooms, quality, onQuality, email, onEmail,
         <div className="panel flex flex-col gap-4 p-4">
           <div>
             <div className="micro">Summary</div>
-            <div className="display mt-1 text-2xl text-ink">{listing.title || listing.address || 'Untitled listing'}</div>
+            <div className="display mt-1 text-2xl text-ink">{listing.title || listing.address || 'Untitled unit'}</div>
             {listing.title ? <div className="text-xs text-ink-3">{listing.address}</div> : null}
             <div className="mono mt-1 text-xs text-ink-2">
-              {[listing.price, listing.beds && `${listing.beds} bd`, listing.baths && `${listing.baths} ba`, listing.sqft && `${listing.sqft} sqft`].filter(Boolean).join(' · ') || 'no listing facts'}
+              {[listing.price, listing.beds && `${listing.beds} bd`, listing.baths && `${listing.baths} ba`, listing.sqft && `${listing.sqft} sqft`].filter(Boolean).join(' · ') || 'no unit details yet'}
             </div>
           </div>
           <ul className="flex flex-col gap-2">

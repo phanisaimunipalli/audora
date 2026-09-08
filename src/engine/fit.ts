@@ -66,7 +66,7 @@ export function fitReport(pieces: PlacedPiece[], room: RoomGeometry): FitReport 
   }
 
   // "Do not fit" is every piece the room rejects, door blockers included: a stat that reads 0 next to
-  // a "blocks the door" badge is a contradiction the seller has to resolve by hand.
+  // a "blocks the door" badge is a contradiction the leasing team has to resolve by hand.
   const misfitSet = new Set<string>([...outOfBounds, ...blocksDoor]);
   for (const [a, b] of overlapsFound) {
     misfitSet.add(a);
@@ -129,7 +129,7 @@ export function pieceStatus(piece: PlacedPiece, others: PlacedPiece[], room: Roo
   return 'ok';
 }
 
-/** Verdict for a buyer's own piece dropped into the seller's staged room. */
+/** Verdict for a renter's own piece dropped into the leasing team's staged room. */
 export function buyerVerdict(piece: PlacedPiece, staging: PlacedPiece[], room: RoomGeometry): BuyerVerdict {
   const reasons: string[] = [];
   const name = piece.name;

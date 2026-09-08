@@ -1,7 +1,7 @@
 /**
- * Reading the listing floor plan.
+ * Reading the unit's floor plan.
  *
- * A floor plan is the cheapest metric truth a listing has: an agent's plan prints the room names and,
+ * A floor plan is the cheapest metric truth a unit has: the leasing plan prints the room names and,
  * usually, each room's dimensions. Audora's anchor exists because a reconstruction has no scale of its
  * own — so a plan that says `12'-4" × 15'-2"` is worth more than any tap on a door, and it costs one
  * vision call.
@@ -182,7 +182,7 @@ const round2 = (v: number) => Math.round(v * 100) / 100;
 
 /**
  * Plans do not speak Audora's nine room types, and a 1911 Paris plan does not speak English.
- * `guessRoomType` handles the English listing vocabulary; this adds what plans actually print
+ * `guessRoomType` handles the English rental vocabulary; this adds what plans actually print
  * (French, plus the abbreviations estate agents use).
  */
 export function planRoomType(name: string, hint?: string): RoomType {
@@ -204,7 +204,7 @@ export function planRoomType(name: string, hint?: string): RoomType {
 }
 
 /* ---------- preparing the drawing ----------
- * A listing plan is often a thumbnail: the app's own demo plan is 600 px wide and its room labels
+ * A floor plan is often a thumbnail: the app's own demo plan is 600 px wide and its room labels
  * are six pixels tall. Measured on that plan, sending it as it comes back one room from one sheet;
  * the same drawing resampled to a 1600 px long edge comes back with twelve rooms across all three
  * sheets. No information is added — a vision model simply gets far more image tokens per glyph.
@@ -313,7 +313,7 @@ Report every labelled room, on every floor the sheet shows. One entry per room: 
 
 "north_arrow" describes the compass arrow if the page has one. It is usually small: an arrow with a letter N beside or below it, often in a corner of a sheet. Report which way its head points on the page. Omit it (null) only when there is genuinely none.
 
-"notes" are short, plain observations a seller should know: no dimensions printed, part of the sheet is unreadable, the plan covers more than one unit.`;
+"notes" are short, plain observations a leasing team should know: no dimensions printed, part of the sheet is unreadable, the plan covers more than one unit.`;
 
 /**
  * The exact messages the product sends to read a plan (shared with the evaluation).
@@ -363,7 +363,7 @@ const GENERIC_LABEL = /^(the\s+)?(floor\s*plan|plan|plans|floorplan|sheet|drawin
  * titled it answers with whatever large caption it can see — which on the demo townhouse is
  * "2 CAR GARAGE", "DECK" and "FLOOR PLAN": two room labels and the drawing's own title. Those
  * names do not stay on the sheet; they end up on the rooms ("Deck · LIVING — 5.00 × 4.00 m") and on
- * the tour, telling the seller their living room is on a floor called Deck.
+ * the tour, telling the leasing team their living room is on a floor called Deck.
  *
  * So a label is kept only when it reads as a storey and is not simply the plan's title or one of
  * the rooms drawn on it; otherwise the sheet is named by its position, which is the one thing the
@@ -428,7 +428,7 @@ const MAX_ROOMS_PER_FLOOR = 40;
 /**
  * A vision model reading a soft, hand-lettered drawing can fall into a loop and emit the same room a
  * hundred times. Two identical "Chambre 3.74 × 4.70" entries are a real plan; a hundred are a stuck
- * decoder, and they would each become a room in the seller's tour.
+ * decoder, and they would each become a room in the leasing team's tour.
  */
 function dedupe(rooms: PlanRoom[]): PlanRoom[] {
   const seen = new Map<string, number>();
@@ -540,7 +540,7 @@ export function extractJson(text: string): any {
 }
 
 /**
- * Read a listing floor plan. Live: the vision model behind /api/ai/chat with a JSON schema.
+ * Read a unit's floor plan. Live: the vision model behind /api/ai/chat with a JSON schema.
  * No model: an empty plan carrying one note, so the create flow degrades to typed measurements.
  */
 export async function parseFloorPlan(dataUrl: string): Promise<FloorPlan> {

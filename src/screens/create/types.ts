@@ -68,25 +68,34 @@ export interface DraftRoom {
   /** A demo photo drawn in the browser. Never sent to a live reconstruction. */
   synthetic?: boolean;
   /**
-   * The seller was told this room's primary photo is too poor to reconstruct and said "use anyway".
+   * The leasing team was told this room's primary photo is too poor to reconstruct and said "use anyway".
    * Cleared whenever the primary photo changes, so the decision is always about the photo on screen
    * (`intake.ts` is the gate; `roomIntake(room).blocked` is what it produces).
    */
   photoAccepted?: boolean;
   /**
-   * The seller looked at "plan says 3.75 × 4.10 m / photo shows this room" and said yes. Cleared by
+   * The leasing team looked at "plan says 3.75 × 4.10 m / photo shows this room" and said yes. Cleared by
    * any re-map, because a confirmation is about one pairing and not about the room.
    */
   planConfirmed?: boolean;
 }
 
+/**
+ * The unit's own details, as typed on step 1. The interface keeps the name `DraftListing` and the
+ * field `price` because the store and every saved draft do (docs/COPY.md: field names are not copy);
+ * what a person reads says "unit" and "rent per month".
+ */
 export interface DraftListing {
   mode: 'url' | 'photos';
+  /** The marketplace listing page this unit is syndicated to, if any. */
   url: string;
   source?: string;
   title: string;
   address: string;
+  /** Rent per month, as it goes on the listing page. */
   price: string;
+  /** ISO `YYYY-MM-DD` from the date input; empty until the leasing team fills it in. */
+  availableFrom: string;
   beds: string;
   baths: string;
   sqft: string;
@@ -242,7 +251,7 @@ export function newMeasuredRoom(name: string, type: RoomType, m: Measurements): 
 }
 
 export function emptyListing(): DraftListing {
-  return { mode: 'url', url: '', title: '', address: '', price: '', beds: '', baths: '', sqft: '', summary: '', inferred: false };
+  return { mode: 'url', url: '', title: '', address: '', price: '', availableFrom: '', beds: '', baths: '', sqft: '', summary: '', inferred: false };
 }
 
 /* ---------- demo (?demo=1) ---------- */
@@ -253,11 +262,12 @@ export const DEMO_LISTING: DraftListing = {
   source: 'redfin',
   title: '88 Alder Lane',
   address: '88 Alder Ln, Portland, OR 97214',
-  price: '$715,000',
+  price: '$2,900/mo',
+  availableFrom: '2026-10-01',
   beds: '3',
   baths: '2',
   sqft: '1460',
-  summary: 'Nineteen-twenties bungalow, empty since spring. Demo listing: the rooms below were typed in from a tape measure.',
+  summary: 'Nineteen-twenties bungalow, vacant since spring. Demo unit: the rooms below were typed in from a tape measure.',
   inferred: true,
 };
 
@@ -274,7 +284,7 @@ export function demoRooms(): DraftRoom[] {
 export { MAX_ROOM_PHOTOS };
 
 /**
- * A photo in the create flow. `angle` is set only when the seller says which way it faces; it becomes
+ * A photo in the create flow. `angle` is set only when the leasing team says which way it faces; it becomes
  * Marble's azimuth hint in the multi-image prompt.
  */
 export interface DraftPhoto extends LoadedPhoto {
@@ -331,7 +341,7 @@ export function withPhotoAngle(room: DraftRoom, index: number, angle: PhotoAngle
   return { ...room, photo: primary, photos: extra.length ? extra : undefined };
 }
 
-/* ---------- the listing floor plan ---------- */
+/* ---------- the unit's floor plan ---------- */
 
 /** The plan room a draft room was matched to, flattened onto the draft so it survives a reload. */
 export interface DraftPlanRoomRef {
@@ -352,7 +362,7 @@ export interface DraftPlan {
   fileName?: string;
   state: 'idle' | 'parsing' | 'done' | 'failed';
   plan?: FloorPlan;
-  /** Keys of the rooms the seller kept. Empty means "none chosen yet". */
+  /** Keys of the rooms the leasing team kept. Empty means "none chosen yet". */
   chosen: string[];
 }
 
@@ -401,7 +411,7 @@ export function isFromPlan(room: DraftRoom): boolean {
 /**
  * A room read straight off the plan, with no photo. With dimensions it is real by construction and
  * anchored by the plan; without them it is a name and a floor, and its numbers stay an honest guess
- * until the seller adds a photo or types a wall.
+ * until the leasing team adds a photo or types a wall.
  */
 export function newPlanRoom(ref: DraftPlanRoomRef, index: number): DraftRoom {
   const type = planRoomType(ref.name);

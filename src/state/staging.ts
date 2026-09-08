@@ -23,7 +23,7 @@ export type StagingSurface =
   | 'auto-stage'
   /** `/tours/:tourId/stage/:roomId` and every link into it. */
   | 'editor'
-  /** The buyer's "test your own furniture" panel in the viewer. */
+  /** The renter's "test your own furniture" panel in the viewer. */
   | 'furniture-test'
   /** Rendering placed pieces inside the 3D scene at all. */
   | 'staging-layer';
@@ -44,7 +44,7 @@ export function stagingEnabled(settings?: Pick<Settings, 'stagingEnabled'> | nul
 /** Whether one named surface should be rendered at all. */
 export function showsStaging(settings: Pick<Settings, 'stagingEnabled'> | null | undefined, _surface: StagingSurface): boolean {
   // Every surface currently follows the single flag; the parameter keeps the call sites self-documenting
-  // and gives a later "hide the editor but keep the buyer's test" one obvious place to happen.
+  // and gives a later "hide the editor but keep the renter's test" one obvious place to happen.
   return stagingEnabled(settings);
 }
 

@@ -4,7 +4,7 @@
  * A real Marble room is not one picture, it is four things drawn in a fixed order: the photograph
  * (splat, with the panorama behind it), the real geometry written to depth so the photograph can
  * hide things, our furniture, and the shadow that furniture drops back onto the photographed floor.
- * Being able to switch each of them off is how a buyer — or a reviewer — checks that the last three
+ * Being able to switch each of them off is how a renter — or a reviewer — checks that the last three
  * really are separate layers rather than a picture with sofas painted on.
  *
  * Kept local to the viewer rather than in `viewerStore`: these are a per-screen inspection control,
@@ -15,7 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 export interface PortraitLayers {
   /** The real capture: the splat, and the panorama behind it. Off brings the measured shell back. */
   photo: boolean;
-  /** Everything Audora draws into the room: seller staging and the buyer's own pieces. */
+  /** Everything Audora draws into the room: leasing team staging and the renter's own pieces. */
   furniture: boolean;
   /** The shadow catcher on the real floor, and the contact discs under each piece. */
   shadows: boolean;

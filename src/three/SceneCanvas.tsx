@@ -39,7 +39,7 @@ export interface SceneCanvasProps {
   busyProgress?: number | null;
   /**
    * The first frame has been drawn — the scene is on screen. HUDs use it to hold back anything that
-   * would cover the loading state (or claim the buyer is standing somewhere that is not there yet).
+   * would cover the loading state (or claim the renter is standing somewhere that is not there yet).
    */
   onReady?: () => void;
 }

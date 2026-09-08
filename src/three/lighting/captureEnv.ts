@@ -11,7 +11,7 @@
  * materials that ask for it.
  *
  * Keyed by `WebGLRenderer` rather than kept in a module global because a PMREM render target belongs
- * to the context that made it: the buyer's viewer and the offscreen stills canvas each have their
+ * to the context that made it: the renter's viewer and the offscreen stills canvas each have their
  * own, and handing one canvas's texture to the other would draw noise.
  */
 import { useCallback, useSyncExternalStore } from 'react';

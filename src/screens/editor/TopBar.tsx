@@ -37,7 +37,7 @@ export interface TopBarProps {
   peers: Peer[];
   self: Peer;
   compact?: boolean;
-  /** This room has a panorama, so Photo joins Orbit / Walk — the same choice the buyer gets. */
+  /** This room has a panorama, so Photo joins Orbit / Walk — the same choice the renter gets. */
   hasPhoto?: boolean;
   /** Extra pills for the right-hand group (the layers and the hour of the day). */
   extraPills?: ReactNode;
@@ -139,7 +139,7 @@ function RoomSwitcher({ tourId, room, rooms, compact }: { tourId: string; room: 
         <Icon.ChevronDown size={14} className="shrink-0 text-faint" />
       </button>
       <Popover open={open} onClose={() => setOpen(false)} anchorRef={trigger}>
-        <div className="micro px-2.5 pb-1 pt-1.5">Rooms in this tour</div>
+        <div className="micro px-2.5 pb-1 pt-1.5">Rooms in this unit</div>
         {rooms.map((r) => (
           <button
             key={r.id}
@@ -230,8 +230,8 @@ export function PresenceAvatars({ self, peers, max = 4 }: { self: Peer; peers: P
 }
 
 /**
- * The editor's chrome: the same transparent bar the buyer's viewer wears — wordmark and tier on the
- * left, the black/white pill group on the right — so a seller stages inside the frame the buyer will
+ * The editor's chrome: the same transparent bar the renter's viewer wears — wordmark and tier on the
+ * left, the black/white pill group on the right — so a leasing team stages inside the frame the renter will
  * open.
  */
 export function TopBar(p: TopBarProps) {

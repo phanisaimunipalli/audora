@@ -1,9 +1,9 @@
 /**
  * Quality tiers and the publish flow, as pure functions.
  *
- * The product rule behind all of it: **the buyer always gets the best world**. A draft is what the
- * seller stages against (about a minute, 230 credits); a full `marble-1.1` reconstruction is what a
- * buyer should walk (about ten minutes, 1,580 credits ≈ $1.26). Publishing therefore offers to
+ * The product rule behind all of it: **the renter always gets the best world**. A draft is what the
+ * leasing team stages against (about a minute, 230 credits); a full `marble-1.1` reconstruction is what a
+ * renter should walk (about ten minutes, 1,580 credits ≈ $1.26). Publishing therefore offers to
  * regenerate every room that only has a draft — and it never spends a credit without saying so
  * first, which is why the button label carries the room count and the credit total.
  *
@@ -39,7 +39,7 @@ export const isRealWorld = (w: RoomWorld | undefined): boolean =>
   !!w && w.provider === 'marble' && Boolean(w.spzUrl || w.panoUrl || w.colliderUrl);
 
 /**
- * The world the buyer gets. Full quality wins — that is the whole point of the upgrade — with one
+ * The world the renter gets. Full quality wins — that is the whole point of the upgrade — with one
  * exception: a *simulated* full world never displaces a real capture. Rehearsing the publish flow
  * with "Prefer simulated reconstruction" on must not replace a photoreal Marble draft with a
  * procedural stand-in; that would make the tour worse, not better.
@@ -51,19 +51,19 @@ export function pickWorld(draft: RoomWorld | undefined, full: RoomWorld | undefi
   return full;
 }
 
-/** True when a room carries a full world that the buyer is not being shown (a simulated rehearsal). */
+/** True when a room carries a full world that the renter is not being shown (a simulated rehearsal). */
 export function fullIsShadowed(room: Room): boolean {
   return Boolean(room.full) && pickWorld(room.draft, room.full) !== room.full;
 }
 
-/** The tier of the world the buyer is actually shown. */
+/** The tier of the world the renter is actually shown. */
 export function shownTier(room: Room | undefined): Tier | undefined {
   return room ? pickWorld(room.draft, room.full)?.tier : undefined;
 }
 
 /**
  * The quality a tour is *shipping*, read off its rooms rather than off a field written at queue
- * time. `Tour.quality` says what the seller asked to generate; it was set optimistically by the
+ * time. `Tour.quality` says what the leasing team asked to generate; it was set optimistically by the
  * bulk upgrade and never by a single-room one, so as a label it contradicted itself in both
  * directions ("full quality" before any full world existed; "draft quality" after a room had been
  * upgraded). A tour is full quality when every ready room is showing a full world.
@@ -81,7 +81,7 @@ export function tourQuality(rooms: Room[]): Tier {
  * the current provider could improve on.
  *
  * A *simulated* full does not consume the room's one upgrade: rehearsing the publish flow for free
- * ("Prefer simulated reconstruction" on) must never lock the seller out of the real `marble-1.1`
+ * ("Prefer simulated reconstruction" on) must never lock the leasing team out of the real `marble-1.1`
  * pass the rehearsal was rehearsing. So a mock full still needs a full when the provider is Marble,
  * and nothing needs anything more when the provider is the simulator — which is also what stops the
  * free rehearsal from queueing itself again forever.
@@ -138,7 +138,7 @@ export function publishLabel({ published, rooms, provider, cost }: PublishLabelI
   return `${published ? 'Generate full quality' : 'Publish and generate full quality'}${tail}`;
 }
 
-/** The armed state of that button: the last thing between the seller and real money. */
+/** The armed state of that button: the last thing between the leasing team and real money. */
 export function confirmLabel(cost: TierCost): string {
   return `Confirm · spend ${credits(cost.credits)} credits ($${cost.usd.toFixed(2)})`;
 }
@@ -162,8 +162,8 @@ export function worldChip(world: RoomWorld | undefined, opts: { generating?: boo
   }
   if (world.provider === 'mock') {
     /* One segment, tier included: the compact chip in the room rail keeps only the text before the
-       first "·", and "simulated" alone cannot tell a seller whether the upgrade they just watched
-       land is on screen. The chip's whole job is which reconstruction the buyer is walking. */
+       first "·", and "simulated" alone cannot tell a leasing team whether the upgrade they just
+       watched land is on screen. The chip's whole job is which reconstruction the renter is walking. */
     return {
       text: `simulated ${world.tier}`,
       tone: 'neutral',
@@ -182,7 +182,7 @@ export function worldChip(world: RoomWorld | undefined, opts: { generating?: boo
   };
 }
 
-/** The tier chip for a room: whatever the buyer is actually being shown. */
+/** The tier chip for a room: whatever the renter is actually being shown. */
 export function roomChip(room: Room, opts: { generating?: boolean } = {}): TierChipInfo {
   return worldChip(pickWorld(room.draft, room.full), { generating: opts.generating || room.status === 'generating' });
 }

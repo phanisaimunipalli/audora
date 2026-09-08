@@ -199,7 +199,7 @@ export function PhotoRig({ origin, enabled = true, initialYaw = 0, fov = 78, onF
 
   /**
    * Zoom changes the LENS, never the position — you cannot step forward inside a photograph. The
-   * wheel does it on a desktop and a two-finger pinch does it on a phone, which is what the buyer's
+   * wheel does it on a desktop and a two-finger pinch does it on a phone, which is what the renter's
    * welcome card promises there. OrbitControls has both pan and dolly switched off, so two fingers
    * are ours to read.
    */

@@ -83,7 +83,7 @@ export function anchorFromFloorplan(raw: RawGeometry, widthMetres: number): Anch
     metresPerUnit,
     uncertaintyM: u,
     label: `floor plan · ${widthMetres.toFixed(2)} m wall · ${fmtCm(u)}`,
-    detail: 'From the listing floor plan.',
+    detail: 'From the floor plan.',
     axis: 'width',
   };
 }
@@ -136,7 +136,7 @@ export function unitsFromMetres(metres: number, ceilingUnits: number): number {
  *
  * The chip has to name the quantity the ± is attached to — "±15 cm" of *what* is not a measurement,
  * it is a shrug. Given the reconstruction's ceiling in raw units, the reference is stated the way
- * every other anchor states its own: as the room height the model believes in, which a seller can
+ * every other anchor states its own: as the room height the model believes in, which a leasing team can
  * sanity-check against the building.
  */
 export function anchorFromMarble(metricScaleFactor: number, ceilingUnits?: number): AnchorSpec {

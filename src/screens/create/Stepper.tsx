@@ -4,7 +4,9 @@ import { RailArrow, useRail } from '@/components/Rail';
 import { cx } from '@/components/ui';
 
 export const WIZARD_STEPS = [
-  { key: 'listing', label: 'Listing', blurb: 'Where is it' },
+  /* The id stays `listing` — saved drafts and the wizard's own switch key off it — but what a
+     person reads is "Unit" (docs/COPY.md). */
+  { key: 'listing', label: 'Unit', blurb: 'Address, rent, available' },
   { key: 'site', label: 'Site', blurb: 'Sun and compass' },
   { key: 'plan', label: 'Floor plan', blurb: 'Rooms and metres' },
   { key: 'rooms', label: 'Rooms', blurb: 'Photos per room' },

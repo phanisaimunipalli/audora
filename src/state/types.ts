@@ -23,11 +23,11 @@ export interface PhotoRecord {
   brightness: number;
   darkFraction: number;
   detail: number;
-  /** Set only on extra angles the seller labelled. */
+  /** Set only on extra angles the leasing team labelled. */
   angle?: PhotoAngle;
-  /** Where the photo came from, when it was not a file the seller chose. */
+  /** Where the photo came from, when it was not a file the leasing team chose. */
   origin?: 'file' | 'url';
-  /** The listing URL the photo was fetched from, for the credit line. */
+  /** The listing page the photo was fetched from, for the credit line. */
   sourceUrl?: string;
 }
 
@@ -136,8 +136,8 @@ export interface RoomWorld {
 }
 
 /**
- * A room's measurements as the listing floor plan printed them. `text` is kept verbatim
- * (`12'-4" × 15'-2"`) so a seller can check the conversion against the drawing they uploaded.
+ * A room's measurements as the unit's floor plan printed them. `text` is kept verbatim
+ * (`12'-4" × 15'-2"`) so a leasing team can check the conversion against the drawing they uploaded.
  */
 export interface PlanDimensions {
   /** Metres. */
@@ -150,7 +150,7 @@ export interface PlanDimensions {
   floor?: string;
 }
 
-/** The listing floor plan a tour was built from: the drawing itself plus what was read off it. */
+/** The floor plan a unit was built from: the drawing itself plus what was read off it. */
 export interface TourFloorPlan extends FloorPlan {
   /** The uploaded drawing, downscaled — shown beside the rooms it produced. */
   imageUrl?: string;
@@ -174,13 +174,13 @@ export interface Room {
   order: number;
   photo?: PhotoRecord;
   /**
-   * Extra angles of the same room, in the order the seller added them — the primary `photo` is not
+   * Extra angles of the same room, in the order the leasing team added them — the primary `photo` is not
    * repeated here. Together they become one multi-image Marble prompt (`generationImages` in
    * services/marble), capped at `MAX_ROOM_PHOTOS` including the primary.
    */
   photos?: PhotoRecord[];
   /**
-   * What the listing floor plan says this room measures. Metres, ±5 cm — the plan is a drawing, not
+   * What the unit's floor plan says this room measures. Metres, ±5 cm — the plan is a drawing, not
    * a tape. When it is present the room's raw geometry is built from these numbers instead of the
    * photo's estimate, and the anchor is `anchorFromFloorplan` (chip: "floor plan · 3.75 m wall · ±5 cm").
    */
@@ -219,7 +219,7 @@ export interface Room {
   northWallHeading?: number;
   /**
    * Provenance shown as a chip next to the room ("real Marble draft"). Kept out of `name` on
-   * purpose: the name is buyer-facing copy and must not carry pipeline qualifiers.
+   * purpose: the name is renter-facing copy and must not carry pipeline qualifiers.
    */
   note?: string;
   status: RoomStatus;
@@ -238,8 +238,8 @@ export interface SiteFootprint {
 }
 
 /**
- * Where the listing actually is. Geocoded from the address (OpenStreetMap Nominatim), with the
- * building footprint from Overpass and the heading the seller confirmed on the compass. It is what
+ * Where the unit actually is. Geocoded from the address (OpenStreetMap Nominatim), with the
+ * building footprint from Overpass and the heading the leasing team confirmed on the compass. It is what
  * turns "a sun" into *this* listing's sun: `sunPosition(date, lat, lon)` through walls turned by
  * `heading`. Optional everywhere — a tour with no site simply has no real sun.
  */
@@ -252,14 +252,14 @@ export interface TourSite {
   /** True-north bearing the room's north wall (the window wall) faces outward. */
   heading: number;
   /**
-   * The wall `heading` was expressed against when the seller confirmed it — the wall the rooms'
+   * The wall `heading` was expressed against when the leasing team confirmed it — the wall the rooms'
    * windows were dominantly on at that moment.
    *
-   * The seller answers one question ("which way do the windows face?") and the engine stores a
+   * The leasing team answers one question ("which way do the windows face?") and the engine stores a
    * different number (the bearing of the room's *north* wall); `facingToHeading` converts, and the
    * conversion needs to know which wall the windows are on. That wall is read off the rooms, and the
-   * rooms change after the Site step — the floor plan adds more, and the seller adds photos — so
-   * reading it again later can turn the seller's "west" into "east" without anything having moved.
+   * rooms change after the Site step — the floor plan adds more, and the leasing team adds photos — so
+   * reading it again later can turn the leasing team's "west" into "east" without anything having moved.
    * Recording it here keeps the answer the one they gave. Optional: a site saved before this field
    * existed falls back to reading the rooms.
    */
@@ -291,11 +291,19 @@ export interface Tour {
   address: string;
   listingUrl?: string;
   listingSource?: string;
-  /** The real place on the planet, once the seller has confirmed it in the Site step. */
+  /** The real place on the planet, once the leasing team has confirmed it in the Site step. */
   site?: TourSite;
-  /** The listing floor plan and every room read off it, once the seller has uploaded one. */
+  /** The unit's floor plan and every room read off it, once the leasing team has uploaded one. */
   floorPlan?: TourFloorPlan;
+  /** Rent per month, as the leasing team writes it on the listing ("$4,250/mo"). */
   price?: string;
+  /**
+   * The date the unit is available, ISO `YYYY-MM-DD`. A real field rather than a sentence in
+   * `summary`: the units list and the hub header both show it, and a renter deciding whether to
+   * book a showing is deciding against a date. Optional — an old store, or a unit whose turnover
+   * date is not settled, simply has none.
+   */
+  availableFrom?: string;
   beds?: number;
   baths?: number;
   sqft?: number;
@@ -341,7 +349,7 @@ export interface Job {
   error?: string;
   /**
    * This job improves a room that already has a world (a full-quality upgrade of a draft) rather
-   * than building its first one. The buyer keeps walking the draft while it runs, and the copy
+   * than building its first one. A renter keeps walking the draft while it runs, and the copy
    * says "Upgrading to full quality" / "Full quality is ready" instead of "generating".
    */
   upgrade?: boolean;
@@ -389,7 +397,7 @@ export interface Settings {
   agentName: string;
   brandColor: string;
   /**
-   * Staging and furniture layering — the Stage tab, auto-stage, the staging editor and the buyer's
+   * Staging and furniture layering — the Stage tab, auto-stage, the staging editor and the renter's
    * furniture test. **Off by default** (docs/ACCURACY.md section 3.7): the product is the accurate
    * model of the unit, so the hub, the wizard and the viewer lead with measurements, the plan and
    * the model date. Every code path stays in place behind this flag; read it through

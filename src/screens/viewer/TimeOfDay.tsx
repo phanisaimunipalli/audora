@@ -1,14 +1,14 @@
 /**
  * The hour slider that moves the real sun.
  *
- * The room already knows where it is (`tour.site`) and which way it is turned (the seller's
+ * The room already knows where it is (`tour.site`) and which way it is turned (the leasing team's
  * compass), so the only thing left is *when*. Pick a date, drag the hour, and the light in the room
  * is the light that will be in the room at that moment: `three/SunLight` takes the same
  * `sunState` this panel prints.
  *
- * Sunrise and sunset are marked on the track (`sunTimes`), so the buyer can see at a glance how
+ * Sunrise and sunset are marked on the track (`sunTimes`), so the renter can see at a glance how
  * much of the day this room actually gets. Times are the device's own clock — Audora does not
- * pretend to know the listing's time zone.
+ * pretend to know the unit's time zone.
  */
 import { useMemo } from 'react';
 import { sunTimes } from '@/engine/sun';

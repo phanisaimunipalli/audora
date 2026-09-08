@@ -32,7 +32,7 @@ import { inTextField, throttle } from '@/three/furniture/floor';
 import { FitReportPanel } from '@/components/FitReportPanel';
 import { AnchorChip } from '@/components/AnchorChip';
 import { Icon } from '@/components/icons';
-import { Button, Chip, EmptyState, IconButton, Kbd, Segmented, StagedLabel } from '@/components/ui';
+import { Button, Chip, EmptyState, IconButton, Kbd, Segmented, StagedLabel, stagedLabelShows } from '@/components/ui';
 import { HudPill, RoomStrip } from './viewer/hud';
 import { TopBar, type AutoStageMeta } from './editor/TopBar';
 import { StagePanel } from './editor/StagePanel';
@@ -92,7 +92,7 @@ export function StageEditor({ tourId, roomId }: StageEditorProps) {
       <div className="flex h-dvh items-center justify-center bg-bg p-6">
         <EmptyState
           title="Room not found"
-          body="This room is not in the tour any more, or the link is wrong."
+          body="This room is not in the unit any more, or the link is wrong."
           action={
             <Link to={tour ? `/tours/${tourId}` : '/tours'}>
               <Button variant="primary">Back to {tour ? tour.title : 'tours'}</Button>
@@ -144,7 +144,7 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
   // How the panorama's light was divided; the real sun fills the key's share of it.
   const [budget, setBudget] = useState<LightBudget | null>(null);
   const [captureSun, setCaptureSun] = useState<PanoramaLight | null>(null);
-  /* The same portrait stack the buyer gets (./viewer/layers), so the seller stages against the
+  /* The same portrait stack the renter gets (./viewer/layers), so the leasing team stages against the
      layers rather than against a flattened picture of them. Local and transient by design. */
   const { layers, setLayer, exploded, explode } = usePortraitLayers();
   const [geometryView, setGeometryView] = useState<GeometryView>('wireframe');
@@ -339,7 +339,7 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
   }, [flush, broadcast, navigate, tourId]);
 
   /* Placing a piece into a room whose furniture layer is switched off would drop it into thin air:
-     the layer comes back on, because reaching for the catalogue says what the seller wants to see. */
+     the layer comes back on, because reaching for the catalogue says what the leasing team wants to see. */
   const addFromCatalog = useCallback((item: CatalogItem) => {
     setPlaceOnRelease(false);
     setPlacing(item);
@@ -387,8 +387,8 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
   );
 
   /* ---------- the real sun, when the tour has an address ----------
-     The seller stages under the light the buyer will be standing in: same site, same heading, same
-     hour. The instant is parked on the tour, so opening the buyer's viewer picks up where the
+     The leasing team stages under the light the renter will be standing in: same site, same heading, same
+     hour. The instant is parked on the tour, so opening the renter's viewer picks up where the
      staging left off. */
   const site = tour.site;
   const heading = effectiveHeading(site?.heading, room.northWallHeading);
@@ -418,7 +418,7 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
   );
 
   /* "Light from ahead · 21% directional" — what the panorama was measured to be lighting the
-     furniture with, said relative to the way the seller is facing, because that is the only frame a
+     furniture with, said relative to the way the leasing team is facing, because that is the only frame a
      person standing in a room has. Coarsened to 5° so turning does not re-render the panel. */
   const facing = Math.round(((pose.yaw * 180) / Math.PI) / 5) * 5;
   const sunDescription = useMemo<SunDescription | null>(() => {
@@ -436,7 +436,7 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
   const real = isReal(world) ? world : undefined;
   const photo = mode === 'photo' && hasPano(real);
   /* Photo view's camera belongs to the *mode*; whether the photograph is drawn belongs to the
-     *layer*. Switching the capture off leaves the seller standing where they were, looking at the
+     *layer*. Switching the capture off leaves the leasing team standing where they were, looking at the
      measured room — which is the only way to see what the furniture is being composited onto. */
   const showPhotoLayer = layers.photo;
   const wantSplat = mode === 'walk' && showSplat && showPhotoLayer && Boolean(real?.spzUrl);
@@ -450,7 +450,7 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
   /** The address's own sun is up: it owns the shadows, the panorama keeps owning the colour. */
   const sunUp = Boolean(sky && sky.intensity > 0.01);
   /* Under the splat the measured shell is a milky box drawn inside the photograph, not a stand-in:
-     the seller has to stage against what the buyer will actually see. */
+     the leasing team has to stage against what the renter will actually see. */
   const shell = !photoOnly && !splatUp;
 
   /* Real walls for walk mode, read off the collider mesh (the room rectangle is its bounding box). */
@@ -460,8 +460,8 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
   const captureZ = marbleFrame.position[2];
   const captureFacing = captureYaw(marbleFrame);
   const walkHome = useMemo(() => ({ x: captureX, z: captureZ }), [captureX, captureZ]);
-  /* The seller walks the room from where the photographer stood, facing the way they faced — the
-     same first frame the buyer gets, so staging is judged against the buyer's view. */
+  /* The leasing team walks the room from where the photographer stood, facing the way they faced — the
+     same first frame the renter gets, so staging is judged against the renter's view. */
   const walkSpawn = useMemo<Pose | undefined>(() => (real ? { x: captureX, z: captureZ, yaw: captureFacing } : undefined), [real, captureX, captureZ, captureFacing]);
   useEffect(() => {
     if (!collider) {
@@ -515,7 +515,7 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
   );
 
   /* The layers and the hour of the day ride in the top bar's pill group, exactly as they do in the
-     buyer's viewer; their panels open in the centre column above the room strip. */
+     renter's viewer; their panels open in the centre column above the room strip. */
   const extraPills = real || site ? (
     <>
       {real ? (
@@ -547,7 +547,7 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
           busyProgress={pill?.progress ?? null}
           loadingLabel={photo ? 'Developing the photograph…' : 'Building the room…'}
         >
-          {/* The seller stages against exactly what the buyer will see: the room's own light. */}
+          {/* The leasing team stages against exactly what the renter will see: the room's own light. */}
           {composite ? (
             <CaptureLight
               texture={panoTex}
@@ -602,7 +602,7 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
           ) : null}
           {layers.furniture ? (
             /* The furniture layer, liftable off the photograph for a moment. Dragging is off while
-               it is in the air: the piece the seller would be dropping is 40 cm above the floor. */
+               it is in the air: the piece the leasing team would be dropping is 40 cm above the floor. */
             <ExplodedLayer active={exploded}>
               <StagingLayer
                 room={geometry}
@@ -787,12 +787,15 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
                   </IconButton>
                 </div>
               ) : null}
-              <StagedLabel className="pointer-events-auto bg-[color:var(--color-glass)] backdrop-blur-md" />
+              {/* The editor only renders with staging on, so the rule here is just "are there pieces". */}
+              {stagedLabelShows(present.length, true) ? (
+                <StagedLabel className="pointer-events-auto bg-[color:var(--color-glass)] backdrop-blur-md" />
+              ) : null}
             </div>
           </div>
         </div>
 
-        {/* the rooms in this tour, as tiles */}
+        {/* the rooms in this unit, as tiles */}
         {!isMobile ? (
           <RoomStrip rooms={rooms} activeId={roomId} onPick={(id) => navigate(`/tours/${tourId}/stage/${id}`)} />
         ) : null}
@@ -801,7 +804,7 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
       {isMobile ? (
         <>
           {/* Two rows, because the anchor is not optional. Pushed to the end of one scrolling row it
-              was cut off by the viewport edge with the ± unreachable — and an uncertainty the seller
+              was cut off by the viewport edge with the ± unreachable — and an uncertainty the leasing team
               cannot read is the one number Audora refuses to hide. The controls scroll; the anchor
               gets its own full-width line and truncates its reference, never its ±. */}
           <nav className="flex shrink-0 flex-col gap-1.5 border-t border-line bg-bg px-3 py-2">

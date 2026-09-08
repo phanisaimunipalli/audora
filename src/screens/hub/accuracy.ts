@@ -5,7 +5,7 @@
  * The numbers come from `Room.measurement`, the `RoomMeasurement` the worker writes after it has
  * measured the collider (`shared/fusion.ts`): one scale in metres per raw unit, its 1σ, a 0..1
  * confidence, one residual per source, a flag wherever a source disagrees by more than 2σ, and the
- * line a seller reads per dimension — "Plan says 3.75 m · model measures 3.41 m (−0.34 m)". This
+ * line a leasing team reads per dimension — "Plan says 3.75 m · model measures 3.41 m (−0.34 m)". This
  * module **grades** those lines against the targets in section 1; it recomputes them only for a
  * measurement that predates them, so the card shows the numbers the worker actually stored:
  *
@@ -165,7 +165,7 @@ export interface RoomAccuracy {
   modelDate?: number;
 }
 
-/** The world the buyer is being shown, which is the one the measurement describes. */
+/** The world the renter is being shown, which is the one the measurement describes. */
 export function shownWorld(room: Pick<Room, 'draft' | 'full'>): RoomWorld | undefined {
   return pickWorld(room.draft, room.full);
 }

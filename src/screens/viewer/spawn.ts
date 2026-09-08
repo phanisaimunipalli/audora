@@ -16,7 +16,7 @@ function blocked(x: number, z: number, room: RoomGeometry, solids: PlacedPiece[]
 /**
  * A standing spot that is not inside furniture. Starts from `base` (or just inside the door) and, when
  * that is blocked, walks forward and sideways until it finds clear floor. The walker collides with
- * solids, so spawning inside one would leave the buyer stuck.
+ * solids, so spawning inside one would leave the renter stuck.
  */
 export function freeSpawn(room: RoomGeometry, pieces: PlacedPiece[], base?: Pose): Pose {
   const p = base ?? spawnPose(room);

@@ -1,9 +1,9 @@
 /**
  * The whole unit on one plan — docs/ACCURACY.md section 3.3.
  *
- * `Minimap` draws the room the buyer is standing in, measured from its own collider. This draws the
- * *flat*: every room the listing plan names, at the size the plan printed, where `shared/unitGraph`
- * placed it, with the doorways between them, the plan's north, and the buyer standing in one of
+ * `Minimap` draws the room the renter is standing in, measured from its own collider. This draws the
+ * *flat*: every room the floor plan names, at the size the plan printed, where `shared/unitGraph`
+ * placed it, with the doorways between them, the plan's north, and the renter standing in one of
  * them. It replaces the per-room minimap whenever the tour has a plan, because once there is a plan
  * "where am I in this flat" is a better question than "where am I in this room".
  *
@@ -15,10 +15,10 @@
  *   tall. So the panel measures itself, `pxPerM` converts, and every label, the compass and the
  *   scale bar are sized in screen pixels — a name that still cannot fit its room is shortened, and
  *   then dropped, rather than drawn illegibly.
- * - **One conversion, borrowed.** The buyer's pose is in the room's own frame; `toUnitPose` puts it
+ * - **One conversion, borrowed.** The renter's pose is in the room's own frame; `toUnitPose` puts it
  *   on the sheet, and `toRoomPoint` brings a click back. Neither is re-derived here.
  * - **The drawing is the plan's, the position is the model's.** Room rectangles are what the plan
- *   printed (a drawing, ±5 cm); the dot is where the buyer actually is in the reconstruction. The
+ *   printed (a drawing, ±5 cm); the dot is where the renter actually is in the reconstruction. The
  *   two are not the same measurement and the map never pretends otherwise — the caption says which
  *   parts were laid out rather than drawn.
  */
@@ -64,7 +64,7 @@ function fits(text: string, metres: number, pxPerM: number, fontPx: number): str
 
 export interface UnitMapProps {
   graph: UnitGraph;
-  /** The plan room the buyer is standing in, from `linkRooms`. */
+  /** The plan room the renter is standing in, from `linkRooms`. */
   activeRoomRef?: string;
   /** The quarter turn between that room's frame and the plan's, from `matchPortals`. */
   quarters?: number;
@@ -93,11 +93,11 @@ function doorSegment(room: UnitRoom, wall: string, offset: number, width: number
 
 
 /**
- * The unit's plan, with "you are here" on it. Draws one storey — the one the buyer is standing on —
+ * The unit's plan, with "you are here" on it. Draws one storey — the one the renter is standing on —
  * and nothing at all when the plan produced no rooms for it.
  */
 export function UnitMap({ graph, activeRoomRef, quarters = 0, onPickRoom, onWalkTo, className, style }: UnitMapProps) {
-  /* The pose is read here rather than passed in, as in `three/Minimap`: the buyer's dot moves every
+  /* The pose is read here rather than passed in, as in `three/Minimap`: the renter's dot moves every
      frame they walk, and the HUD around this panel must not re-render with it. */
   const pose = useViewer((s) => s.pose);
   const walkable = isFirstPerson(useViewer((s) => s.mode));

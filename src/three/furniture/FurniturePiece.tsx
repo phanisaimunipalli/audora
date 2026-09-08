@@ -30,7 +30,7 @@ export interface FurniturePieceProps {
 }
 
 /* The verdict colours: red does not fit, gold blocks the door. They are the only colours a piece
-   ever takes on besides its own — the buyer's blue is never recoloured (see palette). */
+   ever takes on besides its own — the renter's blue is never recoloured (see palette). */
 const STATUS_RING: Record<PieceStatus, string | null> = { ok: null, overlap: '#c0392b', outside: '#c0392b', door: '#8a6a2a' };
 
 /** Flat halo + hairline outline on the floor around a footprint. Never catches pointer events. */
@@ -61,7 +61,7 @@ function FootprintRing({ w, d, color, opacity, pad = 0.08, thickness = 0.018, y 
 
 /**
  * One piece of furniture: a procedural, metric body (see kinds.tsx) sized from the piece's real w/d/h.
- * Status tints it red (overlap / outside) or amber (blocks the door); buyer pieces are always blue;
+ * Status tints it red (overlap / outside) or amber (blocks the door); renter pieces are always blue;
  * selection adds an accent halo on the floor; hover lifts and brightens; ghosts render at 50%.
  */
 function FurniturePieceImpl({ piece, status = 'ok', selected, hovered, ghost, contact, onPointerDown, onPointerOver, onPointerOut, onPointerMove, onPointerUp, onClick }: FurniturePieceProps) {
@@ -73,7 +73,7 @@ function FurniturePieceImpl({ piece, status = 'ok', selected, hovered, ghost, co
   );
   const lift = hovered && !ghost && !piece.flat ? 0.012 : 0;
   const buyer = piece.owner === 'buyer';
-  // A buyer's piece keeps its blue selection ring; the misfit is a separate red outline drawn over it.
+  // A renter's piece keeps its blue selection ring; the misfit is a separate red outline drawn over it.
   const ringColor = buyer ? BUYER_BLUE : STATUS_RING[status] ?? ACCENT;
   const misfitEdge = buyer ? STATUS_RING[status] : null;
   const contactTex = useMemo(() => (contact && !piece.flat && !ghost ? contactShadow() : null), [contact, piece.flat, ghost]);
@@ -102,7 +102,7 @@ function FurniturePieceImpl({ piece, status = 'ok', selected, hovered, ghost, co
       </Parts>
       {selected && !ghost ? <FootprintRing w={piece.w} d={piece.d} color={ringColor} opacity={0.9} /> : null}
       {ghost ? <FootprintRing w={piece.w} d={piece.d} color={STATUS_RING[status] ?? ringColor} opacity={0.55} /> : null}
-      {/* Buyer pieces stay blue in 3D — exactly as in the minimap — and carry a red edge when they do not fit. */}
+      {/* Renter pieces stay blue in 3D — exactly as in the minimap — and carry a red edge when they do not fit. */}
       {misfitEdge && !ghost ? <FootprintRing w={piece.w} d={piece.d} color={misfitEdge} opacity={1} pad={0.13} thickness={0.026} y={0.002} /> : null}
     </group>
   );

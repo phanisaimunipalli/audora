@@ -41,7 +41,7 @@ export function shade(hex: string, amt: number): string {
   return amt >= 0 ? mix(hex, '#ffffff', amt) : mix(hex, '#000000', -amt);
 }
 
-/** Every tone a piece body can ask for. Derived from the piece colour so a blue buyer sofa stays blue in its shadows too. */
+/** Every tone a piece body can ask for. Derived from the piece colour so a blue renter sofa stays blue in its shadows too. */
 export interface Tones {
   /** Fabric / the piece's declared colour. */
   primary: string;
@@ -76,7 +76,7 @@ const DEFAULTS = {
 };
 
 /**
- * Tones for a piece. Buyer pieces are always blue. Status tints the whole piece towards red (overlap /
+ * Tones for a piece. Renter pieces are always blue. Status tints the whole piece towards red (overlap /
  * outside) or amber (blocks the door) so the problem reads instantly in the dollhouse view.
  */
 export function tonesFor(piece: Pick<PlacedPiece, 'color' | 'owner' | 'kind'>, status: PieceStatus, opts: { selected?: boolean; hovered?: boolean } = {}): Tones {
@@ -84,7 +84,7 @@ export function tonesFor(piece: Pick<PlacedPiece, 'color' | 'owner' | 'kind'>, s
   const base = buyer ? BUYER_BLUE : piece.color ?? '#8d7b6a';
   let tint: string | null = null;
   let amount = 0;
-  // Buyer furniture is always blue: a bad status glows red around a blue body (see FurniturePiece) rather than recolouring it.
+  // Renter furniture is always blue: a bad status glows red around a blue body (see FurniturePiece) rather than recolouring it.
   const bad = status === 'overlap' || status === 'outside';
   if (!buyer && bad) {
     tint = DANGER;
@@ -107,7 +107,7 @@ export function tonesFor(piece: Pick<PlacedPiece, 'color' | 'owner' | 'kind'>, s
     screen: t(DEFAULTS.screen, amount * 0.3),
     leaf: t(buyer ? mix(DEFAULTS.leaf, BUYER_BLUE, 0.45) : DEFAULTS.leaf, amount * 0.5),
     clay: t(buyer ? mix(DEFAULTS.clay, BUYER_BLUE, 0.35) : DEFAULTS.clay, amount * 0.5),
-    // A buyer's piece never changes colour: red emissive over blue reads as pink, and "pink" is not a
+    // A renter's piece never changes colour: red emissive over blue reads as pink, and "pink" is not a
     // verdict. The misfit is shown as a red outline on the floor instead (see FurniturePiece).
     emissive: opts.selected ? ACCENT : opts.hovered ? '#ffffff' : '#000000',
     emissiveIntensity: opts.selected ? 0.16 : opts.hovered ? 0.05 : 0,

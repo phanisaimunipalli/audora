@@ -254,7 +254,7 @@ export interface BudgetOptions {
   exposure?: number;
   /** The renderer is ACES tone-mapping (SceneCanvas always is). False skips the compensation. */
   toneMapped?: boolean;
-  /** Overall multiplier the caller can dial, for a room the seller wants brighter. */
+  /** Overall multiplier the caller can dial, for a room the leasing team wants brighter. */
   intensity?: number;
 }
 

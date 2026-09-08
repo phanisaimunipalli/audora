@@ -1,5 +1,5 @@
 /**
- * The tour hub: progress while generating, then Tour / Rooms / Publish / Insights.
+ * The unit hub: progress while generating, then Walk / Rooms / Publish / Insights.
  * Tab and selected room live in the query string so links land on the right view.
  *
  * The rooms tab is the per-room list. With staging deferred (docs/ACCURACY.md 3.7) it leads with
@@ -63,11 +63,11 @@ export default function TourHub() {
     return (
       <div className="mx-auto max-w-3xl px-4 py-16 md:px-6">
         <EmptyState
-          title="Tour not found"
+          title="Unit not found"
           body="It may have been deleted, or it lives in another browser's storage."
           action={
             <Link to="/tours" className="text-sm text-ink-2 hover:text-ink">
-              All tours →
+              All units →
             </Link>
           }
         />
@@ -93,11 +93,11 @@ export default function TourHub() {
 
       {!rooms.length ? (
         <EmptyState
-          title="This tour has no rooms"
-          body="Add rooms from a new tour, or delete this one from the tours list."
+          title="This unit has no rooms"
+          body="Add rooms from a new unit, or delete this one from the units list."
           action={
             <Link to="/new" className="text-sm text-ink-2 hover:text-ink">
-              Start a new tour →
+              Add a unit →
             </Link>
           }
         />
@@ -136,7 +136,8 @@ export default function TourHub() {
               value={tab}
               onChange={(t) => setQuery({ tab: t })}
               options={[
-                { value: 'tour', label: 'Tour', icon: <Icon.Walk size={15} /> },
+                /* The tab id stays `tour` (the URL query and saved links use it); its label is what it does. */
+                { value: 'tour', label: 'Walk', icon: <Icon.Walk size={15} /> },
                 stagingOn
                   ? { value: 'rooms', label: 'Stage', icon: <Icon.Sofa size={15} /> }
                   : { value: 'rooms', label: 'Rooms', icon: <Icon.Ruler size={15} /> },
@@ -154,7 +155,7 @@ export default function TourHub() {
 
           {tab === 'tour' ? (
             <div className="flex flex-col gap-3">
-              {/* Not keyed by room: switching rooms keeps the viewer mounted, so Walk stays Walk and the buyer's test pieces survive. */}
+              {/* Not keyed by room: switching rooms keeps the viewer mounted, so Walk stays Walk and the renter's test pieces survive. */}
               <TourViewer tourId={tour.id} roomId={selected?.id} onRoomChange={(id) => setQuery({ room: id })} className="h-[70vh] overflow-hidden rounded-2xl border border-line bg-surface" />
               {selected?.status !== 'ready' ? (
                 <Callout tone="warn">

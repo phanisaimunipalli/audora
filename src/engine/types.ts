@@ -132,7 +132,7 @@ export type PieceOwner = 'seller' | 'buyer';
 
 export interface PlacedPiece extends Footprint {
   id: string;
-  /** Catalog id, or 'custom' for buyer-entered furniture. */
+  /** Catalog id, or 'custom' for renter-entered furniture. */
   itemId: string;
   name: string;
   kind: ProceduralKind;

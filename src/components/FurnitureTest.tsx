@@ -18,17 +18,17 @@ import { Icon } from './icons';
 
 export interface FurnitureTestProps {
   room: Room;
-  /** Buyer pieces currently in the room (controlled by the viewer). */
+  /** Renter pieces currently in the room (controlled by the viewer). */
   buyerPieces: PlacedPiece[];
   onChange: (pieces: PlacedPiece[]) => void;
   onClose?: () => void;
-  /** Seller pieces to judge against. Defaults to the room's staging; pass [] when the buyer hides it. */
+  /** Leasing team pieces to judge against. Defaults to the room's staging; pass [] when the renter hides it. */
   staging?: PlacedPiece[];
-  /** Where the buyer stands right now; new pieces land 1.2 m ahead. */
+  /** Where the renter stands right now; new pieces land 1.2 m ahead. */
   pose?: Pose;
   selectedId?: string | null;
   onSelect?: (id: string | null) => void;
-  /** Record test / fit / nofit events (buyer mode). */
+  /** Record test / fit / nofit events (renter mode). */
   analytics?: boolean;
   /**
    * When provided, a Walk / Dollhouse switch is shown in the panel *on phones only* — there the panel is a
@@ -70,10 +70,11 @@ interface Spec {
 
 /**
  * "Test my own furniture". Type a piece ("sectional, 220 by 95") or pick one from My Stuff; it lands
- * in blue in front of the buyer and the verdict updates live as the piece moves.
+ * in blue in front of the renter and the verdict updates live as the piece moves.
  */
 export function FurnitureTest({ room, buyerPieces, onChange, onClose, staging, pose, selectedId, onSelect, analytics = true, mode, onModeChange, className }: FurnitureTestProps) {
-  const seller = staging ?? room.staging;
+  /* The unit's own staged pieces, whoever placed them: what a renter's piece is judged against. */
+  const staged = staging ?? room.staging;
   const myStuff = useMyStuff();
   const addMyStuff = useAudora((s) => s.addMyStuff);
   const [text, setText] = useState('');
@@ -93,9 +94,9 @@ export function FurnitureTest({ room, buyerPieces, onChange, onClose, staging, p
 
   const verdicts = useMemo(() => {
     const m = new Map<string, BuyerVerdict>();
-    for (const p of buyerPieces) m.set(p.id, buyerVerdict(p, seller, room.geometry));
+    for (const p of buyerPieces) m.set(p.id, buyerVerdict(p, staged, room.geometry));
     return m;
-  }, [buyerPieces, seller, room.geometry]);
+  }, [buyerPieces, staged, room.geometry]);
 
   // Track the outcome once at drop time, and again when a moved piece's verdict settles on a new answer.
   const lastOutcome = useRef<Record<string, boolean>>({});
@@ -131,15 +132,15 @@ export function FurnitureTest({ room, buyerPieces, onChange, onClose, staging, p
       roomTypes: [],
       flat: spec.flat,
       verified: false,
-      source: 'Dimensions entered by the buyer.',
+      source: 'Dimensions entered by the renter.',
       color: BUYER_BLUE,
     };
-    const f = dropFootprint(room.geometry, spec.w, spec.d, pose, [...seller, ...buyerPieces]);
+    const f = dropFootprint(room.geometry, spec.w, spec.d, pose, [...staged, ...buyerPieces]);
     const piece = makePiece(item, f.x, f.z, f.rot, 'buyer');
     const next = [...buyerPieces, piece];
     onChange(next);
     onSelect?.(piece.id);
-    const v = buyerVerdict(piece, seller, room.geometry);
+    const v = buyerVerdict(piece, staged, room.geometry);
     lastOutcome.current[piece.id] = v.fits;
     if (analytics) {
       trackEvent(room.tourId, 'test', { roomId: room.id, item: spec.name });
@@ -224,7 +225,7 @@ export function FurnitureTest({ room, buyerPieces, onChange, onClose, staging, p
           {error ? (
             <div className="text-xs text-danger">{error}</div>
           ) : (
-            // How the text was parsed is engineering detail, not a buyer's business: it stays in the tooltip.
+            // How the text was parsed is engineering detail, not a renter's business: it stays in the tooltip.
             <div className="text-xs text-dim" title={lastMeta ? `Parsed ${lastMeta.source === 'nebius' ? `by ${lastMeta.model ?? 'nebius'}` : 'locally'} in ${lastMeta.ms} ms.` : undefined}>
               Name it and give width by depth, in cm or m; height is optional. {mode === 'orbit' ? 'It appears in the room and on the plan.' : 'It lands in front of you.'}
             </div>
@@ -284,7 +285,7 @@ export function FurnitureTest({ room, buyerPieces, onChange, onClose, staging, p
         ) : null}
 
         <div className="mt-4 rounded-xl border border-line bg-surface px-3 py-2.5 text-xs leading-[1.55] text-dim">
-          Drag the blue piece in Dollhouse view, or nudge it here. The verdict follows it, judged against {seller.length ? 'the staged furniture' : 'the bare room'} and the door swing.
+          Drag the blue piece in Dollhouse view, or nudge it here. The verdict follows it, judged against {staged.length ? 'the staged furniture' : 'the bare room'} and the door swing.
         </div>
 
         <div className="mt-4">

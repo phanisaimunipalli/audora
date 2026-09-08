@@ -1,4 +1,4 @@
-/** A finished demo tour so the dashboard, public tour and viewer have something to show on first run. */
+/** A finished demo unit so the dashboard, its public page and the viewer have something to show on first run. */
 import { anchorFromCeiling, anchorFromDoor, anchorFromMarble, anchorFromWall } from '@/engine/anchor';
 import { clampToRoom, placeAgainstWall } from '@/engine/geometry';
 import { catalogItem } from '@/engine/catalog';
@@ -359,8 +359,8 @@ export function ensureRealRoom(tourId: string) {
 
 /* ------------------------------------------------------------------ the demo unit's floor plan
  *
- * The listing's own drawing, as the parser would have returned it (docs/ACCURACY.md 2: a plan is
- * the cheapest metric truth a listing has). It is what makes the demo a *unit* rather than six
+ * The unit's own drawing, as the parser would have returned it (docs/ACCURACY.md 2: a plan is
+ * the cheapest metric truth a unit has). It is what makes the demo a *unit* rather than six
  * unrelated rooms: `buildUnitGraph` reads it into a room graph, `UnitMap` draws the storey with
  * "you are here", and each plan door that lands on a measured opening becomes a portal you can walk
  * through (`shared/unitGraph.ts`).
@@ -445,16 +445,17 @@ function ensureDemoPlan(tourId: string) {
 export const DEMO_UNIT = {
   title: '1247 Oak Street, Unit 3',
   address: '1247 Oak St, San Francisco, CA 94117',
-  /** Rent per month. A string, because that is what goes on the listing. */
+  /** Rent per month. A string, because that is what goes on the listing page. */
   rent: '$4,250/mo',
-  availableFrom: '1 October',
+  /** ISO, so the card and the hub can format it; the summary says it in words as well. */
+  availableFrom: '2026-10-01',
   listingUrl: 'https://www.zillow.com/apartments/san-francisco-ca/1247-oak-st/unit-3/',
   summary:
     'Top-floor Edwardian flat, vacant and freshly painted. Two bedrooms, a long living room and a dining room off the kitchen. Available 1 October, unfurnished. Walk it before you book a showing.',
 };
 
 /** Bump when the staging engine, the demo rooms or the demo unit's own copy change; existing browsers re-seed on next load. */
-export const SEED_VERSION = 8;
+export const SEED_VERSION = 9;
 
 /** Re-run the current stager over the demo rooms (keeps rooms, anchors, worlds and analytics). */
 export function restageDemo(tourId: string) {
@@ -490,9 +491,11 @@ export function relabelDemo(tourId: string) {
   const patch: Partial<Tour> = {};
   if (tour.title === '1247 Oak Street') patch.title = DEMO_UNIT.title;
   if (tour.price === '$1.49M') patch.price = DEMO_UNIT.rent;
+  /* Availability used to live only inside the summary sentence; it is a field now (Tour.availableFrom). */
+  if (!tour.availableFrom) patch.availableFrom = DEMO_UNIT.availableFrom;
   if (!tour.summary || tour.summary.startsWith('Top-floor Edwardian flat, empty since June')) patch.summary = DEMO_UNIT.summary;
   if (tour.listingUrl?.includes('/homedetails/')) patch.listingUrl = DEMO_UNIT.listingUrl;
-  /* Copy written for a sale ("offers", "the seller") reads wrong on a rental; drop it and let the
+  /* Copy written for a sale ("offers", "the leasing team") reads wrong on a rental; drop it and let the
      publish panel write it again from the unit as it is now. */
   if (tour.copy) patch.copy = undefined;
   if (Object.keys(patch).length) useAudora.getState().updateTour(tourId, patch);
@@ -518,6 +521,7 @@ export function seedDemo() {
     listingUrl: DEMO_UNIT.listingUrl,
     listingSource: 'zillow',
     price: DEMO_UNIT.rent,
+    availableFrom: DEMO_UNIT.availableFrom,
     beds: 2,
     baths: 1,
     sqft: 1180,

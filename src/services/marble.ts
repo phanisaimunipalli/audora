@@ -121,7 +121,7 @@ export interface SplatTransform {
  * **The floor, in order of preference: `ground_plane_offset`, then `bounds.floorY`, then
  * `bounds.minY`.** Marble publishes `ground_plane_offset` only with a full-quality world's metric
  * semantics, and where it publishes one it is right: measured against the world's own Gaussians —
- * the thing the buyer actually sees — the flat's splat floor lands 1.2 cm above y = 0 with the
+ * the thing the renter actually sees — the flat's splat floor lands 1.2 cm above y = 0 with the
  * ground plane and 16 cm above it with the collider's floor slab, which is what made furniture look
  * sunk into the photographed floorboards. (The earlier reading, that the ground plane sat 15 cm
  * *above* the floor, compared it with the collider mesh rather than with the splat; the collider is
@@ -139,7 +139,7 @@ export interface SplatTransform {
  * and the floor plane are untouched and the capture point stays exactly where it is relative to
  * everything Marble reconstructed — it is the room rectangle drawn around it that shrinks onto the
  * real walls and turns onto them, so `position` (which IS the capture point) reports new
- * coordinates in a frame whose origin and axes moved. Every distance the buyer can see is
+ * coordinates in a frame whose origin and axes moved. Every distance the renter can see is
  * unchanged, and so is the view from the capture point, which is why photo view looks identical
  * before and after: the camera turns with the room.
  */
@@ -272,15 +272,15 @@ export async function providerStatus(): Promise<ProviderStatus> {
 /* ---------- what a room sends to Marble ----------
  * One photo is the floor of the product; more angles are the ceiling. `room.photo` is the primary
  * shot (the one the anchor was tapped on) and `room.photos` holds the extra angles in the order the
- * seller added them, up to `MAX_ROOM_PHOTOS` between them.
+ * leasing team added them, up to `MAX_ROOM_PHOTOS` between them.
  *
- * When the seller says which way an angle faces, that becomes Marble's `azimuth`: degrees round the
+ * When the leasing team says which way an angle faces, that becomes Marble's `azimuth`: degrees round the
  * capture point with the primary shot at 0, matching the Front / Left / Right the Marble UI offers.
  * An unlabelled angle sends no azimuth at all, which is the documented "work it out yourself" mode —
  * a wrong hint is worse than none. */
 
 /**
- * Marble's own cap in reconstruction mode; the create flow stops the seller at six. Defined in
+ * Marble's own cap in reconstruction mode; the create flow stops the leasing team at six. Defined in
  * `./marblePrompt` (the leaf) and re-exported here, so the sentence the prompt opens with counts
  * exactly the shots this module sends.
  */

@@ -23,7 +23,7 @@ import { aiAutoStage } from '@/services/ai';
 import { clock, usd as fmtUsd } from '@/lib/format';
 import { AnchorChip } from '@/components/AnchorChip';
 import { FloorOffset } from '@/components/FloorOffset';
-import { Button, Callout, Chip, Field, Input, Select, StagedLabel, cx, pillClass } from '@/components/ui';
+import { Button, Callout, Chip, Field, Input, Select, SourceLabel, StagedLabel, cx, pillClass, stagedLabelShows } from '@/components/ui';
 import { Icon } from '@/components/icons';
 import { ROOM_TYPES, ROOM_TYPE_LABELS } from '@/screens/create/types';
 import { FloorPlanSvg } from './FloorPlanSvg';
@@ -51,7 +51,7 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
   const site = tour.site;
   const heading = effectiveHeading(site?.heading, room.northWallHeading);
   const overridden = room.northWallHeading != null;
-  /* The seller thinks in windows, the engine in the room's north wall; this room says which wall its
+  /* The leasing team thinks in windows, the engine in the room's north wall; this room says which wall its
      windows are on, so the two can be the same control. */
   const windowWall = dominantWindowWall(g.windows.map((w) => w.wall));
   const facing = headingToFacing(heading, windowWall);
@@ -114,9 +114,9 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
             <Chip mono tone={room.status === 'ready' ? 'ok' : room.status === 'failed' ? 'danger' : room.status === 'generating' ? 'accent' : 'warn'} className="!text-[10px] uppercase">
               {room.status}
             </Chip>
-            {/* The tier the buyer is actually getting: "full · marble-1.1 · 1,580 credits". */}
+            {/* The tier the renter is actually getting: "full · marble-1.1 · 1,580 credits". */}
             <TierChip room={room} generating={busy} />
-            {/* Provenance lives here, never in the room name: the name is buyer-facing copy. */}
+            {/* Provenance lives here, never in the room name: the name is renter-facing copy. */}
             {room.note ? (
               <Chip mono tone="accent" className="!text-[10px]">
                 {room.note}
@@ -182,8 +182,9 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
             <Button size="sm" variant={stagingOn ? 'ghost' : 'primary'} onClick={() => onView(room.id)}>
               <Icon.Eye size={14} /> View
             </Button>
-            {/* "Digitally staged" is a claim about furniture; with staging off there is none to disclose. */}
-            {stagingOn ? <StagedLabel className="ml-auto" /> : null}
+            {/* The permanent label rides every room; "digitally staged" only when this room has pieces. */}
+            <SourceLabel className="ml-auto" />
+            {stagedLabelShows(room.staging.length, stagingOn) ? <StagedLabel /> : null}
           </div>
         </div>
       </div>

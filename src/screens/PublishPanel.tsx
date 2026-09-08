@@ -23,23 +23,19 @@ import { watermark } from '@/three/stills';
 import { effectiveHeading, sunState } from '@/engine/siteSun';
 import { clock, timeAgo, usd } from '@/lib/format';
 import { AnchorChip } from '@/components/AnchorChip';
-import { Button, Callout, Card, Chip, IconButton, Input, Progress, Spinner, Toggle, cx } from '@/components/ui';
-import { SourceLabel } from '@/components/marketing/SourceLabel';
+import { Button, Callout, Card, Chip, IconButton, Input, Progress, SourceLabel, Spinner, Toggle, cx } from '@/components/ui';
 import { Icon } from '@/components/icons';
 import { ShadowedFullNote, TierChip } from '@/screens/hub/TierChip';
 import { UpgradeBanner } from '@/screens/hub/UpgradeBanner';
 import { jobElapsed, jobRemaining } from '@/screens/hub/jobMeta';
 import { useNow } from '@/screens/hub/useNow';
 import { StillsRenderer, type Still } from './viewer/StillsRenderer';
-import { copyText, embedSnippet, publicUrl } from './viewer/share';
+import { copyText, disclosure as disclosureLine, embedSnippet, publicUrl } from './viewer/share';
 
 export interface PublishPanelProps {
   tourId: string;
   className?: string;
 }
-
-const DISCLOSURE = (anchors: string[]) =>
-  `AI-generated from photos. The 3D model of this unit was generated from photographs of it and its floor plan; it is a reconstruction, not a photograph and not a survey. Room dimensions are derived from a declared scale reference for each room (${anchors.join('; ')}) and carry the stated ± uncertainty. Renters should verify critical measurements in person.`;
 
 function CopyButton({ text, label = 'Copy', size = 'sm' }: { text: string; label?: string; size?: 'sm' | 'md' }) {
   const [ok, setOk] = useState(false);
@@ -130,7 +126,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
   }, []);
   /* A room with a real capture whose photograph did not arrive comes back as a render of the
      measured room. That is a usable fallback, but it is NOT the unit, and a leasing team about to
-     put four images on a listing has to be told which they are looking at. */
+     put four images on a unit has to be told which they are looking at. */
   const onStillsFallback = useCallback(
     (reason: string) => {
       const name = renderingRoom?.name ?? 'This room';
@@ -192,7 +188,8 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
 
   const link = publicUrl(tour.shareId);
   const embed = embedSnippet(tour.shareId, tour.title);
-  const disclosure = DISCLOSURE(rooms.map((r) => `${r.name}: ${r.anchor.label}`));
+  /* One text, shared with the embed snippet (./viewer/share), so the page and the iframe can never drift apart. */
+  const disclosure = disclosureLine(rooms.map((r) => `${r.name}: ${r.anchor.label}`));
   const readyRooms = rooms.filter((r) => r.status === 'ready');
   /* Counted by what the renter is shown, not by what is attached, and every room accounted for
      exactly once: a simulated full that never displaces a real capture is not a full-quality room,

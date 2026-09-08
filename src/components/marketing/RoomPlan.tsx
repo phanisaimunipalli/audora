@@ -6,19 +6,19 @@ import { cx } from '@/components/ui';
 export interface RoomPlanProps {
   room: RoomGeometry;
   staging: PlacedPiece[];
-  /** The buyer's piece, drawn in buyer blue. */
+  /** The renter's piece, drawn in renter blue. */
   buyer?: PlacedPiece | null;
   showSeller?: boolean;
   /** Nearest walkway to draw as a dimension line. */
   gap?: { a: Vec2; b: Vec2; metres: number } | null;
-  /** Colours the buyer outline: blue when it fits, red when it does not. */
+  /** Colours the renter outline: blue when it fits, red when it does not. */
   fits?: boolean;
   labels?: boolean;
   className?: string;
 }
 
-/* Ink lines on white: the plan is a drawing, not a render. Buyer blue and the gold walkway line are
-   the only colours; seller pieces keep the catalogue's own muted fills. */
+/* Ink lines on white: the plan is a drawing, not a render. Renter blue and the gold walkway line are
+   the only colours; leasing team pieces keep the catalogue's own muted fills. */
 const INK = '#0a0a0a';
 const INK3 = '#737373';
 const FLOOR = '#ffffff';
@@ -94,8 +94,8 @@ function T({
 }
 
 /**
- * Top-down plan of a room in metres. Seller staging is drawn in its own colours, the buyer's piece
- * in buyer blue, and the nearest walkway as a dimension line. Pure SVG: no WebGL needed.
+ * Top-down plan of a room in metres. Leasing team staging is drawn in its own colours, the renter's piece
+ * in renter blue, and the nearest walkway as a dimension line. Pure SVG: no WebGL needed.
  */
 export function RoomPlan({ room, staging, buyer, showSeller = true, gap, fits = true, labels = true, className }: RoomPlanProps) {
   const uid = useId();
@@ -137,7 +137,7 @@ export function RoomPlan({ room, staging, buyer, showSeller = true, gap, fits = 
         ))}
       </g>
 
-      {/* seller staging: never blue */}
+      {/* leasing team staging: never blue */}
       {showSeller
         ? staging.map((p) => {
             const color = p.color ?? '#8d7b6a';
@@ -167,7 +167,7 @@ export function RoomPlan({ room, staging, buyer, showSeller = true, gap, fits = 
       <line x1={hinge.x} y1={hinge.z} x2={tip.x} y2={tip.z} stroke={INK} strokeWidth={0.04} />
       <polyline points={arcPoints(hinge, tip, jamb, door.width)} fill="none" stroke={INK} strokeOpacity={0.5} strokeWidth={0.02} strokeDasharray="0.06 0.05" />
 
-      {/* buyer piece: always blue */}
+      {/* renter piece: always blue */}
       {buyer ? (
         <g>
           <polygon points={pts(buyer)} fill={buyerStroke} fillOpacity={0.26} stroke={buyerStroke} strokeWidth={0.05} strokeLinejoin="round" />

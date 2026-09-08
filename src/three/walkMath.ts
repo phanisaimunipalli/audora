@@ -109,14 +109,14 @@ export function blocked(x: number, z: number, room: RoomGeometry, pieces: Placed
  * The furthest point toward (x,z) the walker can actually reach from (fx,fz) in a straight line.
  *
  * It is not enough for the destination itself to be free: a click on the floor beyond a wall used
- * to land the buyer *outside* the reconstruction, because the target was inside the room rectangle
+ * to land the renter *outside* the reconstruction, because the target was inside the room rectangle
  * and nothing checked the way there. Marching out from the walker and stopping at the last free
  * point keeps every glide inside the room the photograph shows. Returns null when even the first
  * step is blocked.
  *
  * **Every point this returns is reached by an unblocked walk from (fx,fz)** — there is no branch
  * that hands back the target because it happens to be free. Teleporting to a "free" point across a
- * photographed wall is exactly how a buyer ended up standing inside the masonry of the opposite
+ * photographed wall is exactly how a renter ended up standing inside the masonry of the opposite
  * corner, unable to walk out.
  */
 export function standable(
@@ -164,7 +164,7 @@ export function standable(
  *
  * The spawn is computed from the room *rectangle*, and on a real reconstruction the walk mask is a
  * few centimetres tighter than that rectangle, so the capture point itself can come out "blocked".
- * Spawning there left the buyer standing in a wall with WASD refusing every direction, which is why
+ * Spawning there left the renter standing in a wall with WASD refusing every direction, which is why
  * this exists: whatever the caller asks for, the walker starts somewhere they can walk out of.
  */
 export function nearestFree(
@@ -227,7 +227,7 @@ export function integrate(
   const nz = st.z + st.vz * dt;
   /* Already standing somewhere illegal — a mask that landed under the walker's feet, a glide that
      ended badly, furniture dropped around them. Collision would then refuse *every* direction and
-     the buyer would be frozen with no way out but a mode switch. While stuck, movement is allowed
+     the renter would be frozen with no way out but a mode switch. While stuck, movement is allowed
      anywhere inside the room rectangle (never out of the room altogether); the ordinary rules come
      back the moment they step onto free floor. */
   if (blocked(st.x, st.z, room, pieces, mask)) {

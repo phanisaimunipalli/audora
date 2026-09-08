@@ -22,7 +22,7 @@ export function hasSplat(world: RoomWorld | undefined): boolean {
  * ARCHITECTURE's 2026-09-06 priority update settles this: "Walk mode is the default public
  * experience when a splat exists", because a Gaussian splat is photoreal *and* walkable and that is
  * the most real thing Audora can show. The panorama is the instant backdrop while it streams (see
- * MarbleWorld), so opening in Walk no longer costs the buyer the first eight seconds. A world with a
+ * MarbleWorld), so opening in Walk no longer costs the renter the first eight seconds. A world with a
  * panorama but no splat still opens in Photo — it is the only photoreal thing it has — and a
  * simulated room opens walking.
  */
@@ -66,7 +66,7 @@ export const layerLoading = (m: MarbleStatusMap, layer: MarbleLayer): boolean =>
 export const splatTier = (m: MarbleStatusMap): SplatTier | undefined => (layerReady(m, 'splat') ? m.splat?.tier : undefined);
 
 /**
- * "real capture · 500k splats" — what the buyer is actually looking at. The splat count wins over
+ * "real capture · 500k splats" — what the renter is actually looking at. The splat count wins over
  * the tier name because during an upgrade the tier being fetched is not the one on screen; the count
  * always is.
  */
@@ -94,7 +94,7 @@ function pillFor(s: MarbleWorldStatus | undefined): LoadPill | null {
  * The one line the viewer shows about a reconstruction.
  *
  * While something is still coming down it is a wait ("Loading the real capture · 100k splats ·
- * 62%"); the panorama speaks first, because it is what the buyer is looking at. Once a tier is on
+ * 62%"); the panorama speaks first, because it is what the renter is looking at. Once a tier is on
  * screen and a better one is streaming behind it the line becomes a statement — "real capture · 500k
  * splats · full res loading…" — which is the honest answer to "is this a photograph?" and the reason
  * a viewer waiting for full resolution never wonders whether anything is happening. Returns null
@@ -103,7 +103,7 @@ function pillFor(s: MarbleWorldStatus | undefined): LoadPill | null {
  */
 export function loadPill(m: MarbleStatusMap): LoadPill | null {
   const splat = m.splat;
-  // A better tier is streaming behind the one the buyer is already standing in.
+  // A better tier is streaming behind the one the renter is already standing in.
   if (splat?.upgrading && (splat.status === 'ready' || splat.splats)) {
     const to = splat.upgrading === 'unknown' ? 'a sharper capture' : TIER_LABEL[splat.upgrading];
     return { tone: 'info', label: `${captureLabel(m) ?? 'real capture'} · ${to} loading…`, progress: splat.progress?.ratio ?? null };

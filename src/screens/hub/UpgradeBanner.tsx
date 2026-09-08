@@ -39,7 +39,7 @@ export function UpgradeBanner({ jobs, rooms, compact, className }: UpgradeBanner
       <Callout tone="info" title={upgradeLine(elapsed, remaining, allQueued)}>
         <div className="flex flex-col gap-2">
           <span>
-            {jobs.length} room{jobs.length === 1 ? '' : 's'} · buyers keep walking the draft until the full reconstruction lands. {LEAVE_COPY}
+            {jobs.length} room{jobs.length === 1 ? '' : 's'} · renters keep walking the draft until the full reconstruction lands. {LEAVE_COPY}
           </span>
           <Progress value={progress} />
         </div>

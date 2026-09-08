@@ -38,7 +38,7 @@ export interface StepRoomsProps {
   onUpdate: (id: string, patch: Partial<DraftRoom>) => void;
   onRemove: (id: string) => void;
   onMove: (id: string, toIndex: number) => void;
-  /** Rooms read off the listing floor plan, offered as the match for each photo. */
+  /** Rooms read off the unit's floor plan, offered as the match for each photo. */
   planRooms?: FlatPlanRoom[];
   onMatchPlan?: (id: string, key: string | undefined) => void;
   /** Another angle of the same room; up to six per room reach Marble as one multi-image prompt. */
@@ -94,7 +94,7 @@ export function StepRooms({ rooms, loading, onAddFiles, onAddMeasured, onUpdate,
             <div className="text-sm text-ink-2">
               <span className="mono text-ink">{rooms.length}</span> room{rooms.length === 1 ? '' : 's'} · drag to reorder
             </div>
-            <span className="text-xs text-ink-3">Order is how buyers will walk the tour.</span>
+            <span className="text-xs text-ink-3">Order is how a renter will walk the unit.</span>
           </div>
           {rooms.map((room, i) => (
             <DraftRoomCard
@@ -263,7 +263,7 @@ function DraftRoomCard({
         'panel animate-rise grid gap-4 p-4 transition-all md:grid-cols-[220px_1fr]',
         dragging && 'opacity-50',
         over && 'border-accent/60',
-        /* A blocked room is not a styling flourish: it is the one thing standing between the seller
+        /* A blocked room is not a styling flourish: it is the one thing standing between the leasing team
            and Generate, so the card itself says so. */
         intake.blocked && 'border-danger/50',
       )}
@@ -460,7 +460,7 @@ function DraftRoomCard({
 /* ---------- what to photograph ----------
  * docs/ACCURACY.md 3.4. Two to four angles per room, and the three that matter are named: a corner,
  * the doorway, the opposite corner. Said before the drop zone, because the shot is taken in the
- * room and the seller is standing in it. */
+ * room and the leasing team is standing in it. */
 
 function AngleGuidance() {
   return (
@@ -575,7 +575,7 @@ function PlanSuggestion({
 
 /**
  * The unit's confirmation table: every room, what the plan says about it, what photo it was matched
- * to, and whether the seller has said yes. It is the summary; the per-room card is where the yes is
+ * to, and whether the leasing team has said yes. It is the summary; the per-room card is where the yes is
  * given, so this only counts and links.
  */
 function PlanConfirmation({ rooms, planRooms, onUpdate }: { rooms: DraftRoom[]; planRooms: FlatPlanRoom[]; onUpdate: (id: string, patch: Partial<DraftRoom>) => void }) {
@@ -583,7 +583,7 @@ function PlanConfirmation({ rooms, planRooms, onUpdate }: { rooms: DraftRoom[]; 
   const rows = allRows.filter((r) => r.state !== 'unmatched' || r.thumbnail);
   const pending = allRows.filter((r) => r.state === 'unconfirmed');
   /* Only a pairing that has dimensions to confirm can be confirmed. Counting the rest on the
-     confirmed side of the fraction read "19 of 19 confirmed" before the seller had touched one —
+     confirmed side of the fraction read "19 of 19 confirmed" before the leasing team had touched one —
      on a plan whose 19 rooms printed no dimensions at all, so none of them was confirmable. */
   const confirmable = allRows.filter((r) => r.state === 'confirmed' || r.state === 'unconfirmed');
   const unused = planRooms.filter((p) => !rooms.some((r) => r.planRoom?.key === p.key));
@@ -629,7 +629,7 @@ function PlanConfirmRow({ row, onConfirm }: { row: PlanPhotoRow; onConfirm: () =
         )}
       </div>
       {/* The room's identity leads. Without it every row of a plan that printed no dimensions is the
-          same two sentences, and the seller is asked to confirm a pairing the row never names. */}
+          same two sentences, and the leasing team is asked to confirm a pairing the row never names. */}
       <div className="min-w-0">
         <div className="flex flex-wrap items-baseline gap-x-2">
           <span className="truncate text-[12.5px] font-medium text-ink">{row.roomName}</span>
@@ -792,7 +792,7 @@ function PhotoAngles({
 }
 
 /* ---------- photo URLs copied off the listing ----------
- * The agent's own listing already carries twenty photographs. The browser cannot read them (listing
+ * The unit's own listing page already carries twenty photographs. The browser cannot read them (listing
  * CDNs send no CORS header), so the URLs go to the dev server's /api/fetch-image proxy, which fetches
  * one image at a time with an 8 MB cap and refuses anything that is not an image. Audora never
  * touches the listing page itself. */
@@ -823,7 +823,7 @@ function PhotoUrlBox({ onSubmit, state }: { onSubmit: (text: string) => void; st
             rows={4}
             spellCheck={false}
             placeholder={'https://photos.zillowstatic.com/fp/….jpg\nhttps://ssl.cdn-redfin.com/photo/….jpg'}
-            aria-label="Listing photo URLs, one per line"
+            aria-label="Listing-page photo URLs, one per line"
             className="mono w-full resize-y rounded-[10px] border border-line-2 bg-bg px-3 py-2 text-xs text-ink outline-none placeholder:text-faint focus:border-ink"
           />
           <div className="flex flex-wrap items-center gap-3">

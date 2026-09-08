@@ -11,12 +11,12 @@ import { ACCENT, BUYER_BLUE } from './palette';
 
 export interface StagingLayerProps {
   room: RoomGeometry;
-  /** Seller staging. */
+  /** Leasing team staging. */
   pieces: PlacedPiece[];
-  /** Buyer's own pieces, drawn in the buyer colour; also editable when `editable`. */
+  /** Renter's own pieces, drawn in the renter colour; also editable when `editable`. */
   buyerPieces?: PlacedPiece[];
   editable?: boolean;
-  /** Hide seller staging (buyer "see it bare" toggle) while keeping buyer pieces. */
+  /** Hide leasing team staging (renter "see it bare" toggle) while keeping renter pieces. */
   showSeller?: boolean;
   selectedId?: string | null;
   onSelect?: (id: string | null) => void;
@@ -26,7 +26,7 @@ export interface StagingLayerProps {
   onFloorPointer?: (p: { x: number; z: number } | null) => void;
 
   /* ---- optional extras ---- */
-  /** Keep seller staging fixed even when editable (public buyer view: only the buyer's pieces move). */
+  /** Keep leasing team staging fixed even when editable (public renter view: only the renter's pieces move). */
   lockSeller?: boolean;
   /** Catalog item being placed: a ghost follows the pointer on the floor until a click (or Enter) places it. */
   placing?: CatalogItem | null;

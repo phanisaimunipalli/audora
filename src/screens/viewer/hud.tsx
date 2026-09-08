@@ -1,5 +1,5 @@
 /**
- * The chrome that floats over the 3D view — shared by the buyer's viewer and the staging editor.
+ * The chrome that floats over the 3D view — shared by the renter's viewer and the staging editor.
  *
  * It is the deployed prototype's language, one for one (docs/reference/prototype-index.css):
  * a transparent top bar with the wordmark on the left and a black/white pill group on the right
@@ -114,7 +114,7 @@ export interface HudPillProps {
   disabled?: boolean;
   /** Round icon-only pill (share, fullscreen, the quiet toggles). */
   square?: boolean;
-  /** The buyer's own action: blue instead of black when it is on. */
+  /** The renter's own action: blue instead of black when it is on. */
   buyer?: boolean;
   className?: string;
   'aria-label'?: string;
@@ -202,7 +202,7 @@ export interface MetricRowProps {
   label: ReactNode;
   /** Null / undefined prints the prototype's faint "not reported". */
   value?: ReactNode;
-  /** Bold the value: the number the seller is actually steering (the floor nudge). */
+  /** Bold the value: the number the leasing team is actually steering (the floor nudge). */
   strong?: boolean;
   missing?: string;
   title?: string;
@@ -234,7 +234,7 @@ export interface RoomStripProps {
   rooms: Room[];
   activeId?: string;
   onPick: (id: string) => void;
-  /** "Rooms in this tour". */
+  /** "Rooms in this unit". */
   label?: string;
   /** A generation in flight, per room id: shows its percentage on the tile. */
   progressFor?: (room: Room) => number | null;
@@ -288,10 +288,10 @@ function PlanTile({ room }: { room: Room }) {
 }
 
 /**
- * The bottom strip: "Rooms in this tour · 5" and a scrolling row of tiles. It replaces the old room
- * chips card — a buyer who cannot see that the photoreal rooms exist will never open one.
+ * The bottom strip: "Rooms in this unit · 5" and a scrolling row of tiles. It replaces the old room
+ * chips card — a renter who cannot see that the photoreal rooms exist will never open one.
  */
-export function RoomStrip({ rooms, activeId, onPick, label = 'Rooms in this tour', progressFor, className }: RoomStripProps) {
+export function RoomStrip({ rooms, activeId, onPick, label = 'Rooms in this unit', progressFor, className }: RoomStripProps) {
   /* The reference pairs its scrolling thumbnails with rail arrows; without them the fifth room sits
      clipped at the viewport edge and nothing says it is there. Hooks run before the early return. */
   const railRef = useRef<HTMLDivElement>(null);
@@ -335,7 +335,7 @@ export function RoomStrip({ rooms, activeId, onPick, label = 'Rooms in this tour
               )}
             >
               {shot ? <img src={shot} alt="" className="h-full w-full object-cover" loading="lazy" /> : <PlanTile room={r} />}
-              {/* The name is what a seller navigates by; the still is what a buyer recognises. */}
+              {/* The name is what the leasing team navigates by; the still is what a renter recognises. */}
               <span className="absolute inset-x-0 top-0 truncate bg-gradient-to-b from-white/95 via-white/80 to-transparent px-1.5 pb-1.5 pt-1 text-left text-[10px] font-semibold leading-none text-ink">
                 {r.name}
               </span>

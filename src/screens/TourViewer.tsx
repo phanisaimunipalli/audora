@@ -27,7 +27,7 @@ import { TouchJoystick } from '@/three/TouchJoystick';
 import { StagingLayer } from '@/three/furniture/StagingLayer';
 import { AnchorChip } from '@/components/AnchorChip';
 import { FurnitureTest } from '@/components/FurnitureTest';
-import { Kbd, Spinner, StagedLabel, cx } from '@/components/ui';
+import { Kbd, SourceLabel, Spinner, StagedLabel, cx, stagedLabelShows } from '@/components/ui';
 import { Icon } from '@/components/icons';
 import { isTouchDevice, sessionOnce, trackEvent } from './viewer/analytics';
 import { copyText, publicUrl } from './viewer/share';
@@ -45,7 +45,7 @@ import { arrivalPose, buildUnitGraph, floorBounds, linkRooms, matchPortals, room
 export interface TourViewerProps {
   tourId: string;
   roomId?: string;
-  /** Buyer mode: no editing, "test my furniture", analytics events. */
+  /** Renter mode: no editing, "test my furniture", analytics events. */
   publicMode?: boolean;
   onRoomChange?: (roomId: string) => void;
   className?: string;
@@ -78,7 +78,7 @@ const LOOK = new Vector3();
 /**
  * Photo view's camera never moves, but it does turn, and "your sofa lands in front of you" is only
  * true if the viewer knows which way "in front" is. Publishes the capture point plus the direction
- * the buyer is actually looking, coarsely enough that the slow drift does not re-render the HUD.
+ * the renter is actually looking, coarsely enough that the slow drift does not re-render the HUD.
  */
 function PhotoPose({ x, z }: { x: number; z: number }) {
   const camera = useThree((s) => s.camera);
@@ -128,7 +128,7 @@ interface SceneProps {
   onPanoSize: (size: { w: number; h: number } | null) => void;
   /** The doorways out of this room, matched to the plan (`shared/unitGraph`). Empty without a plan. */
   portals: readonly Portal[];
-  /** The buyer walked through, or clicked, one of them. */
+  /** The renter walked through, or clicked, one of them. */
   onPortal: (portal: Portal) => void;
   editable: boolean;
 }
@@ -150,13 +150,13 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
   const frame = useMarbleFrame(real ?? NO_WORLD, room.anchor.metresPerUnit, floorOffset);
   /* Photo view's camera and rig belong to the *mode*; whether the photograph is actually drawn
      belongs to the *layer*. Keeping them apart is what lets the Layers panel take the capture away
-     without throwing the buyer out of the room they were standing in. */
+     without throwing the renter out of the room they were standing in. */
   const photo = mode === 'photo' && hasPano(real);
   const showPhoto = layers.photo;
   const wantSplat = mode === 'walk' && showSplat && showPhoto && Boolean(real?.spzUrl);
   const splat = wantSplat && splatReady;
   /* The panorama is up in about a second and the smallest splat in two or three, so while the splat
-     streams the buyer stands in the photograph rather than in the procedural stand-in — and it stays
+     streams the renter stands in the photograph rather than in the procedural stand-in — and it stays
      there afterwards, behind the splat, as the sky the reconstruction does not reach (and as the
      room's light). See MarbleWorld: nothing here is ever a black frame. */
   const panoBackdrop = wantSplat && hasPano(real);
@@ -251,7 +251,7 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
     <>
       <CameraTuning mode={mode} />
       {/* Sorting half a million splats is per-pixel work; the sharp frame comes back the moment the
-          buyer stops moving, which is the only moment they can see it. */}
+          renter stops moving, which is the only moment they can see it. */}
       <AdaptiveDpr enabled={splat} />
       {/* The real sun owns the shadows whenever the address gives us one; the panorama keeps giving
           the room its colour and its level (the environment map), which is what a photograph's own
@@ -259,7 +259,7 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
       {composite ? (
         /* `catcher` rather than `shadows`: switching the Shadows layer off must take the shadow off
            the photographed floor without changing the light the furniture is lit by, or the whole
-           room dims when the buyer only asked to see the shadow go. */
+           room dims when the renter only asked to see the shadow go. */
         <CaptureLight
           texture={panoTex}
           groupRotationY={frame.rotationY}
@@ -296,7 +296,7 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
       {real ? (
         /* Keyed on the world: switching rooms (or a full-quality world landing under an open
            viewer) tears the whole capture down instead of re-pointing it. Without the key the
-           panorama sphere is deliberately kept mounted across a change — which is how the buyer
+           panorama sphere is deliberately kept mounted across a change — which is how the renter
            spent several seconds looking at the *previous* room's capture under the new room's
            chrome, minimap and dimensions. */
         <MarbleWorld
@@ -367,7 +367,7 @@ function useNarrow(query = '(max-width: 639px)'): boolean {
 const coarse = (p: Pose): Pose => ({ x: Math.round(p.x * 4) / 4, z: Math.round(p.z * 4) / 4, yaw: Math.round(p.yaw * 4) / 4 });
 
 /**
- * The buyer's room. Full-bleed canvas with a glass HUD: room switcher, anchor, staging toggle,
+ * The renter's room. Full-bleed canvas with a glass HUD: room switcher, anchor, staging toggle,
  * walk / dollhouse, measure, "test my furniture", minimap, and a share link.
  */
 export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, className, initialMode, hideHud }: TourViewerProps) {
@@ -386,10 +386,10 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   const world = bestWorld(room);
 
   /* ---- the unit as one model (docs/ACCURACY.md 3.3) ----
-     The listing plan is the only thing that knows this flat is one flat: `buildUnitGraph` turns it
+     The floor plan is the only thing that knows this flat is one flat: `buildUnitGraph` turns it
      into rooms, their places and the doors between them, `linkRooms` says which tour room is which
      room on the drawing, and `matchPortals` puts each of those doors on the opening the collider
-     actually measured in the room the buyer is standing in. Without a plan every one of these is
+     actually measured in the room the renter is standing in. Without a plan every one of these is
      empty and the viewer behaves exactly as it did. */
   const floorPlan = tour?.floorPlan;
   const unit = useMemo<UnitGraph | null>(() => (floorPlan?.floors?.length ? buildUnitGraph(floorPlan) : null), [floorPlan]);
@@ -420,8 +420,8 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
     },
     [unit, planRefs],
   );
-  /* Only doorways that lead somewhere the buyer can actually stand. A plan usually draws rooms the
-     seller never photographed — a hall, a kitchen — and `matchPortals` reports those doors because
+  /* Only doorways that lead somewhere the renter can actually stand. A plan usually draws rooms the
+     leasing team never photographed — a hall, a kitchen — and `matchPortals` reports those doors because
      they are on the drawing; drawing a doorway that does nothing when you walk into it is worse
      than not drawing it. The unit map still shows those rooms, greyed, so the flat stays whole. */
   const doorways = useMemo(() => {
@@ -483,9 +483,10 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   );
 
   const [testOpen, setTestOpen] = useState(false);
-  /* Staging deferred (docs/ACCURACY.md 3.7). The seller's furniture layer, the buyer's furniture
-     test and the "digitally staged" label are the three staging surfaces this screen owns; each is
-     hidden, not deleted, and the viewer leads with MeasuredPanel's numbers instead. */
+  /* Staging deferred (docs/ACCURACY.md 3.7). The leasing team's furniture layer, the renter's
+     furniture test and the "digitally staged" label are the three staging surfaces this screen owns;
+     each is hidden, not deleted, and the viewer leads with MeasuredPanel's numbers instead. The
+     "AI-generated from photos" label is NOT one of them: it is permanent (docs/COPY.md). */
   const stagingLayerOn = useAudora((s) => showsStaging(s.settings, 'staging-layer'));
   const furnitureTestOn = useAudora((s) => showsStaging(s.settings, 'furniture-test'));
   const [layersOpen, setLayersOpen] = useState(false);
@@ -504,7 +505,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   const [hint, setHint] = useState(false);
   const hintShown = useRef<Partial<Record<ViewMode, boolean>>>({});
   const [teleport, setTeleport] = useState<Pose | null>(null);
-  /* Where the buyer lands in the room they are walking INTO. It cannot be a teleport yet — the room
+  /* Where the renter lands in the room they are walking INTO. It cannot be a teleport yet — the room
      has not changed — and the room-change effect below is what turns it into one, so that walking
      through a doorway puts them just inside the next room's matching door rather than back at its
      own capture point. */
@@ -512,7 +513,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   const [marbleStatus, setMarbleStatus] = useState<MarbleStatusMap>({});
   const [fullscreen, setFullscreen] = useState(false);
   /* The canvas has drawn its first frame. Until then the viewport is the loading placeholder, and
-     anything the HUD centres over it (the welcome card) would hide the one thing the buyer needs
+     anything the HUD centres over it (the welcome card) would hide the one thing the renter needs
      to see: that the room is still being built. */
   const [sceneReady, setSceneReady] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -523,10 +524,10 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
 
   /* Where walking starts.
      On a real reconstruction it is the capture point, facing the way the camera faced (the room's own
-     yaw in our frame; see three/splat/frame) — so the buyer's first frame IS the photograph, exactly as it is
+     yaw in our frame; see three/splat/frame) — so the renter's first frame IS the photograph, exactly as it is
      in photo view, and the splat lines up with what they were promised. Everywhere else it is just
      inside the door. Either way `freeSpawn` nudges out of a staged piece, because spawning inside
-     the sofa leaves the walker stuck against it. Buyer pieces are deliberately not a dependency:
+     the sofa leaves the walker stuck against it. Renter pieces are deliberately not a dependency:
      dropping a sofa must not teleport the walker back to the door. */
   const realWorld = isReal(world) ? world : undefined;
   const captureFrame = useMarbleFrame(realWorld ?? NO_WORLD, room?.anchor.metresPerUnit ?? 1, floorOffsetOf(room));
@@ -537,7 +538,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
     if (teleport) return teleport;
     // Read on this render rather than waiting for the effect below to turn it into a teleport: the
     // room has already changed, and one frame spent at the capture point would be a visible jump
-    // out of the doorway the buyer just walked through.
+    // out of the doorway the renter just walked through.
     if (arrival.current && arrival.current.roomId === room?.id) return arrival.current.pose;
     if (!room) return { x: 0, z: 0, yaw: 0 };
     const base = realWorld ? { x: captureX, z: captureZ, yaw: captureFacing } : undefined;
@@ -617,8 +618,8 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   }, [layersOpen, testOpen, timeOpen, narrow, measuredOpen]);
 
   /* The scene, the minimap, the walk mask and the fit verdict all read `showStaging`, so switching
-     it off is what actually removes the seller's furniture — hiding the toggle alone would leave a
-     staged room on screen with no way back. The buyer's own panel is closed for the same reason. */
+     it off is what actually removes the leasing team's furniture — hiding the toggle alone would leave a
+     staged room on screen with no way back. The renter's own panel is closed for the same reason. */
   useEffect(() => {
     if (!stagingLayerOn) setShowStaging(false);
   }, [stagingLayerOn, setShowStaging]);
@@ -690,7 +691,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
 
   /**
    * Through a doorway. The room on the other side has a doorway back — the same opening, measured
-   * from inside it — so the buyer steps out of *that* one, facing into the room, rather than being
+   * from inside it — so the renter steps out of *that* one, facing into the room, rather than being
    * dropped at its capture point. Photo view has no way to walk, so going through starts walking.
    */
   const onPortal = useCallback(
@@ -701,7 +702,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
       const back = portalsFor(next).portals.find((p) => p.toRoomRef === planRefs[room?.id ?? '']);
       const pose = back ? arrivalPose(back, next.geometry) : null;
       // `freeSpawn` for the same reason walking always uses it: landing inside the sofa behind the
-      // door leaves the buyer stuck against it.
+      // door leaves the renter stuck against it.
       arrival.current = pose ? { roomId: next.id, pose: freeSpawn(next.geometry, next.staging, pose) } : null;
       if (useViewer.getState().mode === 'photo') setMode('walk');
       setLocalRoomId(next.id);
@@ -714,7 +715,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   const changeMode = (m: ViewMode) => {
     if (m === mode) return;
     if (m === 'walk' && room) {
-      // resume where the buyer last stood (in photo view that is the capture point), not at the door
+      // resume where the renter last stood (in photo view that is the capture point), not at the door
       const p = useViewer.getState().pose;
       if (Math.abs(p.x) > 0.01 || Math.abs(p.z) > 0.01) setTeleport(freeSpawn(room.geometry, room.staging, { ...p }));
     }
@@ -742,7 +743,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   );
 
   /* "Light ahead on the left · 62% directional" — the estimate the furniture is actually lit by,
-     said relative to the way the buyer is facing, because that is the only frame a person in a room
+     said relative to the way the renter is facing, because that is the only frame a person in a room
      has. The bearing follows the coarse pose, so it does not re-render the HUD as you turn. */
   const sunDescription = useMemo<SunDescription | null>(() => {
     if (!captureLight || !room) return null;
@@ -798,13 +799,13 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   if (!tour || !room) {
     return (
       <div className={cx('grid place-items-center bg-bg text-sm text-ink-3', className)}>
-        {tour ? 'This tour has no rooms yet.' : 'This tour does not exist.'}
+        {tour ? 'This unit has no rooms yet.' : 'This unit does not exist.'}
       </div>
     );
   }
 
   const cmUncertainty = Math.max(1, Math.round(room.anchor.uncertaintyM * 100));
-  /* The corner plan. With a listing plan behind it that is the whole flat with the buyer standing
+  /* The corner plan. With a floor plan behind it that is the whole flat with the renter standing
      in one of its rooms; without one it is this room, measured from its own collider. The unit map
      only takes over when the plan really places this room among others — a one-room plan, or a room
      the plan never named, is better served by the room's own drawing. */
@@ -892,7 +893,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
             }
             right={
               <>
-                {/* The words stay on a phone. Nine identical 44 px circles told a first-time buyer
+                {/* The words stay on a phone. Nine identical 44 px circles told a first-time renter
                     nothing about which one measures and which one tests furniture; the row scrolls
                     (with a fade and an arrow, see TopBar) rather than dropping every label. */}
                 {modeOptions.map((o) => (
@@ -913,7 +914,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
                   Measure
                 </HudPill>
                 {/* Black, not blue: this is a chrome toggle sitting beside four black/white siblings.
-                    The buyer's blue belongs to the piece, its dimension chip and the verdict card. */}
+                    The renter's blue belongs to the piece, its dimension chip and the verdict card. */}
                 {furnitureTestOn ? (
                   <HudPill active={testOpen} onClick={() => setTestOpen((v) => !v)} icon={<Icon.Sofa size={14} />} title="Test your own furniture in this room">
                     {testOpen ? 'Close' : 'Test my furniture'}
@@ -995,7 +996,10 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
                 </div>
                 <div className="pointer-events-auto flex max-w-[60vw] flex-wrap items-center gap-1.5">
                   <AnchorChip anchor={room.anchor} size="sm" className="max-w-full bg-[color:var(--color-glass)] backdrop-blur-md" />
-                  {stagingLayerOn ? <StagedLabel className="bg-[color:var(--color-glass)] backdrop-blur-md" /> : null}
+                  {/* Permanent: every frame of this model came from photographs of the unit. */}
+                  <SourceLabel className="bg-[color:var(--color-glass)] backdrop-blur-md" />
+                  {/* Furniture that is not in the unit — only when there actually is some on screen. */}
+                  {stagedLabelShows(room.staging.length, stagingLayerOn) ? <StagedLabel className="bg-[color:var(--color-glass)] backdrop-blur-md" /> : null}
                 </div>
               </div>
 
@@ -1065,7 +1069,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
             </div>
           </div>
 
-          {/* ---- the rooms in this tour ---- */}
+          {/* ---- the rooms in this unit ---- */}
           <RoomStrip
             rooms={rooms}
             activeId={room.id}
@@ -1108,7 +1112,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
             </button>
           ) : null}
 
-          {/* the buyer's own furniture: the prototype's right-hand glass panel, a bottom sheet on a phone */}
+          {/* the renter's own furniture: the prototype's right-hand glass panel, a bottom sheet on a phone */}
           {testOpen && furnitureTestOn ? (
             <div className="glass animate-rise absolute inset-x-0 bottom-0 z-40 max-h-[70vh] rounded-t-2xl md:inset-x-auto md:bottom-[92px] md:right-3.5 md:top-[var(--hud-top,52px)] md:max-h-none md:w-[340px] md:rounded-2xl">
               <FurnitureTest

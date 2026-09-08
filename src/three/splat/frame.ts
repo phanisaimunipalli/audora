@@ -16,7 +16,7 @@
  * photographer may have faced a corner (the demo corner room is 47° off; see `roomRect` in
  * services/marble). The capture therefore ends up looking along **yaw φ**, which is why walk mode
  * and photo view both spawn at `P` facing `frame.yaw`: the first frame is then exactly the
- * photograph, and the walls the buyer sees are the walls Audora measured.
+ * photograph, and the walls the renter sees are the walls Audora measured.
  *
  * ## How each layer reaches that map
  *
@@ -58,6 +58,6 @@ export function marbleFrame(world: MarbleFrameWorld, metresPerUnit: number, floo
 
 /**
  * The direction the capture looked, in our frame — the room's own yaw. Spawning here makes the
- * buyer's first frame the photograph itself.
+ * renter's first frame the photograph itself.
  */
 export const captureYaw = (frame: Pick<SplatTransform, 'yaw'>): number => frame.yaw;

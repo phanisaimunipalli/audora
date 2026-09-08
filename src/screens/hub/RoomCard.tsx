@@ -1,6 +1,11 @@
 /**
- * A room in the hub's Stage tab: a metric floor plan of the staging, the quick actions
- * (open the editor, auto-stage) and room management (rename, type, regenerate, delete).
+ * A room in the hub: what it measures against the plan, the reconstruction it is on, and room
+ * management (rename, type, regenerate, delete).
+ *
+ * With staging deferred (docs/ACCURACY.md 3.7, `Settings.stagingEnabled`) the card leads with the
+ * measurements — the AccuracyCard's "plan says / model measures", the anchor and the model date —
+ * and the staging entry points (Open editor, Auto-stage, the fit summary) are simply not rendered.
+ * Nothing is deleted: turning the setting back on brings every one of them back.
  */
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -11,16 +16,18 @@ import { compassLabel, dominantWindowWall, effectiveHeading, facingToHeading, he
 import { bestWorld, toast, useAudora } from '@/state/store';
 import { activeProvider, regenerateRoom } from '@/state/jobs';
 import { needsFull } from '@/state/publish';
+import { stagingEnabled } from '@/state/staging';
 import type { Job, Room, Tier, Tour } from '@/state/types';
 import { TIER_INFO } from '@/services/mockWorld';
 import { aiAutoStage } from '@/services/ai';
 import { clock, usd as fmtUsd } from '@/lib/format';
 import { AnchorChip } from '@/components/AnchorChip';
 import { FloorOffset } from '@/components/FloorOffset';
-import { Button, Callout, Chip, Field, Input, Select, StagedLabel, cx, pillClass } from '@/components/ui';
+import { Button, Callout, Chip, Field, Input, Select, SourceLabel, StagedLabel, cx, pillClass, stagedLabelShows } from '@/components/ui';
 import { Icon } from '@/components/icons';
 import { ROOM_TYPES, ROOM_TYPE_LABELS } from '@/screens/create/types';
 import { FloorPlanSvg } from './FloorPlanSvg';
+import { AccuracyCard } from './AccuracyCard';
 import { isActiveJob, modelName, providerName } from './jobMeta';
 import { ShadowedFullNote, TierChip } from './TierChip';
 
@@ -31,6 +38,7 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
   const setRoomHeading = useAudora((s) => s.setRoomHeading);
   const providers = useAudora((s) => s.providers);
   const preferMock = useAudora((s) => s.settings.preferMock);
+  const stagingOn = useAudora((s) => stagingEnabled(s.settings));
   const [staging, setStagingBusy] = useState(false);
   const [manage, setManage] = useState(false);
   const [armed, setArmed] = useState(false);
@@ -43,7 +51,7 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
   const site = tour.site;
   const heading = effectiveHeading(site?.heading, room.northWallHeading);
   const overridden = room.northWallHeading != null;
-  /* The seller thinks in windows, the engine in the room's north wall; this room says which wall its
+  /* The leasing team thinks in windows, the engine in the room's north wall; this room says which wall its
      windows are on, so the two can be the same control. */
   const windowWall = dominantWindowWall(g.windows.map((w) => w.wall));
   const facing = headingToFacing(heading, windowWall);
@@ -96,7 +104,8 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
     <div className="panel flex flex-col gap-4 p-4">
       <div className="grid gap-4 sm:grid-cols-[180px_1fr]">
         <div className="flex items-center justify-center rounded-xl border border-line bg-surface p-2">
-          <FloorPlanSvg geometry={g} pieces={room.staging} className="max-h-44" />
+          {/* Staging off: the plan is the room's own dimensions, not an arrangement of furniture. */}
+          <FloorPlanSvg geometry={g} pieces={stagingOn ? room.staging : undefined} className="max-h-44" />
         </div>
         <div className="flex min-w-0 flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
@@ -105,9 +114,9 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
             <Chip mono tone={room.status === 'ready' ? 'ok' : room.status === 'failed' ? 'danger' : room.status === 'generating' ? 'accent' : 'warn'} className="!text-[10px] uppercase">
               {room.status}
             </Chip>
-            {/* The tier the buyer is actually getting: "full · marble-1.1 · 1,580 credits". */}
+            {/* The tier the renter is actually getting: "full · marble-1.1 · 1,580 credits". */}
             <TierChip room={room} generating={busy} />
-            {/* Provenance lives here, never in the room name: the name is buyer-facing copy. */}
+            {/* Provenance lives here, never in the room name: the name is renter-facing copy. */}
             {room.note ? (
               <Chip mono tone="accent" className="!text-[10px]">
                 {room.note}
@@ -118,11 +127,16 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
             {g.width.toFixed(2)} × {g.depth.toFixed(2)} × {g.height.toFixed(2)} m · {(g.width * g.depth).toFixed(1)} m²
           </div>
           <AnchorChip anchor={room.anchor} size="sm" className="self-start" />
-          <div className="mono text-xs text-ink-3">
-            {room.staging.length ? `${room.staging.length} pieces · ${STYLE_LABELS[room.stagingStyle]} · ${report.floorUsedPct}% floor` : 'not staged yet'}
-            {report.narrowestWalkway != null ? ` · narrowest walkway ${report.narrowestWalkway.toFixed(2)} m` : ''}
-            {report.misfits.length ? ` · ${report.misfits.length} misfit` : ''}
-          </div>
+          {stagingOn ? (
+            <div className="mono text-xs text-ink-3">
+              {room.staging.length ? `${room.staging.length} pieces · ${STYLE_LABELS[room.stagingStyle]} · ${report.floorUsedPct}% floor` : 'not staged yet'}
+              {report.narrowestWalkway != null ? ` · narrowest walkway ${report.narrowestWalkway.toFixed(2)} m` : ''}
+              {report.misfits.length ? ` · ${report.misfits.length} misfit` : ''}
+            </div>
+          ) : null}
+          {/* What the model measured against the plan. Always shown once a room has been measured;
+              with staging deferred it is what the card leads with, unmeasured rooms included. */}
+          {!stagingOn || room.measurement ? <AccuracyCard room={room} compact={stagingOn} /> : null}
           {site ? (
             <div className="flex flex-col gap-1 rounded-xl border border-line bg-surface px-3 py-2">
               <div className="flex items-center justify-between gap-2">
@@ -154,16 +168,23 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
             </div>
           ) : null}
           <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
-            <Link to={`/tours/${tour.id}/stage/${room.id}`} className={pillClass('primary', 'sm')}>
-              <Icon.Sofa size={14} /> Open editor
-            </Link>
-            <Button size="sm" variant="secondary" loading={staging} onClick={autoStage}>
-              <Icon.Sparkles size={14} /> Auto-stage
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => onView(room.id)}>
+            {/* Staging entry points, hidden — not removed — while `stagingEnabled` is off. */}
+            {stagingOn ? (
+              <>
+                <Link to={`/tours/${tour.id}/stage/${room.id}`} className={pillClass('primary', 'sm')}>
+                  <Icon.Sofa size={14} /> Open editor
+                </Link>
+                <Button size="sm" variant="secondary" loading={staging} onClick={autoStage}>
+                  <Icon.Sparkles size={14} /> Auto-stage
+                </Button>
+              </>
+            ) : null}
+            <Button size="sm" variant={stagingOn ? 'ghost' : 'primary'} onClick={() => onView(room.id)}>
               <Icon.Eye size={14} /> View
             </Button>
-            <StagedLabel className="ml-auto" />
+            {/* The permanent label rides every room; "digitally staged" only when this room has pieces. */}
+            <SourceLabel className="ml-auto" />
+            {stagedLabelShows(room.staging.length, stagingOn) ? <StagedLabel /> : null}
           </div>
         </div>
       </div>

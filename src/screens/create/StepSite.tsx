@@ -1,5 +1,5 @@
 /**
- * Step 2 of the create flow: where on the planet this listing is, and which way its windows face.
+ * Step 2 of the create flow: where on the planet this unit is, and which way its windows face.
  *
  * Everything here is free and public: the address is geocoded with OpenStreetMap **Nominatim**
  * (throttled to one request a second, as their policy asks), the building outline comes from OSM
@@ -9,7 +9,7 @@
  * neighbours' rooftops in it rather than with an open-field model.
  *
  * The one thing a map cannot know is which way the *room* is turned. The footprint's longest wall
- * gives a first guess (`defaultHeading`), snapped to the building's own axes; the seller drags the
+ * gives a first guess (`defaultHeading`), snapped to the building's own axes; the leasing team drags the
  * needle to confirm it. That heading is the whole contract with `three/SunLight`: turn the room by
  * it and the sun in the scene is the sun that will be in the room.
  */
@@ -128,11 +128,11 @@ interface WindowSample {
   bearing: number;
   lat: number;
   lon: number;
-  /** The room has no detected windows yet; this is the wall the seller pointed the compass at. */
+  /** The room has no detected windows yet; this is the wall the leasing team pointed the compass at. */
   assumed: boolean;
 }
 
-/** The windows to ask about, on the footprint edge, capped so a big listing does not melt the map. */
+/** The windows to ask about, on the footprint edge, capped so a big building does not melt the map. */
 export function windowSamples(rooms: DraftRoom[], heading: number, site: LatLon, ring?: [number, number][], max = 6): WindowSample[] {
   const from = ring && ring.length > 3 ? centroid(ring) : site;
   const out: WindowSample[] = [];
@@ -202,7 +202,7 @@ export function StepSite({ listing, rooms, site, onChange }: StepSiteProps) {
   const wallRef = useRef<WallSide>('north');
 
   const sky = useMemo(() => (point ? sunState(date, point.lat, point.lon, heading) : null), [point, date, heading]);
-  /* The seller answers "which way do the windows face?"; the engine wants the room's north-wall
+  /* The leasing team answers "which way do the windows face?"; the engine wants the room's north-wall
      bearing. The rooms say which wall the windows are on, and `facingToHeading` turns one into the
      other — without it a room whose windows are on its west wall ends up lit through its north one. */
   const windowWall = useMemo(() => dominantWindowWall(rooms.flatMap((r) => (r.raw.windows ?? []).map((w) => w.wall))), [rooms]);
@@ -248,7 +248,7 @@ export function StepSite({ listing, rooms, site, onChange }: StepSiteProps) {
     [site?.heading, site?.lat],
   );
 
-  // Look the listing's own address up once, so the step opens with the map already on the building.
+  // Look the unit's own address up once, so the step opens with the map already on the building.
   useEffect(() => {
     if (searched.current || site || !address.trim()) return;
     searched.current = true;
@@ -424,9 +424,9 @@ export function StepSite({ listing, rooms, site, onChange }: StepSiteProps) {
             lon: point.lon,
             displayName: point.displayName,
             heading: norm360(heading),
-            /* The wall the seller's answer was expressed against. Without it the hub re-reads the
+            /* The wall the leasing team's answer was expressed against. Without it the hub re-reads the
                wall off a room list that has grown since (the floor plan adds rooms, so do photos)
-               and can report "east" for the west the seller confirmed here. */
+               and can report "east" for the west the leasing team confirmed here. */
             windowWall,
             previewTime: date.getTime(),
             resolvedAt: Date.now(),
@@ -619,7 +619,7 @@ export function StepSite({ listing, rooms, site, onChange }: StepSiteProps) {
 
       {!point && busy === 'idle' ? (
         <Callout tone="info" title="The site is optional">
-          Without an address the tour still works — it simply has a studio light instead of the sun that will actually be in the room. You can come back and add it later.
+          Without an address the model still works — it simply has a studio light instead of the sun that will actually be in the room. You can come back and add it later.
         </Callout>
       ) : null}
     </div>

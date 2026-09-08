@@ -7,7 +7,7 @@
  * splat on the canvas goes away.
  *
  * Quality settings are chosen for a walked room rather than a turntable: radial sorting (stable when
- * the buyer turns on the spot), a sort interval that keeps a phone's worker from thrashing, and no
+ * the renter turns on the spot), a sort interval that keeps a phone's worker from thrashing, and no
  * depth writes, so our procedural furniture still composites into the capture.
  */
 import * as THREE from 'three';
@@ -42,7 +42,7 @@ export function acquireSpark(mod: SparkModule, gl: THREE.WebGLRenderer, scene: T
       // A phone that re-sorts 500k splats every frame drops the frame it was sorting for; 40 Hz is
       // indistinguishable while walking and leaves the worker time to breathe.
       minSortIntervalMs: hints.coarsePointer ? 25 : 0,
-      // Radial (geometric) sorting stays stable as the buyer turns on the spot, which is most of
+      // Radial (geometric) sorting stays stable as the renter turns on the spot, which is most of
       // what walking a room is.
       sortRadial: true,
       onDirty: options.onDirty,

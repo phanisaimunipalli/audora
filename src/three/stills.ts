@@ -12,7 +12,7 @@ export interface StillSpec {
   fov?: number;
   /**
    * Take the pose from the live camera instead of `position`/`lookAt` — the "Portrait" still, which
-   * is whatever the buyer is looking at right now. `captureStills` needs `opts.camera` for this;
+   * is whatever the renter is looking at right now. `captureStills` needs `opts.camera` for this;
    * without one the spec falls back to its own position and lookAt.
    */
   fromCamera?: boolean;
@@ -65,7 +65,7 @@ const STILL_SEPARATION = 0.7;
 
 /**
  * The lens a direction wants: the less room in front of the camera, the wider it has to be to show
- * any of it. An estate agent's own kit is 24 mm (74°) and goes wider in a small room, which is the
+ * any of it. A property photographer's own kit is 24 mm (74°) and goes wider in a small room, which is the
  * same trade — a 68° lens 1.2 m from a wall is a photograph of plaster.
  */
 export function stillFov(run: number): number {
@@ -79,13 +79,13 @@ export function stillFov(run: number): number {
  * Nothing here leaves the capture point. A panorama is only a photograph from where it was taken —
  * step away from that point and the walls stop having parallax — so a composite still turns on the
  * spot instead of walking around, and the only thing that varies between the four is the direction.
- * The first is **Portrait**: the direction the buyer is actually looking, so the still they save is
+ * The first is **Portrait**: the direction the renter is actually looking, so the still they save is
  * the frame they were sold on.
  *
  * **The other three are chosen by what they can see.** They used to be fixed offsets from the
  * photographer's own direction — +0°, +66°, +180° — which on the demo corner room put the capture
  * point 60 cm from the rear wall and made "Looking back" a featureless blurred wall, while the first
- * two were the same picture whenever the buyer had not turned. So every direction is scored by how
+ * two were the same picture whenever the renter had not turned. So every direction is scored by how
  * much room is in front of it (`runToWall`) and by the staged furniture it frames, and the three
  * best that are at least ~55° from each other and from Portrait are the ones taken. With no room to
  * score against the old fixed offsets are used, which is what a caller passing no geometry gets.
@@ -95,7 +95,7 @@ export function stillFov(run: number): number {
  */
 export function compositeSpecs(
   capture: { x: number; z: number; yaw: number },
-  /** Where the buyer is looking now. Only the direction is used; the position stays honest. */
+  /** Where the renter is looking now. Only the direction is used; the position stays honest. */
   viewer?: { yaw: number; fov?: number } | null,
   /** The measured room and what is staged in it, so the angles can be picked by content. */
   scene?: { room: Pick<RoomGeometry, 'width' | 'depth'>; pieces?: { x: number; z: number }[] } | null,
@@ -284,7 +284,8 @@ function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: num
 
 /**
  * Burn the disclosure into the image so the label travels with the file. The first line is the
- * headline ("Digitally staged"), the rest are details (anchor, room, agent). Legible at thumbnail size.
+ * headline ("AI-generated from photos · Audora"), the rest are details (anchor, room, leasing team).
+ * Legible at thumbnail size.
  */
 export async function watermark(dataUrl: string, lines: string[]): Promise<string> {
   const img = await new Promise<HTMLImageElement>((res, rej) => {
@@ -357,9 +358,9 @@ export interface CaptureOptions {
 export type CaptureFn = (opts?: CaptureOptions) => Promise<Still[]>;
 
 /**
- * Lives inside a Canvas and hands the parent a `capture()` that renders listing stills from the live
+ * Lives inside a Canvas and hands the parent a `capture()` that renders stills for the listing page from the live
  * scene. Usage: `<StillsCapturer room={room.geometry} onReady={(c) => (captureRef.current = c)} />`,
- * then `const stills = await captureRef.current?.({ watermark: ['Digitally staged', anchor.label] })`.
+ * then `const stills = await captureRef.current?.({ watermark: ['AI-generated from photos', anchor.label] })`.
  */
 export function StillsCapturer({ room, onReady, watermark: defaultLines }: { room: RoomGeometry; onReady: (capture: CaptureFn) => void; watermark?: string[] }) {
   const gl = useThree((s) => s.gl);

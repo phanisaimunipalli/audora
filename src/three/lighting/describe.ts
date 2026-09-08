@@ -1,7 +1,7 @@
 /**
  * Saying out loud where the room's light comes from.
  *
- * The sun is estimated from the photograph, so the buyer is entitled to know what was estimated —
+ * The sun is estimated from the photograph, so the renter is entitled to know what was estimated —
  * "light from the left window · 62% directional" is the same kind of honesty as the anchor chip. The
  * bearing is relative to the way the viewer is facing, because that is the only frame a person
  * standing in a room actually has; the percentage is the share of the light the key carries, which

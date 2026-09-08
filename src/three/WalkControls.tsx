@@ -35,14 +35,14 @@ export interface WalkControlsProps {
   entrySeconds?: number;
   /**
    * The real reconstruction's walkable floor (see `walkMask.ts`). The room rectangle is only the
-   * collider's bounding box, so without this the buyer glides straight through the photographed
+   * collider's bounding box, so without this the renter glides straight through the photographed
    * wall into a black void.
    */
   mask?: WalkBounds | null;
   /**
    * The reconstruction's collider mesh, already placed in our metric frame. Used only when `mask` is
    * missing — a mesh that does not enclose the capture point gets no mask — as a direct raycast test
-   * against the real walls, so the buyer is never left free to walk out of the photograph.
+   * against the real walls, so the renter is never left free to walk out of the photograph.
    */
   collider?: THREE.Object3D | null;
   /** A point known to be inside the walkable floor — the capture point. Used to rescue a spawn, a click or a walker that ends up outside it. */
@@ -129,7 +129,7 @@ export function WalkControls({
    * Never a point the walker could not walk to: `standable` marches and stops at the last free step,
    * and when the walker is themselves stuck the fallback is a step back toward home, not a jump to
    * the target. A click through an open doorway therefore stops at the doorway, and can never put
-   * the buyer inside the photographed wall on the far side of the room.
+   * the renter inside the photographed wall on the far side of the room.
    */
   const reachable = (x: number, z: number, fromX: number, fromZ: number): { x: number; z: number } | null => {
     const direct = standable(x, z, fromX, fromZ, room, piecesRef.current, maskRef.current);
@@ -141,7 +141,7 @@ export function WalkControls({
 
   /* Respawn on a *changed* spawn, never on a new object with the same numbers in it. The store
      hands out a fresh room record whenever anything about it is touched (a note, a floor nudge, an
-     analytics write), and re-running this effect on that yanks a walking buyer back to the door. */
+     analytics write), and re-running this effect on that yanks a walking renter back to the door. */
   const roomRef = useRef(room);
   roomRef.current = room;
   const spawnKey = `${room.width},${room.depth},${room.door.wall},${room.door.offset},${spawn ? `${spawn.x},${spawn.z},${spawn.yaw}` : 'door'}`;
@@ -158,7 +158,7 @@ export function WalkControls({
    *    the furniture floating in it".
    * 2. **It runs whether or not input is enabled.** Turning the ruler on unmounts the walker's
    *    input (`enabled = false`) and used to skip placement entirely, so reaching for the ruler in
-   *    the first seconds of a room threw the buyer outside it.
+   *    the first seconds of a room threw the renter outside it.
    */
   useEffect(() => {
     const room = roomRef.current;
@@ -167,7 +167,7 @@ export function WalkControls({
     const h = homeRef.current;
     // The spawn is computed from the room *rectangle*; on a real reconstruction that is a few
     // centimetres wider than the walk mask, so the capture point itself can read as blocked. Pull
-    // it to the nearest spot the buyer can actually stand — and can walk out of.
+    // it to the nearest spot the renter can actually stand — and can walk out of.
     const safe = nearestFree(want.x, want.z, room, piecesRef.current, maskRef.current, h ?? null) ?? want;
     const p: Pose = { x: safe.x, z: safe.z, yaw: want.yaw };
     const from = camera.position.clone();

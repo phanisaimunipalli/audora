@@ -198,9 +198,14 @@ describe('buildRecipe', () => {
     expect(AZIMUTH_FOR_ANGLE).toEqual({ centre: 0, right: 90, back: 180, left: 270 });
   });
 
-  it('sets reconstructImages only past four images, and isPano only when asked', () => {
+  it('sets reconstructImages from the second photo, and isPano only when asked', () => {
+    // docs/ACCURACY.md 3.4: more than one photo of a room means it is reconstructed, not described.
+    // The threshold is `MARBLE_RECONSTRUCT_MIN_IMAGES` in shared/marbleLimits.ts, which the browser
+    // recipe reads too — the two must agree or the same room hashes to two different worlds.
+    const one = buildRecipe({ ...baseInput(), photos: [{ sha256: sha('a') }] });
+    expect(one.reconstructImages).toBe(false);
     const two = buildRecipe(baseInput());
-    expect(two.reconstructImages).toBe(false);
+    expect(two.reconstructImages).toBe(true);
     expect(two.isPano).toBe(false);
     const five = buildRecipe({ ...baseInput(), photos: ['a', 'b', 'c', 'd', 'e'].map((c) => ({ sha256: sha(c) })), isPano: true });
     expect(five.reconstructImages).toBe(true);
@@ -318,7 +323,7 @@ describe('marbleRequestFrom', () => {
         { azimuth: 270, content: { source: 'data_base64', data_base64: 'B'.repeat(16), extension: 'jpg' } },
         { content: { source: 'data_base64', data_base64: 'C'.repeat(16), extension: 'png' } },
       ],
-      reconstruct_images: false,
+      reconstruct_images: true, // three angles of one room: reconstruction, not description
       text_prompt: recipe.prompt,
       disable_recaption: true,
     });
@@ -328,7 +333,7 @@ describe('marbleRequestFrom', () => {
     expect('is_pano' in wp).toBe(false);
   });
 
-  it('asks for reconstruction past four images', () => {
+  it('asks for reconstruction on every multi-image request', () => {
     const photos = ['a', 'b', 'c', 'd', 'e'].map((c) => ({ sha256: sha(c) }));
     const recipe = buildRecipe({ ...baseInput(), photos });
     const req = marbleRequestFrom(recipe, photos.map((p) => img(p.sha256[0])));
@@ -356,6 +361,9 @@ describe('marbleRequestFrom', () => {
  * Pinned for the `baseInput()` recipe above. If these change, the recipe shape or the prompt's
  * phrasing changed, and every cached world will regenerate on the next pipeline run. Bump
  * PIPELINE_VERSION deliberately in that case and update the pins here.
+ *
+ * Last moved on 2026-09-08, deliberately: `reconstructImages` now turns on from the second photo
+ * rather than the fifth (docs/ACCURACY.md 3.4), so `baseInput()`'s two-photo recipe changed value.
  */
-const PINNED_HASH = '075e0263c76562cd7db77d3cb3b5986c3c288ecc2eaff46cfb1db220588da432';
-const PINNED_SEED = 123601507; // 0x075e0263
+const PINNED_HASH = '2e09dcd5de959afb2bb979f0794ab7ad72eb60274a8bf34f6963176e00333b2f';
+const PINNED_SEED = 772398293; // 0x2e09dcd5

@@ -114,7 +114,7 @@ function readDraft(d: Draft): Omit<MyStuffItem, 'id' | 'createdAt'> | null {
 }
 
 /**
- * The buyer's reusable furniture list. Persisted in the store, so every listing they open is
+ * The renter's reusable furniture list. Persisted in the store, so every unit they open is
  * judged against the same sofa. Add by typing ("sofa 200 by 90") or with the W / D / H fields.
  */
 export function MyStuffPanel({ onPick, compact, className, pickLabel = 'Test here' }: MyStuffPanelProps) {
@@ -172,7 +172,7 @@ export function MyStuffPanel({ onPick, compact, className, pickLabel = 'Test her
       {items.length === 0 ? (
         <div className="rounded-[10px] border border-dashed border-line-2 bg-surface px-4 py-5 text-center">
           <div className="display text-xl text-ink">Measure your furniture once.</div>
-          <p className="mt-1 text-xs text-dim">Every listing you visit is evaluated against it.</p>
+          <p className="mt-1 text-xs text-dim">Every unit you visit is evaluated against it.</p>
         </div>
       ) : (
         <ul className="flex flex-col gap-1.5">

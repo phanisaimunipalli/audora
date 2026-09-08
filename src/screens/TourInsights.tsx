@@ -15,7 +15,7 @@ export interface TourInsightsProps {
   className?: string;
 }
 
-/** What buyers did with this listing: visitors, walked, tested, fit failures per room, and three things to act on. */
+/** What renters did in this unit: who opened it, who walked it, which rooms they measured, and what to do about it. */
 export function TourInsights({ tourId, className }: TourInsightsProps) {
   const tour = useAudora((s) => s.tours[tourId]);
   const rooms = useTourRooms(tourId);
@@ -40,14 +40,14 @@ export function TourInsights({ tourId, className }: TourInsightsProps) {
     void refresh();
   }, [tour, refresh]);
 
-  if (!tour) return <div className={cx('p-6 text-sm text-ink-3', className)}>Tour not found.</div>;
+  if (!tour) return <div className={cx('p-6 text-sm text-ink-3', className)}>Unit not found.</div>;
 
   if (events.length === 0) {
     return (
       <div className={className}>
         <EmptyState
-          title="No buyer activity yet."
-          body="Share the link in the listing. Every visit, walk, measurement and furniture test shows up here within seconds."
+          title="No renter activity yet."
+          body="Put the link in the listing feed. Every visit, walk and measurement shows up here within seconds."
           action={
             <Button
               variant="primary"
@@ -55,7 +55,7 @@ export function TourInsights({ tourId, className }: TourInsightsProps) {
                 await copyText(publicUrl(tour.shareId));
               }}
             >
-              <Icon.Copy size={16} /> Copy the buyer link
+              <Icon.Copy size={16} /> Copy the link for the listing
             </Button>
           }
         />
@@ -63,59 +63,60 @@ export function TourInsights({ tourId, className }: TourInsightsProps) {
     );
   }
 
-  const worst = summary.rooms.reduce<typeof summary.rooms[number] | null>((w, r) => (r.nofits > (w?.nofits ?? 0) ? r : w), null);
+  const busiest = summary.rooms.reduce<typeof summary.rooms[number] | null>((w, r) => (r.measures > (w?.measures ?? 0) ? r : w), null);
   const totalVisits = summary.series.reduce((a, b) => a + b, 0);
 
   return (
     <div className={cx('flex flex-col gap-5', className)}>
       <Card className="grid grid-cols-2 gap-5 md:grid-cols-4">
-        <Stat label="Visitors" value={summary.visitors} hint={summary.lastEventAt ? `last activity ${timeAgo(summary.lastEventAt)}` : undefined} />
-        <Stat label="Walked the room" value={summary.walked} hint={`${pctOf(summary.walked, summary.visitors)} of visitors`} />
-        <Stat label="Tested their own furniture" value={summary.tested} hint={`${pctOf(summary.tested, summary.visitors)} of visitors`} tone="accent" />
-        <Stat label="Fit failures" value={summary.failures} hint={worst && worst.nofits ? `${worst.nofits} in ${worst.name}` : 'nothing failed to fit'} tone={summary.failures ? 'danger' : 'ok'} />
+        <Stat label="Renters" value={summary.visitors} hint={summary.lastEventAt ? `last activity ${timeAgo(summary.lastEventAt)}` : undefined} />
+        <Stat label="Walked the unit" value={summary.walked} hint={`${pctOf(summary.walked, summary.visitors)} of renters`} />
+        <Stat label="Measurements taken" value={summary.measures} hint={busiest && busiest.measures ? `most in the ${busiest.name.toLowerCase()}` : 'none yet'} tone="accent" />
+        <Stat label="Shared the link" value={summary.shares} hint={summary.shares ? 'sent on to someone else' : 'not yet'} />
       </Card>
 
       <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
         <Card className="flex flex-col gap-4">
           <div className="flex items-baseline justify-between">
-            <div className="text-sm font-medium text-ink">Most-tested pieces</div>
-            <div className="mono text-[11px] text-ink-3">{plural(summary.items.reduce((a, b) => a + b.tests, 0), 'test')}</div>
+            <div className="text-sm font-medium text-ink">Where renters measured</div>
+            <div className="mono text-[11px] text-ink-3">{plural(summary.measures, 'measurement')}</div>
           </div>
           <Bars
-            unit="tests"
-            rows={summary.items.slice(0, 6).map((it) => ({
-              key: it.item,
-              label: it.label,
-              value: it.tests,
-              note: it.nofits ? <span className="text-danger">{it.nofits} did not fit</span> : it.fits ? <span className="text-ok">all fit</span> : null,
-            }))}
-            empty="No furniture tests yet."
+            unit="measurements"
+            rows={summary.rooms
+              .filter((r) => r.measures > 0)
+              .sort((a, b) => b.measures - a.measures)
+              .map((r) => ({ key: r.roomId, label: r.name, value: r.measures, note: <span className="text-ink-3">{r.walked} walked</span> }))}
+            empty="No measurements yet."
           />
+          <p className="text-xs text-ink-3">
+            A room measured again and again is a room the listing has not described. It is usually the smallest bedroom, and usually the word for it that is wrong.
+          </p>
         </Card>
 
         <Card className="flex flex-col gap-4">
           <div className="flex items-baseline justify-between">
-            <div className="text-sm font-medium text-ink">Fit failures per room</div>
-            <div className="mono text-[11px] text-ink-3">{summary.failures} total</div>
+            <div className="text-sm font-medium text-ink">Room by room</div>
+            <div className="mono text-[11px] text-ink-3">{plural(summary.rooms.length, 'room')}</div>
           </div>
           <ul className="flex flex-col gap-3">
             {summary.rooms.map((rs) => {
               const room = rooms.find((r) => r.id === rs.roomId);
-              const max = Math.max(1, ...summary.rooms.map((r) => r.nofits));
+              const max = Math.max(1, ...summary.rooms.map((r) => r.walked));
               return (
                 <li key={rs.roomId} className="flex flex-col gap-1.5">
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                     <div className="flex items-center gap-2 text-sm text-ink">
-                      {rs.nofits ? <Icon.Warning size={14} className="text-danger" /> : <Icon.Check size={14} className="text-ok" />}
                       {rs.name}
                       {room ? <span className="mono text-[11px] text-ink-3">{room.geometry.width.toFixed(2)} × {room.geometry.depth.toFixed(2)} m</span> : null}
                     </div>
                     <div className="text-xs text-ink-3">
-                      <span className={cx('mono text-sm', rs.nofits ? 'text-danger' : 'text-ink')}>{rs.nofits}</span> did not fit · <span className="mono text-ink">{rs.tests}</span> {rs.tests === 1 ? 'test' : 'tests'} · <span className="mono text-ink">{rs.walked}</span> walked
+                      <span className="mono text-sm text-ink">{rs.walked}</span> walked · <span className="mono text-ink">{rs.measures}</span>{' '}
+                      {rs.measures === 1 ? 'measurement' : 'measurements'}
                     </div>
                   </div>
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2">
-                    <div className={cx('h-full rounded-full', rs.nofits ? 'bg-danger' : 'bg-ok/50')} style={{ width: `${rs.nofits ? Math.max(4, (rs.nofits / max) * 100) : 2}%` }} />
+                    <div className="h-full rounded-full bg-ink-3/70" style={{ width: `${Math.max(2, (rs.walked / max) * 100)}%` }} />
                   </div>
                   {room ? <AnchorChip anchor={room.anchor} size="sm" className="self-start" /> : null}
                 </li>

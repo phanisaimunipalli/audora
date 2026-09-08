@@ -42,6 +42,18 @@ import {
   type RecipeTier,
 } from './recipe.js';
 import type { RoomType } from './prompt.js';
+import {
+  CEILING_HEIGHT_M,
+  extentMethodOf,
+  isOneRoom,
+  measureColliderGlb,
+  rawFromBounds,
+  type DoorSpec,
+  type RawRoomGeometry,
+  type WindowSpec,
+  type WorldBounds,
+} from '../shared/collider.js';
+import { fuseScale, orientPlan, roomFromFusion, type RoomMeasurement, type ScaleConstraints } from '../shared/fusion.js';
 
 /* ---------- the two ports ---------- */
 
@@ -122,6 +134,9 @@ export interface RoomRow {
   anchor?: AnchorJson | null;
   geometry?: Row | null;
   raw?: Row | null;
+  /** How the geometry was arrived at: the fused scale, its residuals and its flags (0004). */
+  measurement?: Row | null;
+  measured_at?: string | null;
   floor_offset?: number | null;
   north_wall_heading?: number | null;
   status?: string;
@@ -749,6 +764,55 @@ export function defaultRoomContext(room: RoomRow, unit: UnitRow, property: Prope
   return facts;
 }
 
+/** What a recipe needs that the room's own rows do not carry: the version, the provider and the tier. */
+export interface RoomRecipeContext {
+  /** `PIPELINE_VERSION`; bumping it invalidates every recipe on purpose. */
+  pipelineVersion: string;
+  provider: RecipeProvider;
+  model: string;
+  tier: RecipeTier;
+  /** Prompt facts merged over what the stored rows already say (`defaultRoomContext`). */
+  context?: RecipeContext;
+}
+
+/**
+ * One room's canonical recipe, from the stored rows (docs/BACKEND.md §2). Throws when the room
+ * cannot be generated — no photo, no anchor, an anchor `buildRecipe` refuses — because a recipe
+ * that quietly defaulted a missing input would hash to something no seller asked for.
+ *
+ * This is the single place a room's inputs become a recipe: `planRecipes` calls it for the rooms of
+ * a unit, and `roomRecipeState` calls it again after an edit to ask whether the world a room is
+ * pointed at is still the world its inputs would make. Two copies of this mapping would be two
+ * different answers to "did the recipe change".
+ */
+export function roomRecipe(room: RoomRow, unit: UnitRow, property: PropertyRow | null, photos: PhotoRow[], ctx: RoomRecipeContext): Recipe {
+  if (!photos.length) throw new PipelineError(400, 'no photo');
+  const anchor = anchorOf(room);
+  if (!anchor) throw new PipelineError(400, 'no scale anchor');
+  const recipePhotos: RecipePhotoInput[] = photos.map((p, i) => ({
+    // The recipe hashes the CANONICAL copy: two uploads of one shot from two phones are one world.
+    sha256: String(p.canonical_sha256 || p.sha256),
+    role: i === 0 ? 'primary' : 'extra',
+    angle: (p.angle ?? null) as RecipePhotoInput['angle'],
+    azimuth: isFiniteNumber(p.azimuth) ? p.azimuth : null,
+  }));
+  const site = property && isFiniteNumber(property.lat) && isFiniteNumber(property.lon) ? { lat: property.lat, lon: property.lon } : null;
+  const heading = isFiniteNumber(room.north_wall_heading) ? room.north_wall_heading : property?.site?.heading;
+  return buildRecipe({
+    pipelineVersion: ctx.pipelineVersion,
+    provider: ctx.provider,
+    model: ctx.model,
+    tier: ctx.tier,
+    photos: recipePhotos,
+    roomType: roomTypeOf(room.type),
+    anchor,
+    planDims: planDimsOf(room),
+    ceilingHeight: ceilingOf(room),
+    site: site && isFiniteNumber(heading) ? { lat: site.lat, lon: site.lon, heading } : null,
+    context: { ...defaultRoomContext(room, unit, property, photos), ...(ctx.context ?? {}) },
+  });
+}
+
 /**
  * Build a recipe for every room of the unit that has a photo (docs/BACKEND.md §4 step 3). Rooms
  * that cannot be generated yet come back in `skipped` with the reason, because "nothing happened"
@@ -769,8 +833,6 @@ export async function planRecipes(db: PipelineDb, org: string, unitId: string, t
     else byRoom.set(p.room_id, [p]);
   }
 
-  const site = property && isFiniteNumber(property.lat) && isFiniteNumber(property.lon) ? { lat: property.lat, lon: property.lon } : null;
-
   const planned: PlannedRoom[] = [];
   const skipped: SkippedRoom[] = [];
   for (const room of rooms) {
@@ -784,29 +846,14 @@ export async function planRecipes(db: PipelineDb, org: string, unitId: string, t
       skipped.push({ roomId: room.id, name: room.name, reason: 'no scale anchor' });
       continue;
     }
-    const recipePhotos: RecipePhotoInput[] = roomPhotos.map((p, i) => ({
-      // The recipe hashes the CANONICAL copy: two uploads of one shot from two phones are one world.
-      sha256: String(p.canonical_sha256 || p.sha256),
-      role: i === 0 ? 'primary' : 'extra',
-      angle: (p.angle ?? null) as RecipePhotoInput['angle'],
-      azimuth: isFiniteNumber(p.azimuth) ? p.azimuth : null,
-    }));
-    const heading = isFiniteNumber(room.north_wall_heading) ? room.north_wall_heading : property?.site?.heading;
-    const context = { ...defaultRoomContext(room, unit, property, roomPhotos), ...(ctx.context?.[room.id] ?? {}) };
     let recipe: Recipe;
     try {
-      recipe = buildRecipe({
+      recipe = roomRecipe(room, unit, property, roomPhotos, {
         pipelineVersion: ctx.pipelineVersion,
         provider: ctx.provider,
         model: ctx.model,
         tier,
-        photos: recipePhotos,
-        roomType: roomTypeOf(room.type),
-        anchor,
-        planDims: planDimsOf(room),
-        ceilingHeight: ceilingOf(room),
-        site: site && isFiniteNumber(heading) ? { lat: site.lat, lon: site.lon, heading } : null,
-        context,
+        context: ctx.context?.[room.id],
       });
     } catch (e) {
       skipped.push({ roomId: room.id, name: room.name, reason: e instanceof Error ? e.message : 'the recipe could not be built' });
@@ -1121,6 +1168,13 @@ export interface PublicRoom {
   anchor?: AnchorJson | null;
   geometry?: Row | null;
   raw?: Row | null;
+  /**
+   * How this room's numbers were arrived at (docs/ACCURACY.md §1: "every published room shows its
+   * own numbers"). Null on a room measured before the accuracy pass, or one whose world has no
+   * collider — the page then has the anchor and nothing to say beyond it.
+   */
+  measurement?: Row | null;
+  measuredAt?: string | null;
   floorOffset?: number | null;
   northWallHeading?: number | null;
   status: string;
@@ -1152,6 +1206,20 @@ export interface PublicTour {
   };
   site: SiteJson | null;
   rooms: PublicRoom[];
+}
+
+/**
+ * A room's measurement as the buyer's page sees it: every number, and none of our recipe.
+ *
+ * `recipeHash` and `stale` answer "would this room generate a new world", which is a question the
+ * seller's hub asks and a buyer has no business seeing — the hash is derived from the prompt, the
+ * photo set and the tier, so publishing it publishes a fingerprint of our inputs. The rest of the
+ * object is exactly what docs/ACCURACY.md §1 says every published room must show.
+ */
+function publicMeasurement(measurement: Row | null | undefined): Row | null {
+  if (!measurement || typeof measurement !== 'object') return null;
+  const { recipeHash: _hash, stale: _stale, ...rest } = measurement as Row & { recipeHash?: unknown; stale?: unknown };
+  return rest;
 }
 
 /** One world as the buyer's page sees it: our own asset URLs, nothing of the provider's. */
@@ -1251,6 +1319,8 @@ export async function publicTour(db: PipelineDb, storage: PipelineStorage, share
         anchor: room.anchor ?? null,
         geometry: room.geometry ?? null,
         raw: room.raw ?? null,
+        measurement: publicMeasurement(room.measurement),
+        measuredAt: room.measured_at ?? null,
         floorOffset: room.floor_offset ?? null,
         northWallHeading: room.north_wall_heading ?? null,
         status: String(room.status ?? 'pending'),
@@ -1327,4 +1397,394 @@ export async function putStuff(db: PipelineDb, visitorId: string, input: { items
   if (next.length) await db.insert('visitor_stuff', next.map((item) => ({ visitor_id: visitorId, item })));
   if (before.length) await db.del('visitor_stuff', { id: { op: 'in', value: before.map((r) => r.id) } });
   return next;
+}
+
+/* ---------- 10. measurement (docs/ACCURACY.md §3.2) ---------- */
+
+/**
+ * `rooms.geometry` — the metric room, in metres: `RoomGeometry` in src/engine/types.ts, which is
+ * what the viewer, the fit report and the measuring tool all read.
+ */
+export interface RoomGeometryJson {
+  width: number;
+  depth: number;
+  height: number;
+  door: DoorSpec;
+  windows: WindowSpec[];
+}
+
+/**
+ * `rooms.measurement` — how this room's numbers were arrived at.
+ *
+ * **Defined in `shared/fusion.ts` and re-exported here**, because the same object is written to
+ * `rooms.measurement`, served by the public tour and read by the browser's `Room.measurement`. One
+ * definition is what keeps those three from drifting; see the shape's own doc for what it holds.
+ */
+export type { RoomMeasurement } from '../shared/fusion.js';
+
+export interface MeasureRoomInput {
+  /** What `measureColliderGlb` read off the world's collider. */
+  bounds: WorldBounds;
+  planDims?: PlanDimsJson | null;
+  anchor?: AnchorJson | null;
+  /** `worlds.metric_scale_factor`: the provider's own estimate, full tier only. */
+  metricScaleFactor?: number | null;
+  worldId?: string;
+  now: number;
+}
+
+export interface RoomMeasurementResult {
+  /** The bounds to store: the same measurement, with `method` set to the rectangle actually used. */
+  bounds: WorldBounds;
+  /** Raw units: what the collider says, before any scale. */
+  raw: RawRoomGeometry;
+  /** Metres. */
+  geometry: RoomGeometryJson;
+  measurement: RoomMeasurement;
+}
+
+/** Anchors that ARE the assumed ceiling: adding a ceiling constraint beside them counts it twice. */
+const CEILING_ANCHORS: ReadonlySet<string> = new Set(['ceiling', 'assumed']);
+
+/**
+ * Every constraint on the scale the stored rows support (docs/ACCURACY.md §2). Absent sources
+ * contribute nothing; `shared/fusion.ts` weights the rest by their own uncertainty.
+ *
+ * The ceiling is the one judgement call. A height printed on the drawing is a measurement (±3 cm).
+ * With none printed, the standard 2.44 m ±12 cm is still a real prior — but only when the anchor is
+ * not itself a ceiling anchor, because then the two would be the same assertion entered twice and
+ * the fit would report a confidence it has not earned.
+ */
+function scaleConstraintsFor(
+  raw: RawRoomGeometry,
+  planDims: PlanDimsJson | null | undefined,
+  anchor: AnchorJson | null | undefined,
+  metricScaleFactor: number | null | undefined,
+): { constraints: ScaleConstraints; planSwapped: boolean } {
+  const c: ScaleConstraints = { raw: { width: raw.width, depth: raw.depth, height: raw.height } };
+  let planSwapped = false;
+  if (planDims && (isFiniteNumber(planDims.width) || isFiniteNumber(planDims.depth))) {
+    const w = isFiniteNumber(planDims.width) && planDims.width > 0 ? planDims.width : null;
+    const d = isFiniteNumber(planDims.depth) && planDims.depth > 0 ? planDims.depth : null;
+    // With both printed, orient them onto the fitted rectangle's axes before pairing: the wall fit's
+    // rotation is only defined modulo 90°, so past 45° it names the room's depth "width" and pairing
+    // as drawn would flag both dimensions against a room that is perfectly correct. `orientPlan` is
+    // the shared rule (shared/fusion.ts); with only one dimension printed there is nothing to swap.
+    const oriented = w != null && d != null ? orientPlan(raw, { width: w, depth: d }) : null;
+    // Read the answer off `orientPlan`, never off comparing the two numbers afterwards: on a square
+    // room the exchanged pair is identical to the drawn one, so a value comparison silently loses a
+    // swap on exactly the rooms where the aspect-ratio rule is least sure of itself.
+    planSwapped = oriented?.swapped ?? false;
+    c.plan = oriented
+      ? { width: oriented.width, depth: oriented.depth }
+      : { ...(w != null ? { width: w } : {}), ...(d != null ? { depth: d } : {}) };
+  }
+  if (anchor && isFiniteNumber(anchor.metresPerUnit) && anchor.metresPerUnit > 0) {
+    c.anchor = {
+      metresPerUnit: anchor.metresPerUnit,
+      ...(isFiniteNumber(anchor.uncertaintyM) ? { uncertaintyM: anchor.uncertaintyM } : {}),
+      ...(isFiniteNumber(anchor.referenceMetres) ? { referenceMetres: anchor.referenceMetres } : {}),
+    };
+  }
+  const printed = planDims?.height;
+  if (isFiniteNumber(printed) && printed > 0) c.ceiling = { heightM: printed, printed: true };
+  else if (!(typeof anchor?.method === 'string' && CEILING_ANCHORS.has(anchor.method))) c.ceiling = { heightM: CEILING_HEIGHT_M, printed: false };
+  if (isFiniteNumber(metricScaleFactor) && metricScaleFactor > 0) c.marble = { metricScaleFactor };
+  return { constraints: c, planSwapped };
+}
+
+const round3 = (x: number): number => {
+  const r = Math.round(x * 1000) / 1000;
+  return r === 0 ? 0 : r;
+};
+
+/** The raw room in metres. Mirrors `applyScale` in src/engine/anchor.ts, to the same 3 decimals. */
+function scaleGeometry(raw: RawRoomGeometry, scale: number, dims: { width: number; depth: number; height: number }): RoomGeometryJson {
+  return {
+    width: dims.width,
+    depth: dims.depth,
+    height: dims.height,
+    door: { wall: raw.door.wall, offset: round3(raw.door.offset * scale), width: round3(raw.door.width * scale), height: round3(raw.door.height * scale) },
+    windows: raw.windows.map((w) => ({
+      wall: w.wall,
+      offset: round3(w.offset * scale),
+      width: round3(w.width * scale),
+      height: round3(w.height * scale),
+      sill: round3(w.sill * scale),
+    })),
+  };
+}
+
+/**
+ * The room a measured collider reports, in metres — docs/ACCURACY.md §3.2, and the one arithmetic
+ * the worker and the room editor share.
+ *
+ * Two passes, for the one case the wall rectangle gets wrong. Marble's collider includes whatever
+ * the model reconstructed through an open door, so a "room" can come back as the whole flat; when
+ * the metric result is not a room at all (`isOneRoom`) the wall rectangle is set aside — recorded
+ * as `method: 'aabb'`, which is what tells every reader, here and in the viewer, to place and size
+ * the capture from the bounding box instead. **The scale is kept from the first pass**: the sources
+ * (a plan, a tapped door, a printed ceiling) describe the room, so the room's own walls are the
+ * best evidence for what a raw unit is worth even when they are not the extent to draw. The second
+ * pass only changes which rectangle the extent comes from, and the "plan says / model measures"
+ * lines then state the gap in metres instead of hiding it.
+ *
+ * Pure: no clock (the caller passes `now`), no I/O, no randomness.
+ */
+export function measureRoom(input: MeasureRoomInput): RoomMeasurementResult {
+  let bounds = input.bounds;
+  let raw = rawFromBounds(bounds);
+  // Whether the plan had to be read the other way round is a property of the fit that was used, so
+  // it is read off the constraints the fit was given rather than recomputed against a later pass.
+  const fitted = scaleConstraintsFor(raw, input.planDims, input.anchor, input.metricScaleFactor);
+  const planSwapped = fitted.planSwapped;
+  const fusion = fuseScale(fitted.constraints);
+  let room = roomFromFusion(raw, fusion);
+  if (!isOneRoom(room) && extentMethodOf(bounds) === 'walls') {
+    bounds = { ...bounds, method: 'aabb' };
+    raw = rawFromBounds(bounds);
+    room = roomFromFusion(raw, fusion);
+  }
+  const oneRoom = isOneRoom(room);
+  const flags = oneRoom
+    ? fusion.flags
+    : [
+        ...fusion.flags,
+        `The collider measures ${room.width.toFixed(2)} × ${room.depth.toFixed(2)} m by ${room.height.toFixed(2)} m high, which is not one room: the model reconstructed through an open door or window, so these dimensions are the whole of what it built.`,
+      ];
+  return {
+    bounds,
+    raw,
+    geometry: scaleGeometry(raw, fusion.scale, room),
+    measurement: {
+      scale: fusion.scale,
+      sigma: fusion.sigma,
+      sigmaRel: fusion.sigmaRel,
+      // A mesh that is not one room may still have a tight, well-corroborated scale — and the room
+      // it describes is still the wrong room, so nothing about it may be published as confident.
+      confidence: oneRoom ? fusion.confidence : 0,
+      independentSources: fusion.independentSources,
+      residuals: fusion.residuals,
+      flags,
+      lines: room.lines,
+      method: extentMethodOf(bounds) ?? 'aabb',
+      oneRoom,
+      ...(planSwapped ? { planSwapped: true } : {}),
+      ...(input.worldId ? { worldId: input.worldId } : {}),
+      measuredAt: iso(input.now),
+    },
+  };
+}
+
+/**
+ * Measure a collider's bytes. `Buffer` is a view on a pooled ArrayBuffer, so the window has to be
+ * cut out before it is handed to a reader that trusts byte 0 to be the `glTF` magic.
+ */
+export function measureColliderBytes(bytes: Uint8Array): WorldBounds {
+  return measureColliderGlb(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+}
+
+/**
+ * Write a measurement where the two readers look for it: the world carries what its own mesh says
+ * (`bounds`, `raw`), the room carries what the unit shows (`geometry` in metres, `raw`,
+ * `measurement`, `measured_at`).
+ */
+export async function writeMeasurement(db: PipelineDb, worldId: string | null | undefined, roomId: string | null | undefined, result: RoomMeasurementResult): Promise<void> {
+  if (worldId) {
+    await db.update('worlds', { id: worldId }, { bounds: result.bounds as unknown as Row, raw: result.raw as unknown as Row });
+  }
+  if (roomId) {
+    await db.update('rooms', { id: roomId }, {
+      geometry: result.geometry as unknown as Row,
+      raw: result.raw as unknown as Row,
+      measurement: result.measurement as unknown as Row,
+      measured_at: result.measurement.measuredAt,
+    });
+  }
+}
+
+/**
+ * The world a room's measurement should come from: the full-quality one when it has finished, else
+ * the draft — the same preference the buyer's viewer applies, so the numbers on the page belong to
+ * the capture on the page. `bounds` is required, because a world generated before the measurement
+ * existed (or whose measurement failed) has nothing to re-fuse from.
+ */
+export async function measuredWorldOf(db: PipelineDb, org: string, room: Pick<RoomRow, 'id' | 'draft_world_id' | 'full_world_id'>): Promise<WorldRow | null> {
+  for (const id of [room.full_world_id, room.draft_world_id]) {
+    if (!id) continue;
+    const world = await db.select<WorldRow>('worlds', { filters: { id, org_id: org }, single: true });
+    if (world && world.status === 'done' && world.bounds) return world;
+  }
+  // A regeneration in flight moves the room's pointer to a world that has not been built yet, and
+  // the seller correcting a dimension while it runs must not lose the numbers they already have:
+  // the newest finished world of this room still measures it.
+  const own = await db.select<WorldRow>('worlds', { filters: { room_id: room.id, org_id: org, status: 'done' }, order: { column: 'created_at', ascending: false } });
+  return own.find((w) => w.bounds) ?? null;
+}
+
+/* ---------- the room edits that change a measurement ---------- */
+
+/** Only what a seller can correct after the fact; everything else about a room is derived. */
+export interface UpdateRoomInput {
+  name?: string;
+  type?: string;
+  sortOrder?: number;
+  planDims?: PlanDimsJson | null;
+  anchor?: AnchorJson | null;
+  northWallHeading?: number | null;
+}
+
+/** Whether the world a room is pointed at is still the world the room's inputs would generate. */
+export interface RoomRecipeState {
+  /** The hash the room's inputs make now, absent when they no longer make a recipe at all. */
+  hash?: string;
+  worldId: string;
+  worldRecipeHash: string;
+  stale: boolean;
+  /** Why the recipe cannot be built, when it cannot ("no photo", "no scale anchor"). */
+  reason?: string;
+}
+
+export interface UpdatedRoom {
+  room: RoomRow;
+  /** The columns this call actually changed. */
+  changed: string[];
+  measurement: RoomMeasurement | null;
+  recipe: RoomRecipeState | null;
+}
+
+/**
+ * The recipe state of a room against one world: rebuild the recipe from the room's rows with the
+ * world's OWN generator settings (its pipeline version, provider, model and tier, all on the row),
+ * so the only thing that can differ is the room's inputs. Anything else would compare two recipes
+ * that were never meant to match.
+ *
+ * This is what "the recipe is stale" means, and it is why nothing has to be marked: the next
+ * `generate` recomputes the same hash, and rule 5 (`worlds_recipe`) then either attaches the world
+ * that is already there or makes a new one. A stale flag is a message to the seller, not a lock.
+ */
+export async function roomRecipeState(db: PipelineDb, org: string, unit: UnitRow, room: RoomRow, world: WorldRow): Promise<RoomRecipeState> {
+  const property = await db.select<PropertyRow>('properties', { filters: { id: unit.property_id, org_id: org }, single: true });
+  const photos = orderPhotos(await db.select<PhotoRow>('photos', { filters: { room_id: room.id, org_id: org } })).slice(0, MARBLE_MAX_IMAGES);
+  const worldRecipeHash = String(world.recipe_hash ?? '');
+  try {
+    const recipe = roomRecipe(room, unit, property, photos, {
+      pipelineVersion: String(world.pipeline_version ?? '1'),
+      provider: (world.provider === 'mock' ? 'mock' : 'marble') as RecipeProvider,
+      model: String(world.model ?? ''),
+      tier: (world.tier === 'full' ? 'full' : 'draft') as RecipeTier,
+    });
+    const hash = recipeHash(recipe);
+    return { hash, worldId: world.id, worldRecipeHash, stale: hash !== worldRecipeHash };
+  } catch (e) {
+    // The room can no longer be generated at all (its anchor was cleared, its photos are gone).
+    // That is as stale as it gets: the world in hand is certainly not what these inputs would make.
+    return { worldId: world.id, worldRecipeHash, stale: true, reason: e instanceof Error ? e.message : 'the recipe could not be built' };
+  }
+}
+
+/**
+ * `PATCH /api/v1/units/:id/rooms/:roomId` — the corrections a seller makes after the plan was read
+ * and the world was built: a dimension off the drawing, a re-tapped anchor, a renamed room.
+ *
+ * Two things follow, and only two. **Fusion is re-run immediately** when the room has a measured
+ * world, because it is arithmetic over numbers already in hand — no provider, no credits, no queue —
+ * so a corrected plan dimension changes what the room reports in the same request that corrected
+ * it. And the **recipe is compared, not invalidated**: nothing is deleted or regenerated here, the
+ * answer just says whether the next `generate` would build a new world (docs/BACKEND.md §2 rule 5).
+ */
+export async function updateRoom(db: PipelineDb, org: string, unitId: string, roomId: string, input: UpdateRoomInput, now: number = Date.now()): Promise<UpdatedRoom> {
+  const unit = await unitInOrg(db, org, unitId);
+  const room = await db.select<RoomRow>('rooms', { filters: { id: roomId, unit_id: unitId, org_id: org }, single: true });
+  if (!room) throw new PipelineError(404, 'No such room.');
+
+  const patch: Row = {};
+  if (input.name !== undefined) {
+    const name = String(input.name).trim();
+    if (!name) throw new PipelineError(400, 'A room needs a name.');
+    if (name !== room.name) patch.name = name;
+  }
+  if (input.type !== undefined) {
+    const type = roomTypeOf(input.type);
+    if (type !== room.type) patch.type = type;
+  }
+  if (input.sortOrder !== undefined) {
+    if (!isFiniteNumber(input.sortOrder)) throw new PipelineError(400, 'sortOrder must be a number.');
+    const order = Math.trunc(input.sortOrder);
+    if (order !== room.sort_order) patch.sort_order = order;
+  }
+  if (input.planDims !== undefined) {
+    const dims = normalisePlanDims(input.planDims);
+    if (JSON.stringify(dims) !== JSON.stringify(room.plan_dims ?? null)) patch.plan_dims = dims;
+  }
+  if (input.anchor !== undefined) {
+    const anchor = input.anchor === null ? null : normaliseAnchorJson(input.anchor);
+    if (JSON.stringify(anchor) !== JSON.stringify(room.anchor ?? null)) patch.anchor = anchor;
+  }
+  if (input.northWallHeading !== undefined) {
+    const heading = input.northWallHeading === null ? null : normaliseHeading(input.northWallHeading);
+    if (heading !== (room.north_wall_heading ?? null)) patch.north_wall_heading = heading;
+  }
+
+  const changed = Object.keys(patch);
+  const updated = changed.length ? (await db.update<RoomRow>('rooms', { id: room.id }, patch))[0] ?? { ...room, ...patch } : room;
+
+  // Re-fuse from the bounds the world already carries. Measuring is a download and a mesh walk;
+  // fusion is a weighted mean over six numbers, which is why an edit can afford to do it inline.
+  const world = await measuredWorldOf(db, org, updated);
+  if (!world || !world.bounds) return { room: updated, changed, measurement: null, recipe: null };
+  const recipe = await roomRecipeState(db, org, unit, updated, world);
+  const result = measureRoom({
+    bounds: world.bounds as unknown as WorldBounds,
+    planDims: updated.plan_dims,
+    anchor: updated.anchor,
+    metricScaleFactor: world.metric_scale_factor,
+    worldId: world.id,
+    now,
+  });
+  result.measurement.recipeHash = recipe.worldRecipeHash;
+  result.measurement.stale = recipe.stale;
+  await writeMeasurement(db, world.id, updated.id, result);
+  // The row as it now stands, so a caller that renders the answer and a caller that re-reads the
+  // room see the same numbers.
+  const room2: RoomRow = {
+    ...updated,
+    geometry: result.geometry as unknown as Row,
+    raw: result.raw as unknown as Row,
+    measurement: result.measurement as unknown as Row,
+    measured_at: result.measurement.measuredAt,
+  };
+  return { room: room2, changed, measurement: result.measurement, recipe };
+}
+
+/** Plan dimensions as the recipe rounds them: metres to the centimetre, or null. */
+function normalisePlanDims(input: PlanDimsJson | null): PlanDimsJson | null {
+  if (input == null) return null;
+  if (typeof input !== 'object' || Array.isArray(input)) throw new PipelineError(400, 'planDims must be an object with width, depth and an optional height in metres.');
+  const out: PlanDimsJson = {};
+  for (const key of ['width', 'depth', 'height'] as const) {
+    const v = input[key];
+    if (v === undefined || v === null) continue;
+    if (!isFiniteNumber(v) || v <= 0 || v > 100) throw new PipelineError(400, `planDims.${key} must be a positive number of metres.`);
+    // The plan is ±5 cm, so sub-centimetre noise must not make a new recipe (server/recipe.ts).
+    out[key] = Math.round(v * 100) / 100;
+  }
+  if (typeof input.text === 'string' && input.text.trim()) out.text = input.text.trim();
+  return Object.keys(out).length ? out : null;
+}
+
+/** The numeric part of an `AnchorSpec`, plus whatever copy the caller sent with it. */
+function normaliseAnchorJson(input: AnchorJson): AnchorJson {
+  if (typeof input !== 'object' || Array.isArray(input)) throw new PipelineError(400, 'anchor must be an object.');
+  if (typeof input.method !== 'string') throw new PipelineError(400, 'anchor.method is required.');
+  for (const key of ['referenceMetres', 'referenceUnits', 'metresPerUnit', 'uncertaintyM'] as const) {
+    if (!isFiniteNumber(input[key])) throw new PipelineError(400, `anchor.${key} must be a finite number.`);
+  }
+  if ((input.metresPerUnit as number) <= 0) throw new PipelineError(400, 'anchor.metresPerUnit must be positive.');
+  return input;
+}
+
+function normaliseHeading(value: number): number {
+  if (!isFiniteNumber(value)) throw new PipelineError(400, 'northWallHeading must be a number of degrees.');
+  return ((value % 360) + 360) % 360;
 }

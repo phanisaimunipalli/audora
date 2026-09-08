@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { useAllTours, useAudora } from '@/state/store';
 import { DEMO_SHARE_ID } from '@/state/seed';
 import { plural } from '@/lib/format';
@@ -8,25 +8,16 @@ import { pctOf, summarize, type Summary } from '@/screens/insights/stats';
 import { Reveal } from './Reveal';
 import { Eyebrow, Section } from './Section';
 
-interface Piece {
-  name: string;
-  tests: number;
-  failed: number;
-  where: string;
-}
-
 interface Demo {
   title: string;
   published: boolean;
   summary: Summary;
-  pieces: Piece[];
-  worstRoom?: { name: string; nofits: number };
-  bestPiece?: Piece;
+  busiest?: { name: string; walked: number };
 }
 
 /**
- * The numbers on this page are the demo listing's actual analytics, rolled up with the same
- * `summarize()` the agent dashboard uses. Hard-coded copy drifted out of step with the seed
+ * The numbers on this page are the demo unit's actual analytics, rolled up with the same
+ * `summarize()` the leasing dashboard uses. Hard-coded copy drifted out of step with the seed
  * (a room that "walked 14" while the events said 8), which is the one thing this section cannot afford.
  */
 function useDemoStats(): Demo | null {
@@ -40,27 +31,12 @@ function useDemoStats(): Demo | null {
     const mine = events.filter((e) => e.tourId === tour.id);
     if (!tourRooms.length || !mine.length) return null;
     const summary = summarize(mine, tourRooms);
-
-    const roomName = (id?: string) => tourRooms.find((r) => r.id === id)?.name;
-    const pieces: Piece[] = summary.items.slice(0, 3).map((it) => {
-      const where = [
-        ...new Set(
-          mine
-            .filter((e) => e.type === 'test' && e.item && e.item.trim().toLowerCase().replace(/s$/, '') === it.item.replace(/s$/, ''))
-            .map((e) => roomName(e.roomId))
-            .filter(Boolean) as string[],
-        ),
-      ];
-      return { name: it.label, tests: it.tests, failed: it.nofits, where: where.join(', ').toLowerCase() || 'across the listing' };
-    });
-    const worst = summary.rooms.reduce<Summary['rooms'][number] | null>((w, r) => (r.nofits > (w?.nofits ?? 0) ? r : w), null);
+    const busiest = summary.rooms.reduce<Summary['rooms'][number] | null>((w, r) => (r.walked > (w?.walked ?? 0) ? r : w), null);
     return {
       title: tour.title,
       published: tour.published,
       summary,
-      pieces,
-      worstRoom: worst && worst.nofits ? { name: worst.name, nofits: worst.nofits } : undefined,
-      bestPiece: pieces.find((p) => p.tests > 0 && p.failed === 0),
+      busiest: busiest && busiest.walked ? { name: busiest.name, walked: busiest.walked } : undefined,
     };
   }, [tours, rooms, events]);
 }
@@ -80,15 +56,10 @@ function DashboardMock({ demo }: { demo: Demo }) {
         <span className="chip mono !text-[11px]">demo data</span>
       </div>
       <div className="grid grid-cols-2 gap-5 px-5 py-5 sm:grid-cols-4">
-        <Stat label="Visitors" value={summary.visitors} />
-        <Stat label="Walked" value={summary.walked} hint={`${pctOf(summary.walked, summary.visitors)} of visitors`} />
-        <Stat label="Tested furniture" value={summary.tested} hint={`${pctOf(summary.tested, summary.walked)} of walkers`} tone="accent" />
-        <Stat
-          label="Fit failures"
-          value={summary.failures}
-          hint={demo.worstRoom ? `all in the ${demo.worstRoom.name.toLowerCase()}` : 'everything fit'}
-          tone={summary.failures ? 'danger' : 'ok'}
-        />
+        <Stat label="Renters" value={summary.visitors} />
+        <Stat label="Walked the unit" value={summary.walked} hint={`${pctOf(summary.walked, summary.visitors)} of renters`} />
+        <Stat label="Measurements" value={summary.measures} tone="accent" hint={summary.measures ? 'taken inside the model' : 'none yet'} />
+        <Stat label="Shared the link" value={summary.shares} hint={demo.busiest ? `busiest: ${demo.busiest.name.toLowerCase()}` : undefined} />
       </div>
       <div className="border-t border-line px-5 py-5">
         <div className="mb-3 micro">Per room</div>
@@ -103,79 +74,57 @@ function DashboardMock({ demo }: { demo: Demo }) {
               </div>
               <div className="mono flex items-center gap-3 text-xs sm:justify-self-end">
                 <span className="text-ink-2">{r.walked} walked</span>
-                <span className="text-ink-2">{r.tests} tested</span>
-                <span className={cx(r.nofits ? 'text-danger' : 'text-ink-3')}>{r.nofits} failed</span>
+                <span className={cx(r.measures ? 'text-ink-2' : 'text-ink-3')}>{r.measures} measured</span>
               </div>
             </div>
           ))}
         </div>
       </div>
-      {demo.pieces.length ? (
-        <div className="border-t border-line px-5 py-5">
-          <div className="mb-3 micro">Most tested pieces</div>
-          <div className="flex flex-col gap-2">
-            {demo.pieces.map((p) => (
-              <div key={p.name} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                <span className="inline-flex h-2 w-2 rounded-full bg-buyer" />
-                <span className="text-ink">{p.name}</span>
-                <span className="mono ml-auto text-xs text-ink-2">
-                  {plural(p.tests, 'test')} · <span className={cx(p.failed ? 'text-danger' : 'text-ok')}>{p.failed ? `${p.failed} did not fit` : 'all fit'}</span>
-                </span>
-                <span className="w-full text-[11px] text-ink-3 sm:w-auto">{p.where}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
 
-function changes(demo: Demo | null): { title: string; body: string }[] {
-  const worst = demo?.worstRoom;
-  const best = demo?.bestPiece;
-  const failing = demo?.pieces.find((p) => p.failed > 0);
-  return [
-    {
-      title: 'Copy',
-      body:
-        worst && failing
-          ? `${plural(failing.failed, 'buyer')} tried a ${failing.name.toLowerCase()} in the ${worst.name.toLowerCase()} and it did not fit. Stop calling it a second bedroom. Say “study” or “fits a double”, and stop losing the viewing at the doorway.`
-          : 'When a piece fails in the same room again and again, the room is not what the listing calls it. Change the word before you change the price.',
-    },
-    {
-      title: 'Price',
-      body: 'A two-bed that sleeps one couple is a different property. Better to know before the offers than after the inspection.',
-    },
-    {
-      title: 'Which buyers to pursue',
-      body: best
-        ? `${plural(best.tests, 'person', 'people')} tested a ${best.name.toLowerCase()} in the ${best.where.split(',')[0]} and got “fits”. They are further along than anyone who only looked at the photos. Call them first.`
-        : 'Anyone who tested their own furniture and got “fits” is further along than anyone who only looked at the photos. Call them first.',
-    },
-  ];
-}
+const BENEFITS: { title: string; body: string; icon: ReactNode }[] = [
+  {
+    title: 'Fewer wasted showings',
+    body: 'A renter who has already walked the unit and measured the bedroom wall does not need an afternoon to find out it is too small. The showings that remain are with people who know what they are coming to see.',
+    icon: <Icon.Walk />,
+  },
+  {
+    title: 'One link, in the feed you already syndicate',
+    body: 'Each unit gets a hosted URL for the virtual-tour field, an embed for your own site and a QR for the signage. Nothing new to log into, and nothing for the marketplaces to install.',
+    icon: <Icon.Link />,
+  },
+  {
+    title: 'Every vacant unit modelled in a week',
+    body: 'The inputs are the make-ready photos and the floor plans you already hold. Start the whole vacancy list on Monday and walk it on Friday — no capture visits to schedule.',
+    icon: <Icon.Home />,
+  },
+  {
+    title: 'Regenerate when the unit turns',
+    body: 'New tenant, new paint, new photos: run it again and the same link serves the unit as it is now, with a model date that proves it.',
+    icon: <Icon.Rotate />,
+  },
+];
 
 export function ForAgents() {
   const demo = useDemoStats();
   return (
-    <Section id="agents">
+    <Section id="teams">
       <div className="grid gap-12 lg:grid-cols-12 lg:gap-10">
         <div className="lg:col-span-5">
           <Reveal>
-            <Eyebrow>For agents</Eyebrow>
-            <h2 className="display mt-4 text-4xl leading-[1.02] text-ink md:text-5xl">The loop that closes.</h2>
+            <Eyebrow>For leasing teams</Eyebrow>
+            <h2 className="display mt-4 text-4xl leading-[1.02] text-ink md:text-5xl">The work is already done. This is what it is worth.</h2>
             <p className="mt-6 text-[15px] leading-relaxed text-ink-2">
-              Photos tell you who looked. Audora tells you who walked, who tested a piece, and where it failed. That is the difference between a listing and a conversation.
+              You photograph every unit at make-ready and you hold every floor plan. Audora turns that into something a renter can walk, and tells you which rooms they walked and what they measured.
             </p>
           </Reveal>
           <div className="mt-8 flex flex-col gap-3">
-            {changes(demo).map((c, i) => (
+            {BENEFITS.map((c, i) => (
               <Reveal key={c.title} delay={0.06 * i}>
                 <div className="flex gap-4 rounded-2xl border border-line bg-surface p-4">
-                  <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-bg text-ink shadow-sm">
-                    <Icon.Chart size={16} />
-                  </span>
+                  <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-bg text-ink shadow-sm">{c.icon}</span>
                   <div>
                     <div className="text-sm font-medium text-ink">{c.title}</div>
                     <p className="mt-1 text-sm leading-relaxed text-ink-2">{c.body}</p>

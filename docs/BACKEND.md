@@ -101,14 +101,18 @@ All of it runs on the server; the browser only uploads, watches and walks.
    the seed, look up `worlds` by `recipe_hash`. Hit: attach. Miss: enqueue a `generate` job.
 4. **Generate.** The worker submits `worlds:generate` (draft by default, full on request), stores
    the operation id, polls, and on completion enqueues `copy_assets`.
-5. **Own the assets.** Splats at every resolution, the collider mesh, the panorama and the
-   thumbnail are copied into the `worlds` bucket under the world id; provider URLs are kept only
-   as provenance. The collider is then measured (floor, ceiling, wall rectangle, openings) and the
-   metric room derived with the anchor — **not implemented on the server yet**: `worlds.bounds` and
-   `rooms.geometry` stay null on a backend-generated world, and the measurement lives only in the
-   browser (`colliderGeometry` / `rawFromBounds` in `src/services/marble.ts`, run by
-   `src/state/jobs.ts` after a generation it started itself). A reader of the public tour has the
-   collider URL and can measure it the same way; nothing on the server does it for them.
+5. **Own the assets, then measure them.** Splats at every resolution, the collider mesh, the
+   panorama and the thumbnail are copied into the `worlds` bucket under the world id; provider URLs
+   are kept only as provenance. The collider is then measured — floor and ceiling slabs, the wall
+   rectangle and its openings (`measureColliderGlb`, `shared/collider.ts`) — and the metric room
+   derived by fusing every constraint the rows support: the plan's printed width and depth (±5 cm,
+   oriented onto the fitted rectangle first), the room's anchor with its own ±, a printed ceiling
+   (±3 cm) or the standard 2.44 m (±12 cm), and Marble's `metric_scale_factor` (±5 %) on a full
+   world. `measureRoom` in `server/pipeline.ts` is that arithmetic, and it is pure: bounds, plan,
+   anchor and `now` in; `worlds.bounds`, `worlds.raw`, `rooms.geometry`, `rooms.raw`,
+   `rooms.measurement` and `rooms.measured_at` out. The public tour serves the measurement per
+   room, so a reader has the numbers without a collider to re-measure. A measurement failure is
+   logged and never fails the job: the assets are already paid for.
 6. **Stage** (optional, later). Auto-stage at temperature 0 with a seed; cached by input hash.
 7. **Publish.** Share id, model date (newest world), disclosures. The public tour endpoint reads
    only published rows.
@@ -130,7 +134,7 @@ security is one predicate (`is_org_member`). JSON columns hold the shapes the ap
 | `unit_types` | Floor-plan families; worlds are shared across identical units |
 | `units` | The listing: number, floor, beds/baths/sqft, rent, availability, status |
 | `floor_plans` | The drawing (Storage path + hash) and what the reader parsed |
-| `rooms` | Type, order, plan dims, anchor, metric geometry, draft and full world pointers |
+| `rooms` | Type, order, plan dims, anchor, metric geometry, the fused `measurement` (scale, σ, confidence, residuals, flags, the plan-vs-model lines) with `measured_at`, draft and full world pointers |
 | `photos` | Original and canonical Storage paths, hashes, role/angle/azimuth, EXIF, analysis |
 | `worlds` | Recipe, hash, seed, model, provider ids, our asset paths, bounds, cost. Unique per recipe |
 | `jobs` | Queue with kinds analyze / parse_plan / generate / copy_assets / stage / publish, locking and retries |
@@ -157,6 +161,7 @@ routes answer 503 and the app keeps its browser-local store, so nothing existing
 | `GET /api/v1/units/:id` | Unit with rooms, photos, worlds, jobs, publication |
 | `POST /api/v1/units/:id/photos` | Upload one photo (original + canonical), returns hashes |
 | `POST /api/v1/units/:id/floor-plan` | Upload the plan; enqueues `parse_plan` |
+| `PATCH /api/v1/units/:id/rooms/:roomId` | Correct one room: `name`, `type`, `sortOrder`, `planDims`, `anchor`, `northWallHeading`. Re-fuses inline and answers `{room, changed, measurement, recipe:{hash, worldRecipeHash, stale}}` — `stale` is the room's recipe against the attached world's, not a side effect |
 | `POST /api/v1/units/:id/generate` | Build recipes; attach cached worlds; enqueue `generate` for the rest |
 | `GET /api/v1/units/:id/jobs` | Job list (Realtime carries the live updates) |
 | `POST /api/v1/units/:id/publish` | Publish / unpublish; sets the model date |

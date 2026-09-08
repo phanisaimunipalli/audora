@@ -53,7 +53,7 @@ export interface OccluderProps {
   source: THREE.Object3D | null;
   /** Write depth, so real geometry hides furniture behind it. */
   enabled?: boolean;
-  /** Also paint it, so the buyer can see what is doing the hiding. */
+  /** Also paint it, so the renter can see what is doing the hiding. */
   reveal?: boolean;
   /** The mirror the collider needs inside the Marble group. */
   scale?: [number, number, number];

@@ -2,14 +2,14 @@
  * The Layers panel: portrait mode, taken apart.
  *
  * A real Marble room is a stack — the photograph, the real geometry that hides things, the furniture,
- * the shadow it drops back onto the photographed floor — and this is where a buyer (or a reviewer)
+ * the shadow it drops back onto the photographed floor — and this is where a renter (or a reviewer)
  * switches each one off and sees that it really is a separate layer. It also says out loud what the
  * photograph was measured to be lighting the room with, because an estimate the product acts on is
  * an estimate the product should admit to: "Light ahead on the left · 62% directional".
  *
  * It replaces the old `WorldLayers` and keeps everything that panel carried — the Geometry layer
- * and the floor nudge (with its anchor chip) — and it is mounted identically in the buyer's viewer
- * and in the staging editor, so a seller stages against the layers the buyer will be looking at.
+ * and the floor nudge (with its anchor chip) — and it is mounted identically in the renter's viewer
+ * and in the staging editor, so a leasing team stages against the layers the renter will be looking at.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RoomWorld } from '@/state/types';

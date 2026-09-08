@@ -24,8 +24,8 @@ type Msg =
   | { t: 'staging'; from: string; roomId: string; pieces: PlacedPiece[] };
 
 const NAMES = ['Priya', 'Dan', 'Ana', 'Marco', 'Yuki', 'Sam'];
-/* Presence colours: readable on the white page, and never the buyer's blue (#1d63ff) —
-   that one belongs to the buyer's furniture alone. */
+/* Presence colours: readable on the white page, and never the renter's blue (#1d63ff) —
+   that one belongs to the renter's furniture alone. */
 const COLORS = ['#7a6a3f', '#2f7a52', '#7c5cbf', '#b3593f', '#0f6f7a', '#a03a6b'];
 
 const selfId = shortId(6);

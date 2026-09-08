@@ -1,9 +1,9 @@
 /**
- * Where the listing is on the planet, and which way its walls face.
+ * Where the unit is on the planet, and which way its walls face.
  *
  * - Geocoding: OpenStreetMap Nominatim (free; identify yourself with a User-Agent; ≤1 req/s).
  * - Building footprint: OSM via Overpass (free, best effort). The footprint's longest edge gives the
- *   building's principal heading, which the seller confirms with a compass control.
+ *   building's principal heading, which the leasing team confirms with a compass control.
  * Everything here is optional: a tour with no location simply has no real sun.
  */
 

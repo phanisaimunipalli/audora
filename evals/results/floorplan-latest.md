@@ -1,4 +1,4 @@
-# Floor-plan evaluation — 2026-09-06T23:29:30.666Z
+# Floor-plan evaluation — 2026-09-08T18:37:29.312Z
 
 11 plans, 77 labelled rooms, 56 of them with printed dimensions (evals/plans/manifest.json). Eight are synthetic listing-style sheets generated from a room table, so their ground truth is exact; the other three are real — the app's own demo townhouse plan and two public-domain 1911 Guimard apartment plans from Wikimedia Commons, labelled by what a human can read.
 
@@ -7,37 +7,38 @@
 | system | plans | rooms | room recall | type | dims returned | dims within 5% | extra rooms | floors | units | north arrow | errors | mean ms | mean $ | total $ |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | no-model baseline | 11 | 77 | 0% | — | 0% | 0% | 0 | 0% | — | — | 0 | 0 | 0 | 0 |
-| vision · product | 11 | 77 | 86% | 100% | 91% | 91% | 23 | 100% | 70% | 40% | 0 | 4092 | 0.00104 | 0.0114 |
-| vision · model metres | 11 | 77 | 86% | 100% | 91% | 84% | 24 | 100% | 70% | 40% | 0 | 4092 | 0 | 0 |
-| vision · printed text only | 11 | 77 | 86% | 100% | 91% | 91% | 24 | 100% | 70% | 40% | 0 | 4092 | 0 | 0 |
+| vision · product | 11 | 77 | 87% | 100% | 95% | 93% | 26 | 100% | 70% | 40% | 0 | 9109 | 0.00174 | 0.0191 |
+| vision · model metres | 11 | 77 | 87% | 100% | 95% | 84% | 138 | 100% | 70% | 40% | 0 | 9109 | 0 | 0 |
+| vision · printed text only | 11 | 77 | 87% | 100% | 95% | 93% | 138 | 100% | 70% | 40% | 0 | 9109 | 0 | 0 |
 
 ## Per plan (product)
 
 | plan | kind | rooms found | type ok | dims within 5% | extra | floors | ms | $ | note |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| apt-2bed-feet.png | synthetic | 7/7 | 7/7 | 7/7 | 0 | 1/1 | 3981 | 0.00098 | 7 rooms, dimensions printed in feet |
-| apt-2bed-metres.png | synthetic | 7/7 | 7/7 | 7/7 | 0 | 1/1 | 3301 | 0.00095 | 7 rooms, dimensions printed in metres |
-| studio-metres.png | synthetic | 3/3 | 3/3 | 3/3 | 0 | 1/1 | 1746 | 0.00064 | 3 rooms, dimensions printed in metres |
-| townhouse-two-floors-feet.png | synthetic | 9/9 | 9/9 | 9/9 | 0 | 2/2 | 4079 | 0.00116 | 9 rooms, dimensions printed in feet |
-| bungalow-3bed-feet.png | synthetic | 8/8 | 8/8 | 8/8 | 0 | 1/1 | 4119 | 0.00105 | 8 rooms, dimensions printed in feet |
-| loft-open-plan-metres.png | synthetic | 5/5 | 5/5 | 5/5 | 0 | 1/1 | 2458 | 0.00085 | 5 rooms, dimensions printed in metres |
-| duplex-mixed-units.png | synthetic | 4/4 | 4/4 | 4/4 | 0 | 1/1 | 2670 | 0.00085 | 4 rooms, dimensions printed in mixed |
-| cottage-feet-no-arrow.png | synthetic | 4/4 | 4/4 | 4/4 | 0 | 1/1 | 2614 | 0.00072 | 4 rooms, dimensions printed in feet |
-| townhouse-listing.jpg | real | 11/11 | 11/11 | 0/0 | 1 | 3/3 | 5449 | 0.00119 | Rendered marketing plan, three sheets, no printed dimensions, and only 600 px wide as the listing serves it. At its native size the model reads one room from one sheet; enlarged (as the product does) it reads all three. 'Deck', 'WH', 'W/D', 'UP' and 'DN' are labels a human would not call rooms and are not scored either way. |
-| guimard-1911-a.jpg | real | 3/9 | 3/3 | 1/4 | 17 | 1/1 | 9502 | 0.00174 | Hand-lettered 1911 photostat, French, metric dimensions written as '3.80 x 4.42'. Duplicated rooms (three chambres, two salles a manger, three cuisines) are scored once each: recall is over distinct readable labels. |
-| guimard-1911-b.jpg | real | 5/10 | 5/5 | 3/5 | 5 | 1/1 | 5098 | 0.00132 | The site plan around the building (street names, plot dimensions 33.00 / 15.70 / 13.80) is not a room and must not be reported as one; three of the five dimensioned rooms are legible only at full resolution. |
+| apt-2bed-feet.png | synthetic | 7/7 | 7/7 | 7/7 | 0 | 1/1 | 3878 | 0.00101 | 7 rooms, dimensions printed in feet |
+| apt-2bed-metres.png | synthetic | 7/7 | 7/7 | 7/7 | 0 | 1/1 | 3799 | 0.00098 | 7 rooms, dimensions printed in metres |
+| studio-metres.png | synthetic | 3/3 | 3/3 | 3/3 | 0 | 1/1 | 1817 | 0.00067 | 3 rooms, dimensions printed in metres |
+| townhouse-two-floors-feet.png | synthetic | 9/9 | 9/9 | 9/9 | 0 | 2/2 | 4805 | 0.00120 | 9 rooms, dimensions printed in feet |
+| bungalow-3bed-feet.png | synthetic | 8/8 | 8/8 | 8/8 | 0 | 1/1 | 3793 | 0.00106 | 8 rooms, dimensions printed in feet |
+| loft-open-plan-metres.png | synthetic | 5/5 | 5/5 | 5/5 | 0 | 1/1 | 2559 | 0.00088 | 5 rooms, dimensions printed in metres |
+| duplex-mixed-units.png | synthetic | 4/4 | 4/4 | 4/4 | 0 | 1/1 | 2931 | 0.00088 | 4 rooms, dimensions printed in mixed |
+| cottage-feet-no-arrow.png | synthetic | 4/4 | 4/4 | 4/4 | 0 | 1/1 | 2255 | 0.00075 | 4 rooms, dimensions printed in feet |
+| townhouse-listing.jpg | real | 11/11 | 11/11 | 0/0 | 3 | 3/3 | 6276 | 0.00130 | Rendered marketing plan, three sheets, no printed dimensions, and only 600 px wide as the listing serves it. At its native size the model reads one room from one sheet; enlarged (as the product does) it reads all three. 'Deck', 'WH', 'W/D', 'UP' and 'DN' are labels a human would not call rooms and are not scored either way. |
+| guimard-1911-a.jpg | real | 5/9 | 5/5 | 2/4 | 16 | 1/1 | 33207 | 0.00517 | Hand-lettered 1911 photostat, French, metric dimensions written as '3.80 x 4.42'. Duplicated rooms (three chambres, two salles a manger, three cuisines) are scored once each: recall is over distinct readable labels. |
+| guimard-1911-b.jpg | real | 4/10 | 4/4 | 3/5 | 7 | 1/1 | 34875 | 0.00521 | The site plan around the building (street names, plot dimensions 33.00 / 15.70 / 13.80) is not a room and must not be reported as one; three of the five dimensioned rooms are legible only at full resolution. |
 
 ## Struggle cases
 
 - **guimard-1911-a.jpg**
-  - rooms not found: Chambre, Chambre, Chambre, Cuisine, Antichambre, Escalier
+  - rooms not found: Chambre, Cuisine, Antichambre, Escalier
+  - Chambre: 3.8×4.42 m read as 3.74×4.7 m (printed "3.74x4.70")
 - **guimard-1911-b.jpg**
-  - rooms not found: Salle a manger, Chambre, Bains, Antichambre, Cuisine
+  - rooms not found: Salle a manger, Chambre, Bains, Antichambre, Cuisine, Escalier
 
 ## What this says
 
-Reading the printed string in code rather than trusting the model's conversion is worth 7 points of dimension accuracy (84% → 91%), and the normalisation pass removes 1 phantom rooms the raw JSON would have turned into rooms in the seller's tour. Both are free.
+Reading the printed string in code rather than trusting the model's conversion is worth 9 points of dimension accuracy (84% → 93%), and the normalisation pass removes 112 phantom rooms the raw JSON would have turned into rooms in the seller's tour. Both are free.
 
-Cost and latency are what a seller pays: 4092 ms and $0.00104 for a whole listing's plan, against ±30 cm of guesswork with no plan at all.
+Cost and latency are what a seller pays: 9109 ms and $0.00174 for a whole listing's plan, against ±30 cm of guesswork with no plan at all.
 
 Corpus provenance: Ground truth for the floor-plan parser. The eight synthetic plans are generated by evals/plans/make-plans.mjs from a room table, so their dimensions are exact by construction (metres, converted from the printed feet-and-inches or metres). The three real plans are labelled by hand from what a human can read; rooms a human cannot read are not in the list and are not counted against the model. Recall is over distinct room labels, so a plan that repeats a label scores it once. The townhouse plan is stored at the size the product sends it (small plans are enlarged to a 1600 px long edge by `preparePlanImage`); every other plan is sent as it is.

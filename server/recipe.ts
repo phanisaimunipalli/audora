@@ -12,19 +12,22 @@
  * Conventions:
  * - Pure. Nothing here reads a clock, the environment or a random source; the pipeline version
  *   and the model ids are inputs.
- * - `canonicalJson` is the one serialisation that is ever hashed: keys sorted by UTF-16 code unit,
- *   numbers rounded to 5 decimals and printed by `String()`, no `-0`, no `NaN`, no `undefined`
- *   (object keys holding `undefined` are dropped, exactly as JSON.stringify does).
+ * - `canonicalJson` is the one serialisation that is ever hashed — keys sorted by UTF-16 code unit,
+ *   numbers rounded to 5 decimals and printed by `String()`, no `-0`, no `NaN`, no `undefined` —
+ *   and it lives in `shared/canonical.ts`, which the browser flow hashes with too. Only the digest
+ *   differs (`node:crypto` here, WebCrypto there).
  * - `buildRecipe` returns the recipe already in canonical form (parsed back from `canonicalJson`),
  *   so the object stored in `worlds.recipe` is byte-for-byte the document that was hashed.
  * - Site lat/lon are rounded to 5 decimals (about a metre) and the heading to a whole degree; plan
  *   dimensions and the ceiling height to the centimetre — the plan is ±5 cm, so sub-centimetre
  *   noise must not make a new world.
- * - No imports from src/. The types and the four azimuth numbers that mirror the app are copied
- *   here with a pointer to their source; relative imports use the .js extension (NodeNext).
+ * - No imports from src/: `shared/` is the only code both sides may import. The types and the four
+ *   azimuth numbers that mirror the app are copied here with a pointer to their source; relative
+ *   imports use the .js extension (NodeNext).
  */
 import { createHash } from 'node:crypto';
-import { compileMarblePrompt, type PromptFacts, type RoomType } from './prompt.js';
+import { canonicalize, canonicalJson, roundTo, SEED_MAX, seedFromHash } from '../shared/canonical.js';
+import { compileMarblePrompt, type PromptFacts, type RoomType } from '../shared/marblePrompt.js';
 
 export type RecipeTier = 'draft' | 'full';
 export type RecipeProvider = 'marble' | 'mock';
@@ -42,14 +45,15 @@ export type AnchorMethod = 'door' | 'outlet' | 'wall' | 'floorplan' | 'ceiling' 
 export const AZIMUTH_FOR_ANGLE: Record<PhotoAngle, number> = { centre: 0, right: 90, back: 180, left: 270 };
 
 /**
- * Marble takes 4 images in a multi-image prompt, or 8 in reconstruction mode. These are the
- * provider's numbers and this is the one place they are written down: server/marbleRequest.ts (the
- * browser flow's mapping of the same call) imports them from here and re-exports them.
+ * Marble takes 4 images in a multi-image prompt, or 8 in reconstruction mode, and reconstructs
+ * rather than generates from two angles up. The provider's numbers and the recipe's rule live in
+ * `shared/marbleLimits.ts` — one copy, because the browser hashes the same recipe — and are
+ * re-exported here so server/marbleRequest.ts and the recipe keep their existing imports.
  */
-export const MARBLE_PLAIN_IMAGES = 4;
-export const MARBLE_MAX_IMAGES = 8;
-/** Marble's seed is a uint32. */
-export const SEED_MAX = 4294967295;
+export { MARBLE_PLAIN_IMAGES, MARBLE_MAX_IMAGES, MARBLE_RECONSTRUCT_MIN_IMAGES, reconstructsImages } from '../shared/marbleLimits.js';
+import { MARBLE_MAX_IMAGES, reconstructsImages } from '../shared/marbleLimits.js';
+/** Marble's seed is a uint32. Defined with the encoder that derives it. */
+export { SEED_MAX };
 /** `tags: ['audora', 'recipe:<first 12 hex of the hash>']` — enough to find a world by its recipe in Marble's own UI. */
 export const RECIPE_TAG_PREFIX = 'recipe:';
 export const RECIPE_TAG_HASH_CHARS = 12;
@@ -97,7 +101,7 @@ export interface Recipe {
   photos: RecipePhoto[];
   /** The compiled text prompt, verbatim what Marble receives (`disable_recaption`). */
   prompt: string;
-  /** More than `MARBLE_PLAIN_IMAGES` images: Marble's reconstruction mode. */
+  /** Two or more images: Marble's reconstruction mode (`shared/marbleLimits.ts`). */
   reconstructImages: boolean;
   /** The primary photo is an equirectangular panorama. */
   isPano: boolean;
@@ -155,67 +159,12 @@ export interface RecipeInput {
   context?: RecipeContext | null;
 }
 
-/* ---------- canonical JSON ---------- */
+/* ---------- canonical JSON ----------
+ * The encoder is `shared/canonical.ts` so the browser flow (`browserRecipe` in src/services/marble)
+ * hashes byte-for-byte the same document. Re-exported here because the recipe is where callers and
+ * tests look for it. */
 
-const NUMBER_DECIMALS = 5;
-const NUMBER_SCALE = 10 ** NUMBER_DECIMALS;
-
-/** Round to `decimals` places and normalise `-0` to `0`. */
-function roundTo(x: number, decimals: number): number {
-  const scale = 10 ** decimals;
-  const r = Math.round(x * scale) / scale;
-  return r === 0 ? 0 : r;
-}
-
-function encodeNumber(n: number, path: string): string {
-  if (!Number.isFinite(n)) throw new TypeError(`canonicalJson: ${String(n)} at ${path} is not a finite number`);
-  const r = Math.round(n * NUMBER_SCALE) / NUMBER_SCALE;
-  if (Math.abs(r) >= 1e21) throw new RangeError(`canonicalJson: ${String(n)} at ${path} is too large for fixed formatting`);
-  // After rounding, the shortest round-trip form has at most 5 decimals and no exponent.
-  return String(r === 0 ? 0 : r);
-}
-
-function encode(value: unknown, path: string): string {
-  if (value === null) return 'null';
-  switch (typeof value) {
-    case 'boolean':
-      return value ? 'true' : 'false';
-    case 'number':
-      return encodeNumber(value, path);
-    case 'string':
-      return JSON.stringify(value);
-    case 'undefined':
-      throw new TypeError(`canonicalJson: undefined at ${path}`);
-    case 'bigint':
-    case 'function':
-    case 'symbol':
-      throw new TypeError(`canonicalJson: unsupported ${typeof value} at ${path}`);
-    default:
-      break;
-  }
-  if (Array.isArray(value)) return `[${value.map((item, i) => encode(item, `${path}[${i}]`)).join(',')}]`;
-  const proto = Object.getPrototypeOf(value);
-  if (proto !== Object.prototype && proto !== null) throw new TypeError(`canonicalJson: only plain objects and arrays at ${path}`);
-  const obj = value as Record<string, unknown>;
-  // Default sort compares UTF-16 code units: locale-independent, so the same keys always land in the same order.
-  const keys = Object.keys(obj)
-    .filter((k) => obj[k] !== undefined)
-    .sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${encode(obj[k], `${path}.${k}`)}`).join(',')}}`;
-}
-
-/**
- * The one serialisation that is hashed: sorted keys at every level, numbers rounded to 5 decimals,
- * no `-0`, `NaN`, `Infinity` or `undefined`. Throws rather than guess at anything else.
- */
-export function canonicalJson(value: unknown): string {
-  return encode(value, '$');
-}
-
-/** The same value, rebuilt from its canonical JSON: sorted keys, rounded numbers, no undefineds. */
-export function canonicalize<T>(value: T): T {
-  return JSON.parse(canonicalJson(value)) as T;
-}
+export { canonicalize, canonicalJson };
 
 /* ---------- hash and seed ---------- */
 
@@ -224,11 +173,7 @@ export function recipeHash(recipe: Recipe): string {
 }
 
 /** The first 32 bits of a sha256 hex digest as an unsigned integer in [0, SEED_MAX]. */
-export function seedFromHash(hash: string): number {
-  const head = hash.slice(0, 8);
-  if (!/^[0-9a-f]{8}$/i.test(head)) throw new TypeError(`seedFromHash: expected a hex digest, got ${JSON.stringify(hash)}`);
-  return Number.parseInt(head, 16);
-}
+export { seedFromHash };
 
 export function recipeSeed(recipe: Recipe): number {
   return seedFromHash(recipeHash(recipe));
@@ -346,7 +291,7 @@ export function buildRecipe(input: RecipeInput): Recipe {
     tier,
     photos,
     prompt: compileMarblePrompt(facts),
-    reconstructImages: photos.length > MARBLE_PLAIN_IMAGES,
+    reconstructImages: reconstructsImages(photos.length),
     isPano: input.isPano === true,
     anchor,
     roomType,

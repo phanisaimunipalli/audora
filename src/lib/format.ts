@@ -34,3 +34,20 @@ export function dimsLabel(w: number, d: number, h?: number): string {
 export const titleCase = (s: string) => s.replace(/\b\w/g, (c) => c.toUpperCase());
 /** "1 test", "2 tests"; pass an explicit plural for irregular words. */
 export const plural = (n: number, word: string, pluralWord = `${word}s`) => `${n} ${n === 1 ? word : pluralWord}`;
+
+/**
+ * `Tour.availableFrom` ("2026-10-01") as a renter reads it: "1 October 2026", or "1 October" when
+ * the date is inside the next eleven months, where the year adds nothing. Parsed by hand rather
+ * than with `new Date(iso)` so it is the calendar date and not the browser's timezone shifted off
+ * it. Anything that is not an ISO date comes back verbatim — an older store may hold "1 October".
+ */
+export function availableLabel(iso: string | undefined, now = new Date()): string | null {
+  if (!iso) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
+  if (!m) return iso.trim() || null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const date = new Date(y, mo - 1, d);
+  if (Number.isNaN(date.getTime())) return iso;
+  const withinTheYear = date.getTime() - now.getTime() < 330 * 86400e3 && date.getFullYear() >= now.getFullYear();
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', ...(withinTheYear ? {} : { year: 'numeric' }) });
+}

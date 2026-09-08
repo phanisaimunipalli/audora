@@ -1,6 +1,6 @@
 /**
  * Splat sorting is per-pixel work: at full device pixel ratio a 500k-splat room costs four times
- * what it costs at 1.0, and that is exactly the moment the buyer is moving and cannot see the
+ * what it costs at 1.0, and that is exactly the moment the renter is moving and cannot see the
  * difference. This drops the canvas to 1.0 while the camera moves and puts the sharp frame back a
  * beat after it stops — the standard "adaptive resolution" trick, driven by the camera itself rather
  * than by a frame timer, so it never oscillates.

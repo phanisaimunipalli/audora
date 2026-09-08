@@ -83,7 +83,7 @@ export interface CaptureLightProps {
 
 /**
  * The room's own light, applied to everything Audora draws inside it. Mount it in place of the
- * studio lights whenever the real capture is what the buyer is looking at.
+ * studio lights whenever the real capture is what the renter is looking at.
  */
 export function CaptureLight({
   texture,

@@ -10,7 +10,7 @@
     "test": "vitest run",
     "typecheck": "tsc -b",
     "eval": "vitest run --config vitest.eval.config.ts",
-    "start": "node dist-server/prod.js"
+    "start": "node dist-server/server/prod.js"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.8",

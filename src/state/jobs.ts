@@ -18,6 +18,7 @@ import {
   type MarbleWorld,
   type WorldBounds,
 } from '@/services/marble';
+import { modelForModelRoom, modelRoomOf } from '@/screens/create/intake';
 import { chime, sendNotification, setTitleBadge } from '@/lib/notify';
 import { uid } from '@/lib/ids';
 import { toast, useAudora } from './store';
@@ -85,7 +86,7 @@ export function isRunnerTab(): boolean {
 
 /**
  * A failed job only fails the *room* when the room has nothing to show. A full-quality upgrade that
- * fails leaves the draft standing: the buyer keeps walking it, and only the job carries the error.
+ * fails leaves the draft standing: the renter keeps walking it, and only the job carries the error.
  */
 function failRoom(roomId: string) {
   const s = useAudora.getState();
@@ -103,15 +104,26 @@ function failRoom(roomId: string) {
  * `MARBLE_FULL_MODEL` override the defaults server-side). So it is resolved here, once, and a
  * generation that cannot learn it fails loudly instead of recording a model it invented.
  */
-async function marbleModelId(tier: Tier): Promise<string> {
+async function marbleModels(tier: Tier): Promise<{ marbleDraft?: string; marbleFull?: string }> {
   const key = tier === 'full' ? 'marbleFull' : 'marbleDraft';
-  const known = useAudora.getState().providers.models?.[key];
-  if (known) return known;
+  const known = useAudora.getState().providers.models;
+  if (known?.[key]) return known;
   const fresh = await providerStatus();
   useAudora.getState().setProviders(fresh);
-  const resolved = fresh.models?.[key];
-  if (!resolved) throw new Error('The server has not said which Marble model it runs. Check that it is reachable and try again.');
-  return resolved;
+  if (!fresh.models?.[key]) throw new Error('The server has not said which Marble model it runs. Check that it is reachable and try again.');
+  return fresh.models;
+}
+
+/**
+ * The model this room is reconstructed with: the tier's own, or `marble-1.1-plus` for an open plan
+ * or a room the plan draws bigger than 30 m² (docs/ACCURACY.md 3.5).
+ *
+ * The choice goes into the recipe *and* onto the request, so the model the launch step showed the
+ * leasing team is the model that runs and the model the recipe hash names. The server still allowlists it
+ * (`modelFor`, server/marbleRequest.ts) — naming one here cannot make it run something arbitrary.
+ */
+async function marbleModelId(room: Room, tier: Tier): Promise<string> {
+  return modelForModelRoom(modelRoomOf(room), tier, await marbleModels(tier)).model;
 }
 
 async function startJob(job: Job) {
@@ -126,7 +138,7 @@ async function startJob(job: Job) {
       // seed and prompt it was sent with ride on the job until the world lands (finaliseMarbleJob).
       const { tours } = useAudora.getState();
       const { operationId, worldId, recipeHash, seed, prompt } = await startGeneration(room, job.tier, {
-        modelId: await marbleModelId(job.tier),
+        modelId: await marbleModelId(room, job.tier),
         site: tours[job.tourId]?.site,
       });
       updateJob(job.id, { status: 'running', operationId, worldId, recipeHash, seed, prompt, progress: 2, step: stepFor(2), lastPollAt: 0 });
@@ -163,9 +175,9 @@ function finishJob(job: Job, worldBuilder: () => ReturnType<typeof mockWorld>) {
 
   // Is the whole tour done?
   const after = useAudora.getState();
-  /* "Full quality is ready — buyers get the best world every room has" is only true if the world
-     that just landed is the world the buyer gets. A *simulated* full never displaces a real Marble
-     capture (pickWorld), so a free rehearsal on the real corner room finishes with the buyer still
+  /* "Full quality is ready — renters get the best world every room has" is only true if the world
+     that just landed is the world the renter gets. A *simulated* full never displaces a real Marble
+     capture (pickWorld), so a free rehearsal on the real corner room finishes with the renter still
      walking the draft — and saying otherwise, in the toast, the browser notification and the tray,
      was the app contradicting its own publish panel one screen down. */
   const roomAfter = after.rooms[job.roomId];
@@ -175,14 +187,14 @@ function finishJob(job: Job, worldBuilder: () => ReturnType<typeof mockWorld>) {
   const remaining = Object.values(after.jobs).filter((j) => j.tourId === job.tourId && (j.status === 'queued' || j.status === 'running'));
   const tourTitle = tour?.title || 'Your tour';
   const to = `/tours/${job.tourId}`;
-  const shadowBody = `A simulated full world is attached, but ${room.name} keeps its real Marble capture — that is the better world, so that is what buyers walk.`;
+  const shadowBody = `A simulated full world is attached, but ${room.name} keeps its real Marble capture — that is the better world, so that is what renters walk.`;
   if (remaining.length === 0) {
     const title = shadowed ? `${room.name}: simulated full attached` : upgraded ? FULL_READY_TITLE : `${tourTitle} is ready to walk`;
-    const body = shadowed ? shadowBody : upgraded ? `${room.name} is full quality now. Buyers get the best world every room has.` : 'Every room has finished generating.';
-    toast({ kind: shadowed ? 'info' : 'success', title, body, action: { label: 'Open tour', to } });
+    const body = shadowed ? shadowBody : upgraded ? `${room.name} is full quality now. Renters get the best world every room has.` : 'Every room has finished generating.';
+    toast({ kind: shadowed ? 'info' : 'success', title, body, action: { label: 'Open unit', to } });
     if (tour?.notify.browser && !shadowed) {
       sendNotification(
-        upgraded ? `Audora: ${FULL_READY_TITLE.toLowerCase()}` : 'Audora: your tour is ready',
+        upgraded ? `Audora: ${FULL_READY_TITLE.toLowerCase()}` : 'Audora: your unit is ready',
         upgraded ? `${tourTitle} — ${room.name} finished its full-quality reconstruction.` : `${tourTitle} finished generating. Tap to walk it.`,
         () => (window.location.hash = ''),
       );
@@ -239,7 +251,7 @@ async function finaliseMarbleJob(job: Job, op: MarbleOperation, elapsed: number)
     s().updateJob(job.id, { step: 'Measuring the room', detail: 'Finding the walls in the collider mesh', progress: 99 });
     try {
       // Not just the bounding box: `fetchColliderGeometry` reads the vertices and measures the room
-      // to its walls, so the numbers the buyer reads are not inflated by what the model saw through
+      // to its walls, so the numbers the renter reads are not inflated by what the model saw through
       // the windows (see `fitWallRect` in services/marble).
       bounds = await fetchColliderGeometry(colliderUrl);
     } catch (e) {
@@ -411,7 +423,7 @@ export interface UpgradeResult {
 
 /**
  * Take a whole tour to full quality: one `marble-1.1` job per room that only has a draft, skipping
- * any room whose upgrade is already queued or running. This is what Publish calls — the buyer
+ * any room whose upgrade is already queued or running. This is what Publish calls — the renter
  * should walk the full reconstruction, and the draft stays on screen until it lands.
  */
 export function upgradeTourToFull(tourId: string): UpgradeResult {

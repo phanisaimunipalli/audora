@@ -172,7 +172,7 @@ const METHODS: { value: AnchorMethodChoice; letter: string; title: string; body:
   { value: 'door', letter: 'a', title: 'Tap the door', body: `Tap the top, then the bottom of a door in the photo. Interior doors are ${DOOR_HEIGHT_M.toFixed(2)} m.`, icon: Icon.Door },
   { value: 'outlet', letter: 'b', title: 'Tap a power outlet', body: `Top then bottom of an outlet plate. Its centre sits ${(OUTLET_HEIGHT_M * 100).toFixed(0)} cm above the floor. Less precise.`, icon: Icon.Zap },
   { value: 'wall', letter: 'c', title: 'Type one wall length', body: 'Tape or laser: the far wall or a side wall in metres.', icon: Icon.Ruler },
-  { value: 'floorplan', letter: 'd', title: 'Import from floor plan', body: 'Read the far wall length off the listing floor plan.', icon: Icon.Grid },
+  { value: 'floorplan', letter: 'd', title: 'Import from floor plan', body: 'Read the far wall length off the floor plan.', icon: Icon.Grid },
 ];
 
 function emptyRecipe(method: AnchorMethodChoice): AnchorRecipe {
@@ -200,7 +200,7 @@ function PhotoPanel({ room, onRecipe }: { room: DraftRoom; onRecipe: (r: AnchorR
   const [method, setMethod] = useState<AnchorMethodChoice>(recipe && recipe.method !== 'skip' ? recipe.method : 'door');
   /**
    * The half-finished recipe of the method being tried, held here rather than pushed up: switching
-   * from "type a wall length" to "tap the door" must not throw away the 4.20 m the seller already
+   * from "type a wall length" to "tap the door" must not throw away the 4.20 m the leasing team already
    * measured. The room keeps its anchor until the new method produces one of its own.
    */
   const [pending, setPending] = useState<AnchorRecipe | undefined>(undefined);
@@ -307,7 +307,7 @@ function PhotoPanel({ room, onRecipe }: { room: DraftRoom; onRecipe: (r: AnchorR
 
         {skipped ? (
           <Callout tone="warn" title="Skipped: numbers are a guess">
-            Nothing has been measured in this room. Every dimension carries ±30 cm until you anchor it. You can do it later from the tour hub.
+            Nothing has been measured in this room. Every dimension carries ±30 cm until you anchor it. You can do it later from the unit hub.
           </Callout>
         ) : (
           <Button variant="ghost" size="sm" className="self-start" onClick={() => onRecipe({ method: 'skip' })}>
@@ -537,7 +537,7 @@ function TapImage({
 /* ---------- typed room ---------- */
 
 /**
- * A room with no photograph to tap on: the seller types its three dimensions.
+ * A room with no photograph to tap on: the leasing team types its three dimensions.
  *
  * Two rules, both learned the hard way:
  *
@@ -557,7 +557,7 @@ function MeasuredPanel({ room, onMeasured }: { room: DraftRoom; onMeasured: (m: 
   const [d, setD] = useState(seeded.depth.toFixed(2));
   const [h, setH] = useState(seeded.height.toFixed(2));
   const [tool, setTool] = useState<MeasureTool>(seeded.tool ?? 'tape');
-  /** Has the seller actually changed a number? Until they have, this room has not been measured. */
+  /** Has the leasing team actually changed a number? Until they have, this room has not been measured. */
   const [touched, setTouched] = useState(false);
   const anchor = finalAnchor(room);
   const warnings = plausibility(g);
@@ -570,7 +570,7 @@ function MeasuredPanel({ room, onMeasured }: { room: DraftRoom; onMeasured: (m: 
     setTouched(true);
   };
   /* The tool is a claim about how these numbers were arrived at, so it only commits numbers that
-     are already the seller's own — either typed here, or typed on an earlier visit. */
+     are already the leasing team's own — either typed here, or typed on an earlier visit. */
   const chooseTool = (t: MeasureTool) => {
     setTool(t);
     if (touched || room.measured) apply(read(), t);

@@ -48,7 +48,7 @@ export function JobCard({ room, job, now, onPeek, onGenerate }: { room: Room; jo
             {status === 'queued' ? 'Queued · starts in a moment' : status === 'running' ? `${job?.step} · ${remaining > 0 ? `${eta(remaining)} left` : 'any moment now'}` : status === 'done' ? `Ready in ${clock(elapsed)}` : status === 'failed' ? 'Failed' : 'Not generated yet'}
           </div>
           {upgrade ? (
-            <div className="mt-1 text-xs text-dim">Upgrading to full quality · buyers keep walking the draft until it lands.</div>
+            <div className="mt-1 text-xs text-dim">Upgrading to full quality · renters keep walking the draft until it lands.</div>
           ) : null}
         </div>
         <div className="shrink-0 text-right">

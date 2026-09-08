@@ -31,7 +31,8 @@ npm run preview     # serves dist/ with the same /api proxy
 ## Deploy (Render, or any Node host)
 
 `npm run build` produces `dist/` (the app) and `dist-server/` (the production server, compiled from
-`server/prod.ts`). `npm start` runs it with nothing but Node: it serves `dist/` with gzip and
+`server/prod.ts` and `shared/`, so the entry point is `dist-server/server/prod.js`). `npm start`
+runs it with nothing but Node: it serves `dist/` with gzip and
 immutable caching for hashed bundles, answers client-side routes with the app shell, and mounts the
 same `/api/*` handler the dev server uses so keys never reach the browser.
 
@@ -195,11 +196,33 @@ Three measured findings, each of which changed the product:
 
 Struggle cases: a 1911 photostat can run the model into a loop that repeats one room a hundred times (`planFromJson` caps identical rooms and the report counts the rest as phantom rooms), and the north arrow is found only 40% of the time. Neither costs the seller a number: an unread room simply is not there, and every dimension that does arrive is shown next to what the plan printed and the anchor it produces.
 
+**6. Reconstruction accuracy** — how close the 3D model of a room is to the room. This one is not a model evaluation at all: it **never generates**, calls nothing, costs nothing and needs no keys or dev server. It reads collider meshes that already exist on disk, measures them with `shared/collider.ts` and scales them with `shared/fusion.ts` — the same code the worker runs after `copy_assets` — and reports the contract in docs/ACCURACY.md section 1: dimension error, ceiling error, orientation error, opening error, adjacency and determinism.
+
+Corpus: six synthetic box rooms written as real `.glb` files by `evals/fixtures/reconstruction/rooms.ts`, whose ground truth is exact by construction — authored in metres from 2.4 × 3.0 m to 6.5 × 11.8 m, converted to raw units by a per-room scale (0.31 to 2.22 m per unit, including the demo full-quality world's real `metric_scale_factor`), turned by a known yaw of 0° to 80°, captured from an off-centre point at eye height, and given one doorway that leaks into the room next door the way Marble's does, so every fixture's bounding box is 7× to 23× its room. Plus any real unit a teammate drops into `evals/fixtures/reconstruction/real/` with the dimensions its plan prints (the README there is the one-page how-to), and the app's own demo corner-window world when its collider has been cached locally once.
+
+One measurement, three scales, so the reconstruction's error is separated from the anchor's:
+
+| system | median dimension error | worst | rooms within 10% | worst ceiling | worst door | mean confidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| **plan + assumed ceiling (production)** | **0.12%** | 0.42% | 6/6 | 1.3 cm | 2.0 cm | 0.61 |
+| assumed 2.44 m ceiling only (no plan) | 5.97% | 18.7% | 4/6 | 56 cm | 72 cm | 0.43 |
+| printed ceiling only (the collider alone) | 0.06% | 0.17% | 6/6 | 0 cm | 1.4 cm | 0.75 |
+
+Orientation is exact on all six (0.00°), and all six are byte-identical over two runs through `canonicalJson`, which is what lets a recipe hash mean anything.
+
+What this says: **the reconstruction is not the error budget, the anchor is.** Scaled by a ceiling it actually knows, the collider's own rectangle lands within 0.06% of the plan; scaled by the standard 2.44 m assumption a draft world starts with, the median error is 5.97%, entirely because a 2.70 m or 3.00 m room is scaled as though it were 2.44 m. A floor plan closes that, which is the same finding evaluation 5 reaches from the other end.
+
+It also found and fixed a real defect, which is what an eval is for. Two of the six rooms — at 63° and 80° off the provider's axes — measured 30–49% small, because `fitWallRect` masked its wall band against an **axis-aligned** box built by relabelling the rotated fit's extents onto the raw axes (`boxRadius(toRawBox(coarse), ...)`, rotation dropped). At 63° that discarded 138 of 360 azimuth bins as "beyond the wall" and refitted the room on what was left, turning a 5.00 m wall into 2.43 m. Masking against the rotated rectangle instead (`fittedRadius`, already in that file) discards nothing on all six and brought the median from 0.24% to 0.12%. The eval was written to fail once the fix landed — it asserts the set of failing rooms *exactly*, so the fix could not land quietly — and the set is now empty.
+
+Run it with `npm run eval` (this one alone: `npx vitest run --config vitest.eval.config.ts evals/reconstruction.eval.ts`, about 200 ms). It writes `evals/results/reconstruction-latest.md`.
+
+Honest limits, stated in the report itself: **the ground truth is synthetic** — six rooms with flat walls and square corners, so these numbers are a floor on the error, not an estimate of it; **no real unit with a floor plan is in the corpus yet**, so the dimension row is a statement about the arithmetic rather than about Marble until someone adds one; **adjacency is not measured**, because one collider has no neighbouring room to lead to (it needs the unit graph from docs/ACCURACY.md section 3.3); and the plan's axis order is resolved by aspect ratio (`orientPlan` in `shared/fusion.ts`, which the worker now applies before fusing), where a plan with a north arrow could settle it outright.
+
 ## Honest limits
 
 - Generative reconstruction invents detail. Fine for spatial judgement, wrong for anything structural.
 - The anchor carries all the risk: a mis-tapped door makes every number wrong by the same factor, so derived dimensions are sanity-checked and implausible ceilings are flagged.
-- Room bounds for a real Marble world come from the collider mesh's bounding box, which includes whatever is visible through windows, so they are an estimate until the seller confirms a wall length. Draft worlds carry no metric scale at all; the anchor (assumed ceiling, then a typed wall) supplies it.
+- Room bounds for a real Marble world come from a rectangle fitted to the collider's wall band, not from its bounding box — the box holds everything the model reconstructed through the windows and open doors, which on the demo corner room is 27 m² against a 12.2 m² room. When the fitted rectangle is not one room at all the measurement says so (`method: 'aabb'`, confidence 0, a flag in words) rather than publishing the wrong number. Draft worlds carry no metric scale of their own; the plan's printed dimensions, the anchor and — on full quality — Marble's `metric_scale_factor` are fused into one scale with a stated ±, and every room shows what each source said against it.
 - Catalog dimensions are reference figures, labelled as such, until verified against a SKU.
 - Empty rooms with blank walls are the hard case for any reconstruction method. Measure quality there, not on furnished rooms that flatter the demo.
 

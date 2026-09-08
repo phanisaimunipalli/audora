@@ -1,6 +1,6 @@
 /**
  * Marble ships every world as a ladder of Gaussian-splat files — the same room at 100k, 150k, 500k
- * or full resolution splats — and the buyer should not have to wait for the big one to see the room.
+ * or full resolution splats — and the renter should not have to wait for the big one to see the room.
  *
  * This module is the pure half of progressive loading: which files a world has, which of them this
  * device should ever load, and in what order. `SplatWorld` does the fetching and the cross-fade.
@@ -20,7 +20,7 @@ export const TIER_ORDER: SplatTier[] = ['100k', '150k', '500k', '1m', 'full_res'
 /** Roughly how many splats each tier holds, for the "500k splats" chip before the file is decoded. */
 export const TIER_SPLATS: Record<SplatTier, number> = { '100k': 100_000, '150k': 150_000, '500k': 500_000, '1m': 1_000_000, full_res: 2_000_000, unknown: 0 };
 
-/** Buyer-facing name of a tier. Numbers stay mono in the UI that renders them. */
+/** Renter-facing name of a tier. Numbers stay mono in the UI that renders them. */
 export const TIER_LABEL: Record<SplatTier, string> = {
   '100k': '100k splats',
   '150k': '150k splats',
@@ -142,7 +142,7 @@ export function withinCeiling(assets: SplatAsset[], ceiling: SplatTier): SplatAs
 export const UPGRADE_BUDGET_MS = 4000;
 
 /**
- * The ladder the buyer climbs: the smallest file first so the room appears within a second, then the
+ * The ladder the renter climbs: the smallest file first so the room appears within a second, then the
  * best tier at or below 500k. `full_res` is deliberately *not* in here — it is offered afterwards by
  * {@link wantsUpgrade}, once we have watched how fast this connection actually is.
  */
@@ -158,7 +158,7 @@ export function planLadder(assets: SplatAsset[], ceiling: SplatTier = deviceCeil
 /**
  * Whether to fetch the next tier up after `msSoFar` spent on the one that just landed. Full
  * resolution is a 23 MB download: worth it on a desktop that pulled 5 MB in under four seconds,
- * never worth it on a phone or a slow line, where it would cost the buyer the walk they came for.
+ * never worth it on a phone or a slow line, where it would cost the renter the walk they came for.
  */
 export function wantsUpgrade(assets: SplatAsset[], current: SplatTier, msSoFar: number, ceiling: SplatTier = deviceCeiling(), budgetMs = UPGRADE_BUDGET_MS): SplatAsset | null {
   if (tierRank(ceiling) <= tierRank(current)) return null;

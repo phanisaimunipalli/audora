@@ -14,7 +14,10 @@ export interface CreateTourInput {
   address: string;
   listingUrl?: string;
   listingSource?: string;
+  /** Rent per month, as typed on the unit-details step. */
   price?: string;
+  /** ISO `YYYY-MM-DD`: the date the unit is available. */
+  availableFrom?: string;
   beds?: number;
   baths?: number;
   sqft?: number;
@@ -31,7 +34,7 @@ export interface AddRoomInput {
   photo?: PhotoRecord;
   /** Extra angles of the same room; the primary `photo` is not repeated here. */
   photos?: PhotoRecord[];
-  /** What the listing floor plan printed for this room (metres, ±5 cm). */
+  /** What the unit's floor plan printed for this room (metres, ±5 cm). */
   planDims?: PlanDimensions;
   raw?: RawGeometry;
   anchor?: AnchorSpec;
@@ -115,6 +118,10 @@ const DEFAULT_SETTINGS: Settings = {
   sound: true,
   agentName: 'Priya Natarajan',
   brandColor: '#0a0a0a',
+  /* Staging is deferred (docs/ACCURACY.md 3.7). Stated here rather than left undefined so the
+     default is visible in the one place people look for it; `stagingEnabled()` in state/staging.ts
+     reads undefined as off too, which is what makes stores persisted before the flag existed agree. */
+  stagingEnabled: false,
 };
 
 export const STORE_KEY = 'audora-v1';
@@ -318,6 +325,7 @@ export const useAudora = create<AudoraState>()(
           listingUrl: input.listingUrl,
           listingSource: input.listingSource,
           price: input.price,
+          availableFrom: input.availableFrom,
           beds: input.beds,
           baths: input.baths,
           sqft: input.sqft,
@@ -499,7 +507,7 @@ export const useAudora = create<AudoraState>()(
         } as Job;
         set((s) => {
           const room = s.rooms[job.roomId];
-          // A room that already has a world stays `ready` while a better one is generated: the buyer
+          // A room that already has a world stays `ready` while a better one is generated: the renter
           // keeps walking the draft, the hub keeps its tabs, and only the job says "upgrading".
           const keepsWorld = Boolean(room && (room.draft || room.full));
           return {
@@ -624,7 +632,7 @@ export const useMyStuff = () => useAudora((s) => s.myStuff);
 
 /**
  * Best available world for a room: full when it exists, else draft — with the one exception in
- * `pickWorld`, that a simulated full never displaces a real capture. The buyer always gets the
+ * `pickWorld`, that a simulated full never displaces a real capture. A renter always gets the
  * most realistic world the room has.
  */
 export function bestWorld(room: Room | undefined): RoomWorld | undefined {

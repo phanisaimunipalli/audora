@@ -4,8 +4,13 @@ import { Button, Callout, Chip, Field, Input, Segmented } from '@/components/ui'
 import { Icon } from '@/components/icons';
 import type { DraftListing } from './types';
 
-const SOURCE_LABEL: Record<string, string> = { zillow: 'Zillow', redfin: 'Redfin', realtor: 'Realtor.com', rightmove: 'Rightmove', other: 'Listing site' };
+const SOURCE_LABEL: Record<string, string> = { zillow: 'Zillow', redfin: 'Redfin', realtor: 'Realtor.com', rightmove: 'Rightmove', other: 'Marketplace' };
 
+/**
+ * Step 1 — the unit: where it is, what it rents for, when it is available. The step's id stays
+ * `listing` (the wizard and saved drafts key off it); everything a person reads says "unit", and
+ * "listing" is kept only for the marketplace page the URL points at (docs/COPY.md).
+ */
 export function StepListing({ listing, onChange }: { listing: DraftListing; onChange: (patch: Partial<DraftListing>) => void }) {
   const [url, setUrl] = useState(listing.url);
   const [readAt, setReadAt] = useState<number | null>(listing.inferred ? 1 : null);
@@ -14,13 +19,14 @@ export function StepListing({ listing, onChange }: { listing: DraftListing; onCh
     const u = url.trim();
     if (!u) return;
     const meta = listingFromUrl(u);
-    const found = meta.address !== 'New listing';
+    const found = meta.address !== 'New unit';
     onChange({
       mode: 'url',
       url: u,
       source: meta.source,
       address: found ? meta.address : listing.address,
       price: meta.price ?? '',
+      availableFrom: listing.availableFrom,
       beds: meta.beds != null ? String(meta.beds) : '',
       baths: meta.baths != null ? String(meta.baths) : '',
       sqft: meta.sqft != null ? String(meta.sqft) : '',
@@ -42,7 +48,7 @@ export function StepListing({ listing, onChange }: { listing: DraftListing; onCh
             label: (
               <>
                 <span className="sm:hidden">Listing URL</span>
-                <span className="hidden sm:inline">Paste a listing URL</span>
+                <span className="hidden sm:inline">Paste the listing page URL</span>
               </>
             ),
             icon: <Icon.Link size={15} />,
@@ -62,7 +68,7 @@ export function StepListing({ listing, onChange }: { listing: DraftListing; onCh
 
       {listing.mode === 'url' ? (
         <div className="flex flex-col gap-3">
-          <Field label="Listing URL" hint="Zillow, Redfin, Realtor, Rightmove or anything else.">
+          <Field label="Listing page URL" hint="Zillow, Apartments.com, Redfin, Rightmove or anything else the unit is syndicated to.">
             <div className="flex gap-2">
               <Input
                 value={url}
@@ -80,8 +86,8 @@ export function StepListing({ listing, onChange }: { listing: DraftListing; onCh
           {readAt ? (
             <Callout tone={listing.inferred ? 'info' : 'warn'} title={listing.inferred ? 'Read from the URL — confirm below' : 'Could not read an address from that URL'}>
               {listing.inferred
-                ? 'Listing sites block scraping from a browser, so Audora reads what the URL itself says (the address) and fills the rest with placeholders. Every field is editable. Confirm them before you generate.'
-                : 'Type the address in below. Photos and measurements carry the tour; the listing details are only shown in the header.'}
+                ? 'Marketplaces block scraping from a browser, so Audora reads what the URL itself says (the address) and fills the rest with placeholders. Every field is editable. Confirm them before you generate.'
+                : 'Type the address in below. The photos and the floor plan carry the model; these details only appear in the unit header.'}
               {listing.source ? (
                 <div className="mt-2">
                   <Chip>{SOURCE_LABEL[listing.source] ?? listing.source}</Chip>
@@ -98,11 +104,15 @@ export function StepListing({ listing, onChange }: { listing: DraftListing; onCh
         <Field label="Address" className="md:col-span-2">
           <Input value={listing.address} onChange={(e) => onChange({ address: e.target.value, inferred: false })} placeholder="1247 Oak St, San Francisco, CA 94117" />
         </Field>
-        <Field label="Title" hint="Optional. Defaults to the address.">
+        <Field label="Title" hint="Optional. Defaults to the address." className="md:col-span-2">
           <Input value={listing.title} onChange={(e) => onChange({ title: e.target.value })} placeholder="1247 Oak Street" />
         </Field>
-        <Field label="Price">
-          <Input value={listing.price} onChange={(e) => onChange({ price: e.target.value })} placeholder="$1.49M" className="mono" />
+        {/* Rent and the available date are the two facts a renter decides against, so they share a row. */}
+        <Field label="Rent per month">
+          <Input value={listing.price} onChange={(e) => onChange({ price: e.target.value })} placeholder="$4,250/mo" className="mono" />
+        </Field>
+        <Field label="Available from" hint="Optional. The date the unit is ready for a new renter.">
+          <Input type="date" value={listing.availableFrom} onChange={(e) => onChange({ availableFrom: e.target.value })} className="mono" />
         </Field>
         <div className="grid grid-cols-3 gap-3 md:col-span-2">
           <Field label="Beds">
@@ -115,12 +125,12 @@ export function StepListing({ listing, onChange }: { listing: DraftListing; onCh
             <Input value={listing.sqft} onChange={(e) => onChange({ sqft: e.target.value })} inputMode="numeric" placeholder="1180" className="mono" />
           </Field>
         </div>
-        <Field label="Summary" hint="A sentence for the tour header. Optional." className="md:col-span-2">
+        <Field label="Summary" hint="A sentence for the unit header. Optional." className="md:col-span-2">
           <textarea
             value={listing.summary}
             onChange={(e) => onChange({ summary: e.target.value })}
             rows={2}
-            placeholder="Top-floor flat, empty since June."
+            placeholder="Top-floor flat, vacant and freshly painted."
             className="w-full resize-y rounded-[10px] border border-line-2 bg-bg px-3 py-2 text-sm text-ink placeholder:text-faint outline-none transition-colors focus:border-ink focus:ring-[3px] focus:ring-accent-soft"
           />
         </Field>

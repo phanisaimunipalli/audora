@@ -1,6 +1,6 @@
 /**
- * The tier chip. Wherever a room is listed the seller should be able to see, without clicking,
- * which reconstruction the buyer is actually walking and what it cost:
+ * The tier chip. Wherever a room is listed the leasing team should be able to see, without clicking,
+ * which reconstruction the renter is actually walking and what it cost:
  * "draft · 35 s · 230 credits" · "full · marble-1.1 · 1,580 credits" · "simulated".
  */
 import { fullIsShadowed, roomChip, worldChip } from '@/state/publish';
@@ -32,14 +32,14 @@ export function TierChip({ room, world, generating, compact, className }: TierCh
 }
 
 /**
- * The honest footnote for a room that carries a simulated full world the buyer is not being shown.
+ * The honest footnote for a room that carries a simulated full world the renter is not being shown.
  * It only happens while rehearsing the publish flow with "Prefer simulated reconstruction" on.
  */
 export function ShadowedFullNote({ room, className }: { room: Room; className?: string }) {
   if (!fullIsShadowed(room)) return null;
   return (
     <div className={cx('text-[11px] text-ink-3', className)}>
-      A simulated full-quality world is attached, but the real Marble capture is the better world, so that is what buyers get.
+      A simulated full-quality world is attached, but the real Marble capture is the better world, so that is what renters get.
     </div>
   );
 }

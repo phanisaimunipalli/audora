@@ -1,7 +1,7 @@
 /**
  * A small top-down plan of a room and its staging. Metric, honest: the room outline is the
  * derived geometry, door and windows sit where the reconstruction put them, and every piece
- * is its real footprint. Seller staging keeps its catalogue colour; buyer pieces are blue.
+ * is its real footprint. Leasing team staging keeps its catalogue colour; renter pieces are blue.
  */
 import type { PlacedPiece, RoomGeometry } from '@/engine/types';
 import { corners, wallFeaturePosition } from '@/engine/geometry';

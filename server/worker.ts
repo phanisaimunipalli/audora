@@ -2,8 +2,11 @@
 /**
  * The job worker — docs/BACKEND.md §4 steps 4 and 5. It claims jobs from `public.jobs`
  * (supabase/migrations/0002_claim_jobs.sql), submits a room's recipe to the reconstruction
- * provider, polls the operation, and then copies every asset the provider made into our own
- * `worlds` bucket so a share link keeps working after the provider's signed URLs expire.
+ * provider, polls the operation, copies every asset the provider made into our own `worlds` bucket
+ * so a share link keeps working after the provider's signed URLs expire, and then **measures the
+ * collider it just stored** (docs/ACCURACY.md §3.2) so the room's metric dimensions, their
+ * residuals against the plan and their confidence are computed once, on the server, rather than
+ * re-derived by every reader.
  *
  * Conventions this module relies on:
  * - **State lives in the world row, never in this process.** A `generate` job that has already been
@@ -28,11 +31,16 @@ import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import type { FetchLike } from './db.js';
 import { extensionForMime, sniffImage } from './photos.js';
+import { mockColliderGlb } from './mockAssets.js';
 import {
   PipelineError,
+  measureColliderBytes,
+  measureRoom,
   pointRoomAtWorld,
+  roomRecipeState,
   splitStoragePath,
   worldAssetPath,
+  writeMeasurement,
   type JobRow,
   type PhotoRow,
   type PipelineDb,
@@ -208,20 +216,6 @@ function fakeBytes(name: string, length: number, magic?: Buffer): Buffer {
   return out;
 }
 
-/** A real, if empty, glTF binary: 12-byte header plus one JSON chunk. Something a loader can open. */
-function fakeGlb(): Buffer {
-  const json = Buffer.from(JSON.stringify({ asset: { version: '2.0', generator: 'audora-mock' }, scenes: [{ nodes: [] }], scene: 0, nodes: [] }), 'utf8');
-  const padded = Buffer.concat([json, Buffer.alloc((4 - (json.length % 4)) % 4, 0x20)]);
-  const header = Buffer.alloc(12);
-  header.write('glTF', 0, 'ascii');
-  header.writeUInt32LE(2, 4);
-  header.writeUInt32LE(12 + 8 + padded.length, 8);
-  const chunk = Buffer.alloc(8);
-  chunk.writeUInt32LE(padded.length, 0);
-  chunk.write('JSON', 4, 'ascii');
-  return Buffer.concat([header, chunk, padded]);
-}
-
 /** A JPEG's first and last markers with a JFIF header between them: enough to be recognisably one. */
 function fakeJpeg(name: string): Buffer {
   const head = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00]);
@@ -273,7 +267,10 @@ export function mockProvider(): WorldProvider {
       return {
         worldId,
         spz,
-        collider: put(worldId, 'collider.glb', { bytes: fakeGlb(), contentType: 'model/gltf-binary' }),
+        // A real room, not an empty glTF: `copy_assets` measures the collider it just stored, so a
+        // mock world with nothing in its mesh would leave the whole measurement path untested
+        // (server/mockAssets.ts says what the room is and why it is that size).
+        collider: put(worldId, 'collider.glb', { bytes: mockColliderGlb(), contentType: 'model/gltf-binary' }),
         pano: put(worldId, 'pano.jpg', { bytes: fakeJpeg(`${worldId}/pano`), contentType: 'image/jpeg' }),
         thumbnail: put(worldId, 'thumb.jpg', { bytes: fakeJpeg(`${worldId}/thumb`), contentType: 'image/jpeg' }),
         caption: 'A simulated reconstruction.',
@@ -583,9 +580,13 @@ async function runCopyAssets(ctx: Ctx, job: JobRow): Promise<void> {
 
   const assets: WorldAssets = {};
   const providerAssets: Row = { spz: provider.spz ?? {}, collider: provider.collider ?? null, pano: provider.pano ?? null, thumbnail: provider.thumbnail ?? null, worldUrl: provider.worldUrl ?? null };
+  // The collider is measured below; it is kept here rather than downloaded again, because the bytes
+  // this loop uploaded ARE the bytes to measure and a second round trip could only disagree.
+  let colliderBytes: Buffer | null = null;
   for (let i = 0; i < wanted.length; i += 1) {
     const item = wanted[i];
     const fetched = await ctx.provider.fetchAsset(item.url);
+    if (item.slot === 'collider') colliderBytes = fetched.bytes;
     const name = item.slot === 'pano' ? namedFor('pano', fetched.contentType, 'jpg') : item.slot === 'thumbnail' ? namedFor('thumb', fetched.contentType, 'jpg') : item.name;
     const path = worldAssetPath(world.id, name);
     const { bucket, key } = splitStoragePath(path);
@@ -611,8 +612,56 @@ async function runCopyAssets(ctx: Ctx, job: JobRow): Promise<void> {
     finished_at: iso(ctx.now()),
   });
   if (job.room_id) await pointRoomAtWorld(ctx.db, job.room_id, (world.tier === 'full' ? 'full' : 'draft') as RecipeTier, world.id, 'ready');
+  await measureWorld(ctx, job, world, colliderBytes, provider.metricScaleFactor ?? null);
   await ctx.db.update('jobs', { id: job.id }, { status: 'done', progress: 100, step: 'Ready', error: null, finished_at: iso(ctx.now()) });
   await settleUnit(ctx, job);
+}
+
+/**
+ * Step 5's second half (docs/BACKEND.md §4, docs/ACCURACY.md §3.2): the assets are ours, so measure
+ * the collider and say what the room is. `worlds.bounds` and `worlds.raw` get what the mesh says;
+ * `rooms.geometry`, `rooms.raw`, `rooms.measurement` and `rooms.measured_at` get what the room
+ * shows, once the plan, the anchor, the printed ceiling and the provider's own metric scale have
+ * been fused into one number with its residuals (`measureRoom` in server/pipeline.ts).
+ *
+ * A measurement failure does not fail the world. The assets are already copied and paid for, the
+ * capture is walkable, and the browser can still measure the collider itself — so a mesh this
+ * reader cannot parse is logged and left as null rather than throwing away a generation over it.
+ */
+async function measureWorld(ctx: Ctx, job: JobRow, world: WorldRow, collider: Buffer | null, metricScaleFactor: number | null): Promise<void> {
+  if (!collider) {
+    ctx.log(`world ${world.id}: no collider mesh, so the room is unmeasured`);
+    return;
+  }
+  try {
+    const room = job.room_id ? await ctx.db.select<RoomRow>('rooms', { filters: { id: job.room_id }, single: true }) : null;
+    const result = measureRoom({
+      bounds: measureColliderBytes(collider),
+      planDims: room?.plan_dims,
+      anchor: room?.anchor,
+      metricScaleFactor,
+      worldId: world.id,
+      now: ctx.now(),
+    });
+    /* The same provenance a PATCH writes (`updateRoom` in server/pipeline.ts), because a reader
+       cannot tell where a measurement came from and `RoomMeasurement` documents both fields. It is
+       not always false either: a seller can correct a plan dimension while the job is in the queue,
+       so the answer is computed, not assumed. A recipe that cannot be rebuilt leaves the flag off
+       rather than guessing — the measurement itself is already paid for and must not be lost to it. */
+    result.measurement.recipeHash = String(world.recipe_hash ?? '');
+    if (room) {
+      try {
+        const unit = await ctx.db.select<UnitRow>('units', { filters: { id: job.unit_id }, single: true });
+        if (unit) result.measurement.stale = (await roomRecipeState(ctx.db, world.org_id, unit, room, world)).stale;
+      } catch (e) {
+        ctx.log(`world ${world.id}: the recipe state could not be compared`, e);
+      }
+    }
+    await writeMeasurement(ctx.db, world.id, room?.id, result);
+    if (result.measurement.flags.length) ctx.log(`world ${world.id}: ${result.measurement.flags.join(' ')}`);
+  } catch (e) {
+    ctx.log(`world ${world.id}: the collider could not be measured`, e);
+  }
 }
 
 /** A unit with nothing left in the queue is no longer "generating". */

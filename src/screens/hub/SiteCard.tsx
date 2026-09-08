@@ -1,5 +1,5 @@
 /**
- * The Site card: where this listing really is, which way the seller said its windows face, and how
+ * The Site card: where this unit really is, which way the leasing team said its windows face, and how
  * long the sun is up there today. It is the provenance card for every sunbeam in the tour — the
  * viewer's time-of-day slider and `three/SunLight` read exactly these three numbers.
  *
@@ -22,7 +22,7 @@ export function SiteCard({ tour, rooms = [], className }: { tour: Tour; rooms?: 
   if (!site) return null;
 
   const heading = norm360(site.heading);
-  /* Said the way the seller said it: the direction the windows look, not the frame the engine keeps.
+  /* Said the way the leasing team said it: the direction the windows look, not the frame the engine keeps.
      Against the wall the answer was given on, which the site records — re-reading it from today's
      rooms would rename the same heading every time a room is added. */
   const windowWall = site.windowWall ?? dominantWindowWall(rooms.flatMap((r) => r.geometry.windows.map((w) => w.wall)));
@@ -78,7 +78,7 @@ export function SiteCard({ tour, rooms = [], className }: { tour: Tour; rooms?: 
         </div>
         {sky ? <div className="text-xs text-ink-3">{sky.readout}</div> : null}
         <p className="text-[11px] leading-relaxed text-ink-3">
-          Sun direction from the address and building footprint on OpenStreetMap; the seller confirmed which way the windows face.{' '}
+          Sun direction from the address and building footprint on OpenStreetMap; the leasing team confirmed which way the windows face.{' '}
           <span className="mono">© OpenStreetMap contributors</span>
         </p>
       </div>

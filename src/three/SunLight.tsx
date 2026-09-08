@@ -3,7 +3,7 @@
  *
  * Everything else in the scene guesses at light: the shell has a studio key by the window,
  * `CaptureLight` reads a sun out of the panorama's brightest region. This one is not a guess. The
- * address gives a latitude and longitude, the OpenStreetMap footprint and the seller's compass give
+ * address gives a latitude and longitude, the OpenStreetMap footprint and the leasing team's compass give
  * the heading of the room's north wall, and `sunPosition` gives the sun for that instant — so the
  * light in the room is the light that will actually be in the room at 14:20 on the 6th of March.
  *
@@ -145,7 +145,7 @@ export function SunLight({ room, sun, composite = false, intensity = 1, shadows 
       ) : null}
       {/* On a real capture the photographed floor is not a surface we own, so the sun needs a plane
           to drop its shadows on: invisible except where something shades it — and exactly the size
-          of the floor the buyer can see. It used to be `span * 3`, three times the room, which at a
+          of the floor the renter can see. It used to be `span * 3`, three times the room, which at a
           low morning sun caught the long shadows *past* the far wall and painted them up the
           photographed wall as a hard grey smudge (the depth-only occluder does not always cover the
           wall/floor junction, where the collider's stretched triangles are trimmed away). The floor

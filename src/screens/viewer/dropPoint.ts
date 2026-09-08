@@ -4,7 +4,7 @@ import { pieceStatus } from '@/engine/fit';
 import { spawnPose } from '@/three/walkMath';
 import type { Pose } from '@/three/viewerStore';
 
-/** Metres of clear air a buyer wants between them and a piece that has just landed. */
+/** Metres of clear air a renter wants between them and a piece that has just landed. */
 const MIN_AHEAD = 1.2;
 /** Closer than this and the piece is a slab across the lens rather than furniture in a room. */
 const MIN_CLEAR = 0.9;
@@ -19,12 +19,12 @@ interface Candidate {
 }
 
 /**
- * Where a buyer's piece lands when they test it.
+ * Where a renter's piece lands when they test it.
  *
- * The honest answer to "will my queen bed fit?" is about the room, never about where the buyer
+ * The honest answer to "will my queen bed fit?" is about the room, never about where the renter
  * happened to be standing — so a piece dropped on top of the staged bed and reported as "does not
  * fit" is a bug, not a verdict. This sweeps the whole floor and takes the cheapest spot that is
- * genuinely clear: in front of the buyer and about a stride away if such a spot exists, anywhere
+ * genuinely clear: in front of the renter and about a stride away if such a spot exists, anywhere
  * else in the room if it does not, turned a quarter turn only as a last resort. Only when the room
  * truly has no free rectangle of this size does the piece land overlapping — and then the verdict
  * is the truth.
@@ -57,7 +57,7 @@ export function dropFootprint(room: RoomGeometry, w: number, d: number, pose: Po
         const dist = Math.hypot(dxp, dzp) || 1e-6;
         const forward = (dxp * fx + dzp * fz) / dist;
         let cost = Math.hypot(x - want.x, z - want.z);
-        // In their line of sight, please: a piece that appears behind the buyer reads as a no-show.
+        // In their line of sight, please: a piece that appears behind the renter reads as a no-show.
         if (forward < 0.25) cost += 4;
         // ...and not on their toes.
         if (dist < MIN_CLEAR + Math.max(w, d) / 2) cost += 8;

@@ -79,7 +79,7 @@ function Harness() {
   const panoYaw = (Number(params.get('panoYaw') ?? 0) * Math.PI) / 180;
   const marbleFrame = useMarbleFrame(real ?? NO_WORLD, room?.anchor.metresPerUnit ?? 1, room?.floorOffset ?? 0);
   const photo = mode === 'photo' && Boolean(real?.panoUrl);
-  if (!tour || !room) return <div className="p-10">No demo tour</div>;
+  if (!tour || !room) return <div className="p-10">No demo unit</div>;
   const g = room.geometry;
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-bg">
@@ -113,7 +113,7 @@ function Harness() {
         )}
         <MeasureTool room={g} enabled={tool === 'measure'} uncertaintyM={room.anchor.uncertaintyM} />
         {splatWorld ? <SplatWorld world={splatWorld} visible={showSplat} onStatus={onStatus} transform={{ y: 1.2 }} /> : null}
-        <StillsCapturer room={g} onReady={(c) => { captureRef.current = c; (window as unknown as { __audoraCapture?: CaptureFn }).__audoraCapture = c; }} watermark={['Digitally staged', `anchor: ${room.anchor.label}`, `${tour.title} · ${room.name}`]} />
+        <StillsCapturer room={g} onReady={(c) => { captureRef.current = c; (window as unknown as { __audoraCapture?: CaptureFn }).__audoraCapture = c; }} watermark={['AI-generated from photos', `anchor: ${room.anchor.label}`, `${tour.title} · ${room.name}`]} />
       </SceneCanvas>
       {/* top bar */}
       <div className="absolute left-4 top-4 flex flex-wrap items-center gap-2">

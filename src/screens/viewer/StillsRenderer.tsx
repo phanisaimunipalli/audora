@@ -27,8 +27,8 @@ export interface StillsRendererProps {
   height?: number;
   specs?: StillSpec[];
   /**
-   * The address's own sun at the hour the seller staged at (`sunState`). The listing photograph then
-   * carries the light the room will really have — the same sun the buyer opens the tour under —
+   * The address's own sun at the hour the leasing team staged at (`sunState`). The listing photograph then
+   * carries the light the room will really have — the same sun the renter opens the tour under —
    * instead of the shell's studio key. Omit it and nothing changes.
    */
   sun?: SunState | null;
@@ -37,7 +37,7 @@ export interface StillsRendererProps {
   /**
    * The room has a real capture but it could not be drawn, so these stills are of the measured room
    * instead of the photograph. Fires before `onDone`, so the caller can say so rather than let a
-   * seller publish synthetic images believing they are the flat.
+   * leasing team publish synthetic images believing they are the flat.
    */
   onFallback?: (reason: string) => void;
 }
@@ -114,12 +114,12 @@ function Capturer({
  * wait for onDone, unmount.
  *
  * **A room with a real capture is composited, not redrawn.** The listing still is the same three
- * layers the buyer walks in: the photograph, the furniture lit by it (`CaptureLight`'s environment
+ * layers the renter walks in: the photograph, the furniture lit by it (`CaptureLight`'s environment
  * and its estimated sun) and the shadow that furniture drops back onto the photographed floor —
  * plus the collider written to depth, so a piece behind a real wall is behind it in the still too.
  * The measured shell is not drawn at all, exactly as in the viewer. The angles all turn on the
  * capture point, because a panorama is only a photograph from where it was taken, and the first of
- * them is **Portrait**: the direction the buyer was looking when they asked for stills.
+ * them is **Portrait**: the direction the renter was looking when they asked for stills.
  *
  * The panorama rather than the splat is the photo layer here: Spark sorts its splats on the render
  * loop, and this canvas has none (`frameloop="never"`). From the capture point the two are the same
@@ -144,7 +144,7 @@ export function StillsRenderer({ room, width = 1600, height = 1000, specs, sun, 
     setReady(true);
   };
 
-  /* Never leave the seller waiting on a CDN — but never call a download that is still arriving a
+  /* Never leave the leasing team waiting on a CDN — but never call a download that is still arriving a
      failure either. The clock is reset by every progress report and only runs out on a stall. */
   useEffect(() => {
     if (!real || ready) return;
@@ -166,7 +166,7 @@ export function StillsRenderer({ room, width = 1600, height = 1000, specs, sun, 
     if (s.status === 'error') giveUp(s.detail ? `the panorama could not be loaded (${s.detail})` : 'the panorama could not be loaded');
   };
 
-  /* The seller is told, once, when a room that has a real capture comes back as a procedural
+  /* The leasing team is told, once, when a room that has a real capture comes back as a procedural
      render — silently publishing the shell as if it were the flat is the thing to avoid. */
   const told = useRef(false);
   useEffect(() => {
@@ -191,7 +191,7 @@ export function StillsRenderer({ room, width = 1600, height = 1000, specs, sun, 
     if (!composite) return stillSpecs(room.geometry);
     const pose = useViewer.getState().pose;
     const capture = { x: frame.position[0], z: frame.position[2], yaw: captureYaw(frame) };
-    // The buyer's own direction, when they have one — a pose still at the origin is the default.
+    // The renter's own direction, when they have one — a pose still at the origin is the default.
     const looking = Math.abs(pose.x) > 0.001 || Math.abs(pose.z) > 0.001 || Math.abs(pose.yaw) > 0.001 ? { yaw: pose.yaw } : null;
     // The room and what stands in it, so the four angles are four pictures rather than one wall.
     return compositeSpecs(capture, looking, { room: room.geometry, pieces: room.staging });

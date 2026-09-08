@@ -67,7 +67,7 @@ export function Inspector({ piece, room, status = 'ok', onChange, onDelete, onDu
       </div>
 
       <div className="flex flex-wrap gap-1.5">
-        {buyer ? <Chip tone="buyer">buyer's piece</Chip> : <Chip>seller staging</Chip>}
+        {buyer ? <Chip tone="buyer">renter's piece</Chip> : <Chip>leasing team staging</Chip>}
         <Chip tone={piece.verified ? 'ok' : 'neutral'}>{piece.verified ? 'verified dimensions' : 'reference dimensions'}</Chip>
         {piece.flat ? <Chip>flat · never collides</Chip> : null}
       </div>

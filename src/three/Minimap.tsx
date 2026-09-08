@@ -5,9 +5,9 @@ import { useViewer } from './viewerStore';
 
 export interface MinimapProps {
   room: RoomGeometry;
-  /** Seller staging: warm grey. */
+  /** Leasing team staging: warm grey. */
   pieces: PlacedPiece[];
-  /** Buyer's own pieces: always blue. */
+  /** Renter's own pieces: always blue. */
   buyerPieces?: PlacedPiece[];
   className?: string;
   /** Inline size for the root (the SVG fills it and keeps the room's aspect). */
@@ -18,14 +18,14 @@ export interface MinimapProps {
   uncertaintyM?: number;
   /** Draw the viewer's position and view cone from useViewer.pose. */
   showViewer?: boolean;
-  /** Hide seller pieces (buyer "see it bare"). */
+  /** Hide leasing team pieces (renter "see it bare"). */
   showSeller?: boolean;
   /** Highlight a piece. */
   selectedId?: string | null;
 }
 
-/* A white card with ink lines: the plan is a drawing, not a screen. Seller staging keeps the warm
-   neutral of the catalogue's dots; the buyer's own pieces are the one blue; the anchor's ± is gold. */
+/* A white card with ink lines: the plan is a drawing, not a screen. Leasing team staging keeps the warm
+   neutral of the catalogue's dots; the renter's own pieces are the one blue; the anchor's ± is gold. */
 const PAD = 0.55;
 const SELLER = '#8d7b6a';
 const BUYER = '#1d63ff';

@@ -157,7 +157,7 @@ export function JobsTray() {
                           <span className="block truncate text-[11px] text-dim">{n.tour}</span>
                         </span>
                         <span className="mono shrink-0 text-[11px] text-faint">
-                          {/* Only "full quality ready" when the buyer is actually getting it: a simulated full
+                          {/* Only "full quality ready" when the renter is actually getting it: a simulated full
                               never displaces a real capture, and the tray must not claim otherwise. */}
                           {j.status === 'done' && j.upgrade ? (fullIsShadowed(rooms[j.roomId]) ? 'simulated full attached' : 'full quality ready') : j.tier} ·{' '}
                           {j.status === 'done' ? clock(jobElapsed(j, j.finishedAt ?? now)) : 'failed'} · {timeAgo(j.finishedAt ?? j.createdAt, now)}

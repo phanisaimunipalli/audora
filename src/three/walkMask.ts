@@ -4,7 +4,7 @@
  * Audora's room rectangle is a rectangle — the room measured to its walls (`roomRect`) when the
  * collider gave one, its bounding box when it did not. A real room is not a rectangle: it has a
  * chimney breast, a bay, a doorway the model reconstructed the hall through. Walking the rectangle
- * takes the buyer through the photographed wall into a black void; walking the mesh does not.
+ * takes the renter through the photographed wall into a black void; walking the mesh does not.
  *
  * So: rasterise the collider's wall band (waist height, where a person actually collides) into a
  * coarse occupancy grid, grow it by the walker's radius, and flood-fill the free cells from the
@@ -48,7 +48,7 @@ export interface WalkMaskOptions {
   minAreaM2?: number;
   /**
    * The room Audora states, as half-extents about the origin. Cells outside it are walled off before
-   * the flood, so the mask measures the floor the buyer can *actually* stand on rather than every
+   * the flood, so the mask measures the floor the renter can *actually* stand on rather than every
    * square metre the collider happens to reach.
    *
    * It matters most where the two disagree: the full-quality flat's collider is a whole open-plan
@@ -192,7 +192,7 @@ export function buildWalkMask(root: THREE.Object3D, options: WalkMaskOptions = {
   }
 
   // Flood-fill the free cells from the capture point. Anything the flood cannot reach is either
-  // beyond a wall or outside the room, and the buyer has no business there.
+  // beyond a wall or outside the room, and the renter has no business there.
   const sx = Math.round(gx(seed.x));
   const sz = Math.round(gz(seed.z));
   let start = -1;
@@ -227,7 +227,7 @@ export function buildWalkMask(root: THREE.Object3D, options: WalkMaskOptions = {
     const z = (i / cols) | 0;
     // The flood ran off the edge of the grid: this mesh does not enclose the capture point, so it
     // has nothing trustworthy to say about where the walls are. Better the room rectangle than a
-    // mask that stops the buyer at an imaginary line.
+    // mask that stops the renter at an imaginary line.
     if (x === 0 || z === 0 || x === cols - 1 || z === rows - 1) leaked = true;
     if (x > 0 && !open[i - 1] && !solid[i - 1]) (open[i - 1] = 1), (queue[tail++] = i - 1);
     if (x < cols - 1 && !open[i + 1] && !solid[i + 1]) (open[i + 1] = 1), (queue[tail++] = i + 1);

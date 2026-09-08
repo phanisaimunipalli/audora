@@ -34,8 +34,8 @@ export function sendNotification(title: string, body: string, onClick?: () => vo
 }
 
 /* ---------- unseen-job badge in the tab title ----------
- * The badge belongs to the seller's app chrome. The job runner is mounted app-wide, so without a
- * switch a buyer sitting on a public share link would watch the seller's tab title turn into
+ * The badge belongs to the leasing team's app chrome. The job runner is mounted app-wide, so without a
+ * switch a renter sitting on a public share link would watch the leasing team's tab title turn into
  * "(1) 1247 Oak Street · Audora tour". Routes that own their own title (the public viewer) turn it
  * off while they are mounted, and the title is left exactly as they set it. */
 let baseTitle: string | null = null;

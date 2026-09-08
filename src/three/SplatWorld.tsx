@@ -74,7 +74,7 @@ export function applyMarbleFrame(
 /**
  * A real Marble world as a Gaussian splat, streamed **progressively**.
  *
- * The buyer should be standing in the photograph within a second, not staring at a spinner for
+ * The renter should be standing in the photograph within a second, not staring at a spinner for
  * eight, so the smallest file Marble made (100k or 150k splats, about a megabyte) loads first, the
  * 500k file replaces it when it arrives, and full resolution follows only on a machine that can
  * carry it and a connection that has already proved itself (see `splat/tiers`). Each swap is a
@@ -186,7 +186,7 @@ export function SplatWorld({ world, visible = true, onStatus, opacity = 1, trans
       while (next && !cancelled) {
         const rung: SplatAsset = next;
         const startedAt = performance.now();
-        /* An upgrade is not a wait. While full resolution streams behind a tier the buyer is already
+        /* An upgrade is not a wait. While full resolution streams behind a tier the renter is already
            walking, the layer keeps saying **ready** — with `upgrading` and the progress attached —
            because everything downstream reads "the splat is ready" as "a photograph is on screen",
            and flipping it back to `loading` would put the procedural shell over the capture for the

@@ -3,15 +3,16 @@
  *   - photo analysis (vision model)          → room type, empty?, door visible, quality
  *   - auto stage (structured JSON output)    → a catalog arrangement, validated by the engine
  *   - furniture parsing (fast model)         → "sectional 220 by 95" → dimensions
- *   - listing copy + fit insights (text)     → agent-facing prose
+ *   - listing copy + renter insights (text)  → leasing-team-facing prose
  * Every call goes through /api/ai/chat so the key stays on the server, and every call has a
  * deterministic fallback so the product works with no key at all.
  */
 import type { PlacedPiece, RoomType } from '@/engine/types';
 import { CATALOG, catalogFor, parseFurnitureText, guessKind } from '@/engine/catalog';
 import { autoStage, resolveSemanticProposal, validateProposal, type SemanticPiece, type StagingStyle } from '@/engine/autostage';
-import { fitReport } from '@/engine/fit';
+import { availableLabel } from '@/lib/format';
 import { useAudora } from '@/state/store';
+import { summarize } from '@/screens/insights/stats';
 import type { AnalyticsEvent, PhotoAnalysis, PhotoRecord, Room, Tour } from '@/state/types';
 
 export interface AiMeta {
@@ -121,7 +122,7 @@ export function analysisMessages(dataUrl: string, nameHint?: string) {
     {
       role: 'user',
       content: [
-        { type: 'text', text: nameHint ? `The seller named this room "${nameHint}". Analyse the photo.` : 'Analyse the photo.' },
+        { type: 'text', text: nameHint ? `The leasing team named this room "${nameHint}". Analyse the photo.` : 'Analyse the photo.' },
         { type: 'image_url', image_url: { url: dataUrl } },
       ],
     },
@@ -202,7 +203,7 @@ A piece's rot is radians about the vertical axis; rot 0 means its front faces so
 Pieces sit flush to walls when their back is against them (centre = wall ± depth/2). Never overlap solids, leave 0.75m walkways, keep 0.45m between a sofa and coffee table.
 Catalog (use these ids only):
 ${catalogLines(type)}
-Return 4 to 8 pieces that make this room feel lived in for a buyer.`;
+Return 4 to 8 pieces that make this room feel lived in for a renter.`;
 }
 
 /* ---------- Production: semantic placements resolved by the engine ---------- */
@@ -265,7 +266,7 @@ Placement vocabulary (one per piece, in order; later pieces may refer to earlier
 Mark decor as "optional": true so it is dropped before an essential piece is.
 Catalog (use these ids only):
 ${catalogLines(type)}
-Return 4 to 8 pieces that make this ${type} feel lived in for a buyer, essentials first.`;
+Return 4 to 8 pieces that make this ${type} feel lived in for a renter, essentials first.`;
 }
 
 /**
@@ -355,26 +356,38 @@ export async function parseFurniture(text: string): Promise<ParsedFurniture | nu
   }
 }
 
-/** Listing copy for the publish step. */
+/**
+ * The copy for the unit's listing page. Rental vocabulary throughout (docs/COPY.md): a leasing team
+ * writes it, a renter reads it, and it never claims the rooms are "digitally staged" — staging is
+ * deferred, and the only claim the model makes about itself is that it is AI-generated from photos.
+ */
 export async function listingCopy(tour: Tour, rooms: Room[]): Promise<{ text: string; meta: AiMeta }> {
   const started = Date.now();
   const facts = rooms
-    .map((r) => {
-      const rep = fitReport(r.staging, r.geometry);
-      return `${r.name}: ${r.geometry.width.toFixed(1)} × ${r.geometry.depth.toFixed(1)}m, ceiling ${r.geometry.height.toFixed(2)}m, ${r.staging.length} staged pieces, ${rep.floorUsedPct}% floor used${rep.narrowestWalkway ? `, narrowest walkway ${rep.narrowestWalkway.toFixed(2)}m` : ''}. Anchor: ${r.anchor.label}.`;
-    })
+    .map((r) => `${r.name}: ${r.geometry.width.toFixed(1)} × ${r.geometry.depth.toFixed(1)}m, ceiling ${r.geometry.height.toFixed(2)}m. Anchor: ${r.anchor.label}.`)
     .join('\n');
-  const fallback = `${tour.address}. ${rooms.length} room${rooms.length === 1 ? '' : 's'} you can walk at eye height and measure yourself. ${rooms
+  const rent = tour.price ? `${tour.price}. ` : '';
+  const fallback = `${tour.address}. ${rent}${rooms.length} room${rooms.length === 1 ? '' : 's'} a renter can walk at eye height and measure before they visit. ${rooms
     .map((r) => `${r.name} is ${r.geometry.width.toFixed(1)} by ${r.geometry.depth.toFixed(1)} metres`)
-    .join(', ')}. Digitally staged; every dimension carries its measurement anchor.`;
+    .join(', ')}. The 3D model is AI-generated from photos of the unit and checked against its floor plan; every dimension carries its measurement anchor.`;
   if (!live()) return { text: fallback, meta: { source: 'heuristic', ms: Date.now() - started } };
   try {
     const r = await chat(
       'listing_copy',
       'text',
       [
-        { role: 'system', content: 'Write listing copy for a real-estate agent. 70 to 110 words, plain and specific, no superlatives, no emojis. Mention real dimensions in metres. End with a sentence that the rooms are digitally staged and measurable in the 3D tour.' },
-        { role: 'user', content: `Address: ${tour.address}. ${tour.beds ? `${tour.beds} bed, ` : ''}${tour.baths ? `${tour.baths} bath, ` : ''}${tour.sqft ? `${tour.sqft} sqft. ` : ''}\nRooms:\n${facts}` },
+        {
+          role: 'system',
+          content:
+            'Write the listing copy a leasing team puts on a rental unit. 70 to 110 words, plain and specific, no superlatives, no emojis. ' +
+            'Say "renter", never "buyer"; say "rent per month" and "available from", never a sale price. Mention real room dimensions in metres. ' +
+            'End with a sentence saying the 3D model of the unit is AI-generated from photos and can be walked and measured before a viewing. ' +
+            'Never claim the rooms are staged or furnished.',
+        },
+        {
+          role: 'user',
+          content: `Address: ${tour.address}. ${tour.price ? `Rent ${tour.price}. ` : ''}${availableLabel(tour.availableFrom) ? `Available from ${availableLabel(tour.availableFrom)}. ` : ''}${tour.beds ? `${tour.beds} bed, ` : ''}${tour.baths ? `${tour.baths} bath, ` : ''}${tour.sqft ? `${tour.sqft} sqft. ` : ''}\nRooms:\n${facts}`,
+        },
       ],
       undefined,
       { temperature: 0.5, max_tokens: 260 },
@@ -385,37 +398,67 @@ export async function listingCopy(tour: Tour, rooms: Room[]): Promise<{ text: st
   }
 }
 
-/** Turn buyer behaviour into three things an agent can act on. */
+/**
+ * Turn renter activity into three things a leasing team can act on.
+ *
+ * The activity that exists while staging is deferred is walking, measuring, lingering in a room and
+ * sharing the link — so that is what these sentences are about (docs/COPY.md). Furniture fit tests
+ * are still counted, because the events are still recorded when someone turns staging on, but they
+ * never lead: a room measured over and over is the signal the listing is not describing it.
+ */
 export async function fitInsights(tour: Tour, rooms: Room[], events: AnalyticsEvent[]): Promise<{ insights: string[]; meta: AiMeta }> {
   const started = Date.now();
-  const tests = events.filter((e) => e.type === 'test');
-  const fails = events.filter((e) => e.type === 'nofit');
-  const byRoom = new Map<string, { tests: number; fails: number; items: Map<string, number> }>();
-  for (const e of [...tests, ...fails]) {
-    const key = e.roomId || 'unknown';
-    const b = byRoom.get(key) || { tests: 0, fails: 0, items: new Map() };
-    if (e.type === 'test') b.tests++;
-    else b.fails++;
-    if (e.item) b.items.set(e.item, (b.items.get(e.item) || 0) + 1);
-    byRoom.set(key, b);
-  }
+  const s = summarize(events, rooms);
   const roomName = (id: string) => rooms.find((r) => r.id === id)?.name || 'a room';
+  const dims = (id: string) => {
+    const g = rooms.find((r) => r.id === id)?.geometry;
+    return g ? `${g.width.toFixed(1)} × ${g.depth.toFixed(1)} m` : undefined;
+  };
+
   const fallback: string[] = [];
-  for (const [id, b] of byRoom) {
-    if (b.fails >= 2) fallback.push(`${b.fails} of ${b.tests} buyers found their furniture will not fit ${roomName(id)}. Say what does fit in the copy: a ${rooms.find((r) => r.id === id)?.staging[0]?.name.toLowerCase() || 'smaller piece'}.`);
+  const measured = [...s.rooms].filter((r) => r.measures > 0).sort((a, b) => b.measures - a.measures);
+  const top = measured[0];
+  if (top) {
+    const size = dims(top.roomId);
+    fallback.push(
+      `${top.name} was measured ${top.measures} time${top.measures === 1 ? '' : 's'} — more than any other room. Put its dimensions${size ? ` (${size})` : ''} in the listing text so a renter does not have to go looking.`,
+    );
   }
-  const top = [...tests.reduce((m, e) => m.set(e.item || '?', (m.get(e.item || '?') || 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1])[0];
-  if (top) fallback.push(`Most tested piece: ${top[0]} (${top[1]} buyers). Lead the hero shot with that room staged around one.`);
-  if (!fallback.length) fallback.push('Not enough buyer activity yet. Share the link in the listing to start the loop.');
+  const unwalked = s.rooms.filter((r) => r.walked === 0);
+  if (s.visitors > 0 && s.walked < s.visitors) {
+    fallback.push(`${s.walked} of ${s.visitors} renter${s.visitors === 1 ? '' : 's'} walked past the first room. Lead the listing with the link, not with a photo carousel, so the walk is the first thing they meet.`);
+  } else if (unwalked.length && s.visitors > 0) {
+    fallback.push(`Nobody has walked ${listNamesOf(unwalked.map((r) => r.name))} yet. Check the room order: a renter walks them in the order the unit lists them.`);
+  }
+  if (s.shares > 0) {
+    fallback.push(`The link has been shared ${s.shares} time${s.shares === 1 ? '' : 's'} — renters are sending this unit on to someone else. Keep it on every marketplace listing for this unit, not just the property's own site.`);
+  } else if (s.visitors > 0) {
+    fallback.push('Nobody has passed the link on yet. It is the cheapest reach this unit has; make sure it is in the feed and not only in the email.');
+  }
+  const failing = s.rooms.filter((r) => r.nofits >= 2).sort((a, b) => b.nofits - a.nofits)[0];
+  if (failing) fallback.push(`${failing.nofits} of ${failing.tests} furniture tests did not fit ${roomName(failing.roomId)}. Say what does fit — a renter who finds out at the viewing does not come back.`);
+  if (!fallback.length) fallback.push('Not enough renter activity yet. Put the link on the unit\u2019s listing page to start the loop.');
+
   if (!live()) return { insights: fallback.slice(0, 3), meta: { source: 'heuristic', ms: Date.now() - started } };
   try {
-    const summary = [...byRoom].map(([id, b]) => `${roomName(id)}: ${b.tests} tests, ${b.fails} did not fit; items ${[...b.items].map(([k, v]) => `${k}×${v}`).join(', ')}`).join('\n');
+    const summary = s.rooms
+      .map((r) => `${r.name}${dims(r.roomId) ? ` (${dims(r.roomId)})` : ''}: ${r.walked} walked, ${r.measures} measurements${r.tests ? `, ${r.tests} furniture tests of which ${r.nofits} did not fit` : ''}`)
+      .join('\n');
     const r = await chat(
-      'fit_insights',
+      'renter_insights',
       'fast',
       [
-        { role: 'system', content: 'You advise a listing agent. Given buyer fit-test data, return JSON {"insights": [three short, concrete sentences]}: what to change in the copy, the price, or which buyers to pursue.' },
-        { role: 'user', content: `Listing ${tour.address}.\n${summary || 'No fit tests yet.'}` },
+        {
+          role: 'system',
+          content:
+            'You advise a leasing team on one rental unit. Given what renters did in its 3D model — visits, walks, measurements per room, shares — return JSON ' +
+            '{"insights": [three short, concrete sentences]}: what to change in the listing text, the room order, or where the link is published. ' +
+            'Say "renter" and "unit", never "buyer", "seller" or "sale". Do not recommend staging or furniture; the product is the measured model.',
+        },
+        {
+          role: 'user',
+          content: `Unit ${tour.address}. ${s.visitors} renters, ${s.walked} walked, ${s.measures} measurements, ${s.shares} shares over the last ${s.windowDays} days.\n${summary || 'No room activity yet.'}`,
+        },
       ],
       { type: 'object', properties: { insights: { type: 'array', items: { type: 'string' } } }, required: ['insights'] },
       { temperature: 0.3, max_tokens: 220 },
@@ -426,6 +469,13 @@ export async function fitInsights(tour: Tour, rooms: Room[], events: AnalyticsEv
   } catch {
     return { insights: fallback.slice(0, 3), meta: { source: 'heuristic', ms: Date.now() - started } };
   }
+}
+
+/** "the kitchen", "the kitchen and the hall", "the kitchen, the hall and the office". */
+function listNamesOf(names: string[]): string {
+  const lower = names.map((n) => `the ${n.toLowerCase()}`);
+  if (lower.length <= 1) return lower[0] ?? '';
+  return `${lower.slice(0, -1).join(', ')} and ${lower[lower.length - 1]}`;
 }
 
 export const CATALOG_SIZE = CATALOG.length;

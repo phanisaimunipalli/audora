@@ -3,7 +3,7 @@
  * Vite dev server uses, with nothing but Node at runtime.
  *
  *   npm run build   → dist/ (vite) and dist-server/ (this file, compiled by tsc -p tsconfig.server.json)
- *   npm start       → node dist-server/prod.js
+ *   npm start       → node dist-server/server/prod.js
  *
  * PORT and HOST come from the environment (Render sets PORT). Keys come from process.env, which wins
  * over a local .env file, and nothing secret is ever sent to the browser: the API routes call the
@@ -16,7 +16,9 @@ import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { configureEnv, handleApi, startBackendWorker } from './api.js';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// `server/` and `shared/` are both compiled, so the emit keeps their directories: this file is
+// dist-server/server/prod.js and the repository root — where dist/ and .env live — is two up.
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const DIST = path.join(ROOT, 'dist');
 const ASSETS = path.join(DIST, 'assets') + path.sep;
 const PORT = Number(process.env.PORT || 10000);

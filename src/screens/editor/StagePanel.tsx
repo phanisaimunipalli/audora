@@ -1,7 +1,7 @@
 /**
  * "STAGE A ROOM" — the editor's right-hand glass panel, the prototype's `.stage-panel`.
  *
- * Three moves, in the order a seller makes them: pick a whole look (the 2×2 preset grid, which runs
+ * Three moves, in the order a leasing team makes them: pick a whole look (the 2×2 preset grid, which runs
  * our auto-stager in that style), add one piece at a time from the catalogue (a coloured dot, the
  * name and the real footprint in mono), then nudge the floor until the furniture stands on the
  * photographed one. Clearing the room is the quiet button at the bottom, and it is undoable.

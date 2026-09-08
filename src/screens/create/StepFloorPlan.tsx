@@ -1,13 +1,13 @@
 /**
- * Step 3 — the listing floor plan (optional).
+ * Step 3 — the unit's floor plan (optional).
  *
- * The plan is the cheapest metric truth a listing has. One vision call turns the drawing into a room
+ * The plan is the cheapest metric truth a unit has. One vision call turns the drawing into a room
  * list with names, types and, when the draughtsman printed them, real dimensions; those dimensions
  * become the room's geometry and its anchor ("floor plan · 3.75 m wall · ±5 cm"), which beats
- * anything the seller could tap on a photo. A plan with no printed dimensions is still worth reading:
+ * anything the leasing team could tap on a photo. A plan with no printed dimensions is still worth reading:
  * it gives the tour its room list and its floors, and each room then waits for a photo or a tape.
  *
- * Nothing here is destructive: the seller ticks which rooms to keep, can correct any number the model
+ * Nothing here is destructive: the leasing team ticks which rooms to keep, can correct any number the model
  * misread, and can skip the step entirely.
  */
 import { useRef, useState, type DragEvent } from 'react';
@@ -52,7 +52,7 @@ export function StepFloorPlan({ plan, roomCount, planRoomCount, onFile, onDemo, 
         <div className="grid gap-6 lg:grid-cols-[minmax(0,380px)_1fr]">
           <div className="flex flex-col gap-3 lg:sticky lg:top-20 lg:self-start">
             <div className="panel overflow-hidden p-2">
-              <img src={plan.image.dataUrl} alt="The listing floor plan" className="w-full rounded-xl bg-white object-contain" style={{ maxHeight: '58vh' }} />
+              <img src={plan.image.dataUrl} alt="The unit's floor plan" className="w-full rounded-xl bg-white object-contain" style={{ maxHeight: '58vh' }} />
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Chip mono>{plan.fileName || 'floor plan'}</Chip>
@@ -103,6 +103,19 @@ export function StepFloorPlan({ plan, roomCount, planRoomCount, onFile, onDemo, 
                   </ul>
                 ) : null}
 
+                {/* A plan whose dimensions the model could not read is still worth keeping — it names
+                    the rooms and their floors — but it contributes nothing to any room's scale, and
+                    every accuracy claim downstream is built on printed dimensions. Saying so here is
+                    the difference between a leasing team who taps a door in each room and one who finds out
+                    at the end that no room has a plan constraint. `public/demo/floorplan-townhouse.webp`
+                    is exactly this case: 3 floors, 19 rooms, 0 dimensions. */}
+                {rooms.length && !dimensionedRooms(parsed).length ? (
+                  <Callout tone="warn" title="This plan printed no dimensions we could read">
+                    Its room names and floors are still useful, but nothing here will constrain a room’s size — no “plan says / model measures” line, and no ±5 cm plan
+                    anchor. Every room will need its own anchor at the Anchor step: tap a door, an outlet or a wall you have measured.
+                  </Callout>
+                ) : null}
+
                 {rooms.length ? (
                   <>
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -145,7 +158,7 @@ export function StepFloorPlan({ plan, roomCount, planRoomCount, onFile, onDemo, 
                           ? `Replaces the ${planRoomCount} room${planRoomCount === 1 ? '' : 's'} already taken from this plan. Photos you uploaded are untouched.`
                           : roomCount > 0
                             ? `Added to the ${roomCount} room${roomCount === 1 ? '' : 's'} you already have.`
-                            : 'They become the tour’s room list. You match photos to them in the next step.'}
+                            : 'They become the unit’s room list. You match photos to them in the next step.'}
                       </span>
                     </div>
                   </>
@@ -215,7 +228,7 @@ function PlanRoomRow({ room, on, onToggle, onEdit }: { room: FlatPlanRoom; on: b
 /**
  * One correction box for a printed dimension.
  *
- * It holds the **text** the seller is typing and reports the metres it parses to, rather than being
+ * It holds the **text** the leasing team is typing and reports the metres it parses to, rather than being
  * driven by `String(value)`. Driven by the number, every keystroke round-tripped through
  * Number→String: typing `.` after `5` gave `metres("5.") === 5`, which re-rendered the box as `5`
  * and swallowed the point, so `5.2` came out as `52` — a 52 m living room stamped with the plan's
@@ -285,7 +298,7 @@ function PlanDropZone({ onFile, onDemo }: { onFile: (f: File) => void; onDemo: (
         <Icon.Grid size={22} />
       </span>
       <div>
-        <div className="text-[15.5px] font-semibold text-ink">Drop the listing floor plan here</div>
+        <div className="text-[15.5px] font-semibold text-ink">Drop the unit's floor plan here</div>
         <div className="mt-1 text-[12.5px] text-dim">The PDF export, the brochure page, a screenshot of the plan on the listing. Bigger is better: the dimensions have to be legible.</div>
       </div>
       <div className="flex flex-wrap items-center justify-center gap-2">

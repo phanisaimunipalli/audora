@@ -2,7 +2,7 @@
  * From the address to one honest sentence about the sun.
  *
  * `sun.ts` answers where the sun is; this answers what to *say* and which way the room is turned:
- * the compass heading the seller confirms (snapped to the building's own axes, as read off the
+ * the compass heading the leasing team confirms (snapped to the building's own axes, as read off the
  * OpenStreetMap footprint) and the readout the time-of-day control prints. Pure, no DOM, no store —
  * the browser is not needed to check that "14:20 · sun 61° high, from the south-west" is right.
  */
@@ -57,8 +57,8 @@ export function nearestAxis(heading: number, principalHeading: number): { axis: 
 
 /**
  * Snap a dragged compass needle onto the building's own axes when it is close to one. Buildings are
- * rectangles; a window wall that reads 88° is a 90° wall the seller's thumb missed. Outside the
- * tolerance the seller means what they say and the heading is left alone.
+ * rectangles; a window wall that reads 88° is a 90° wall the leasing team's thumb missed. Outside the
+ * tolerance the leasing team means what they say and the heading is left alone.
  */
 export function snapHeading(heading: number, principalHeading?: number, toleranceDeg = 12): number {
   const h = norm360(heading);
@@ -69,7 +69,7 @@ export function snapHeading(heading: number, principalHeading?: number, toleranc
 
 /**
  * What to prefill the compass with: the outward normal of the building's longest wall — the façade
- * that usually carries the windows. It is a guess, which is exactly why the seller confirms it.
+ * that usually carries the windows. It is a guess, which is exactly why the leasing team confirms it.
  */
 export function defaultHeading(principalHeading?: number): number {
   return principalHeading == null || !Number.isFinite(principalHeading) ? 0 : norm360(principalHeading + 90);
@@ -107,7 +107,7 @@ export function dominantWindowWall(walls: WallSide[]): WallSide {
 }
 
 /**
- * The seller answers an easy question — "which way do the windows face?" — and the engine needs a
+ * The leasing team answers an easy question — "which way do the windows face?" — and the engine needs a
  * harder one: the bearing of the room's *north* wall, the frame every other wall is turned from.
  * These two convert between them. For a room whose windows are on its north wall they are the same
  * function, which is why a room with no windows loses nothing.
@@ -159,7 +159,7 @@ export function dateFromInput(value: string, keepTimeFrom: Date): Date | null {
 }
 
 /**
- * One line the seller and the buyer both read:
+ * One line the leasing team and the renter both read:
  * "14:20 · sun 61° high, from the south-west · lights the south wall".
  */
 export function sunReadout(date: Date, sun: SunPosition, walls: WallSide[]): string {

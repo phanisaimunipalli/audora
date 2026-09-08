@@ -47,7 +47,7 @@ export function addressFromUrl(url: string): string | undefined {
 }
 
 /**
- * Listing sites block scraping from a browser, so Audora does not pretend to fetch them.
+ * Marketplaces block scraping from a browser, so Audora does not pretend to fetch them.
  * It reads what the URL itself says and lets the user confirm the rest. A server-side
  * enrichment step (LinkUp, an MLS feed) can replace this without touching the UI.
  */
@@ -58,26 +58,27 @@ export function listingFromUrl(url: string): ListingMeta {
   const beds = 2 + Math.floor(rng() * 3);
   const baths = 1 + Math.floor(rng() * 2);
   const sqft = 850 + Math.floor(rng() * 1400);
-  const price = `$${(Math.round((0.6 + rng() * 1.4) * 100) / 100).toFixed(2)}M`;
+  /* Rent per month, not a sale price: this is a rental product (docs/COPY.md). */
+  const price = `$${(2000 + Math.round((rng() * 3600) / 50) * 50).toLocaleString('en-US')}/mo`;
   return {
     source,
-    address: address || 'New listing',
+    address: address || 'New unit',
     price: address ? price : undefined,
     beds: address ? beds : undefined,
     baths: address ? baths : undefined,
     sqft: address ? sqft : undefined,
-    summary: address ? 'Details read from the listing URL. Edit anything that is wrong.' : 'Could not read an address from that URL. Type it in.',
+    summary: address ? 'Details read from the listing page URL. Edit anything that is wrong.' : 'Could not read an address from that URL. Type it in.',
     inferred: true,
   };
 }
 
-/* ---------- photos the seller copies out of the listing ----------
+/* ---------- photos the leasing team copies out of its own listing page ----------
  *
- * Listing sites do not let a browser read their photos (no CORS header) and Audora does not scrape
- * listing pages. What a seller *can* do is right-click the photos on their own listing and copy the
- * image addresses; those URLs come back through the dev server's `/api/fetch-image` proxy, one at a
- * time, with an 8 MB cap and a content-type check. It is the difference between a tour built from
- * three phone photos and a tour built from the twenty the agent already paid a photographer for. */
+ * Marketplaces do not let a browser read their photos (no CORS header) and Audora does not scrape
+ * listing pages. What a leasing team *can* do is right-click the photos on its own listing and copy
+ * the image addresses; those URLs come back through the dev server's `/api/fetch-image` proxy, one
+ * at a time, with an 8 MB cap and a content-type check. It is the difference between a model built
+ * from three phone photos and one built from the twenty a photographer was already paid for. */
 
 export interface PhotoUrlResult {
   url: string;
@@ -119,7 +120,7 @@ export function looksLikeImageUrl(url: string): boolean {
   }
 }
 
-/** Fetch one listing photo through the server proxy. Never throws; the error is on the result. */
+/** Fetch one photo through the server proxy. Never throws; the error is on the result. */
 export async function fetchPhotoUrl(url: string, signal?: AbortSignal): Promise<PhotoUrlResult> {
   try {
     const r = await fetch(`/api/fetch-image?url=${encodeURIComponent(url)}`, { signal });

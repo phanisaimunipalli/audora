@@ -7,7 +7,19 @@ import { AnchorChip } from '@/components/AnchorChip';
 import { Button, Callout, Chip, Field, IconButton, Input, Segmented, Select, Spinner, cx } from '@/components/ui';
 import { Icon } from '@/components/icons';
 import { FloorPlanSvg } from '@/screens/hub/FloorPlanSvg';
-import { ROOM_TYPES, ROOM_TYPE_LABELS, TOOL_OPTIONS, canAddPhoto, draftGeometry, draftPhotos, finalAnchor, isFromPlan, type DraftRoom, type MeasureTool, type Measurements } from './types';
+import {
+  ANGLE_PLAN,
+  MIN_ANGLES,
+  RECOMMENDED_ANGLES,
+  blockedRooms,
+  planPhotoRows,
+  roomIntake,
+  suggestPlanRoom,
+  wantsReconstruction,
+  type PlanPhotoRow,
+  type RoomIntake,
+} from './intake';
+import { ROOM_TYPES, ROOM_TYPE_LABELS, TOOL_OPTIONS, canAddPhoto, draftGeometry, draftPhotos, finalAnchor, isFromPlan, planRoomRef, type DraftRoom, type MeasureTool, type Measurements } from './types';
 
 /** Progress of a "paste photo URLs" import, so the box can report each line as it lands. */
 export interface UrlImportState {
@@ -26,7 +38,7 @@ export interface StepRoomsProps {
   onUpdate: (id: string, patch: Partial<DraftRoom>) => void;
   onRemove: (id: string) => void;
   onMove: (id: string, toIndex: number) => void;
-  /** Rooms read off the listing floor plan, offered as the match for each photo. */
+  /** Rooms read off the unit's floor plan, offered as the match for each photo. */
   planRooms?: FlatPlanRoom[];
   onMatchPlan?: (id: string, key: string | undefined) => void;
   /** Another angle of the same room; up to six per room reach Marble as one multi-image prompt. */
@@ -42,6 +54,8 @@ export function StepRooms({ rooms, loading, onAddFiles, onAddMeasured, onUpdate,
   const [dragId, setDragId] = useState<string | null>(null);
   const [showMeasured, setShowMeasured] = useState(false);
   const takenKeys = new Set(rooms.map((r) => r.planRoom?.key).filter(Boolean) as string[]);
+  const blocked = blockedRooms(rooms);
+  const thin = rooms.map(roomIntake).filter((r) => r.photos > 0 && !r.angles.enough);
 
   const dropOn = (targetId: string) => {
     if (!dragId || dragId === targetId) return;
@@ -52,9 +66,27 @@ export function StepRooms({ rooms, loading, onAddFiles, onAddMeasured, onUpdate,
 
   return (
     <div className="flex flex-col gap-6">
+      <AngleGuidance />
+
       <DropZone onFiles={onAddFiles} loading={loading} />
 
       {onAddUrls ? <PhotoUrlBox onSubmit={onAddUrls} state={urlImport} /> : null}
+
+      {/* The gate, said once at the top so it is not a surprise at the bottom of a long list. */}
+      {blocked.length ? (
+        <Callout tone="danger" title={`${blocked.length} room${blocked.length === 1 ? '' : 's'} cannot be reconstructed from the photo you gave`}>
+          {blocked.map((b) => b.name).join(', ')} — retake the primary photo, or open the room and choose “use anyway”. A poor photo does not fail loudly: it comes back as a
+          room with the wrong walls in it.
+        </Callout>
+      ) : null}
+      {!blocked.length && thin.length ? (
+        <Callout tone="warn" title={`${thin.length} room${thin.length === 1 ? ' has' : 's have'} only one angle`}>
+          One photograph gives the model no parallax, so the far wall is a guess. {MIN_ANGLES} angles is the minimum that earns the accuracy targets; {RECOMMENDED_ANGLES} is
+          what they were written against.
+        </Callout>
+      ) : null}
+
+      {planRooms?.length && onMatchPlan ? <PlanConfirmation rooms={rooms} planRooms={planRooms} onUpdate={onUpdate} /> : null}
 
       {rooms.length ? (
         <div className="flex flex-col gap-3">
@@ -62,7 +94,7 @@ export function StepRooms({ rooms, loading, onAddFiles, onAddMeasured, onUpdate,
             <div className="text-sm text-ink-2">
               <span className="mono text-ink">{rooms.length}</span> room{rooms.length === 1 ? '' : 's'} · drag to reorder
             </div>
-            <span className="text-xs text-ink-3">Order is how buyers will walk the tour.</span>
+            <span className="text-xs text-ink-3">Order is how a renter will walk the unit.</span>
           </div>
           {rooms.map((room, i) => (
             <DraftRoomCard
@@ -203,6 +235,9 @@ function DraftRoomCard({
   const a = room.analysis;
   const photos = draftPhotos(room);
   const fromPlan = isFromPlan(room);
+  const intake = roomIntake(room);
+  /** A real photograph the quality gate judges, as against a browser-drawn demo room. */
+  const gated = Boolean(room.photo) && !room.synthetic;
   return (
     <div
       draggable={armed}
@@ -224,7 +259,14 @@ function DraftRoomCard({
         setOver(false);
         onDrop();
       }}
-      className={cx('panel animate-rise grid gap-4 p-4 transition-all md:grid-cols-[220px_1fr]', dragging && 'opacity-50', over && 'border-accent/60')}
+      className={cx(
+        'panel animate-rise grid gap-4 p-4 transition-all md:grid-cols-[220px_1fr]',
+        dragging && 'opacity-50',
+        over && 'border-accent/60',
+        /* A blocked room is not a styling flourish: it is the one thing standing between the leasing team
+           and Generate, so the card itself says so. */
+        intake.blocked && 'border-danger/50',
+      )}
     >
       <div className="flex flex-col gap-2">
         <div className="relative overflow-hidden rounded-xl border border-line bg-surface">
@@ -280,12 +322,19 @@ function DraftRoomCard({
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
-          {room.hints.map((h, i) => (
-            <Chip key={i} tone={h.level === 'ok' ? 'ok' : h.level === 'warn' ? 'warn' : 'danger'}>
-              {h.level === 'ok' ? <Icon.Check size={12} /> : <Icon.Warning size={12} />}
-              {h.text}
-            </Chip>
-          ))}
+          {/* `photoHints` and `photoVerdict` are two readings of the same three numbers, and the card
+              was printing both: "Too dark to reconstruct well. Open the blinds…" beside "Too dark to
+              reconstruct. Open the blinds or turn the lights on." The verdict is the one the gate
+              acts on, so it is the one that speaks. The hints stay for a room the gate never sees —
+              a browser-drawn demo room, which has a photo but no photograph. */}
+          {gated
+            ? null
+            : room.hints.map((h, i) => (
+                <Chip key={i} tone={h.level === 'ok' ? 'ok' : h.level === 'warn' ? 'warn' : 'danger'}>
+                  {h.level === 'ok' ? <Icon.Check size={12} /> : <Icon.Warning size={12} />}
+                  {h.text}
+                </Chip>
+              ))}
           {room.source === 'measured' && room.measured ? (
             <Chip mono>
               <Icon.Ruler size={12} /> {room.measured.width.toFixed(2)} × {room.measured.depth.toFixed(2)} × {room.measured.height.toFixed(2)} m
@@ -293,8 +342,10 @@ function DraftRoomCard({
           ) : null}
         </div>
 
+        {gated ? <QualityGate intake={intake} onAccept={(v) => onUpdate({ photoAccepted: v })} /> : null}
+
         {planRooms?.length && onMatchPlan ? (
-          <div className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-3">
+          <div className={cx('flex flex-col gap-2 rounded-xl border bg-surface p-3', room.planRoom && !room.planConfirmed && fromPlan ? 'border-line-2' : 'border-line')}>
             <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
               <label className="flex items-center gap-2 text-xs text-ink-2">
                 <span className="text-ink">
@@ -318,6 +369,8 @@ function DraftRoomCard({
                 ))}
               </Select>
             </div>
+            {/* Nothing matched yet: offer the plan room whose name this one most looks like, once. */}
+            {!room.planRoom ? <PlanSuggestion room={room} planRooms={planRooms} taken={takenKeys} onMatchPlan={onMatchPlan} /> : null}
             {room.planRoom ? (
               <div className="flex flex-wrap items-center gap-2">
                 {fromPlan ? (
@@ -330,6 +383,30 @@ function DraftRoomCard({
                 <AnchorChip anchor={finalAnchor(room)} size="sm" />
                 {fromPlan && room.photo ? <span className="text-[11px] text-ink-3">The plan’s dimensions replace the estimate from this photo.</span> : null}
                 {!fromPlan ? <span className="text-[11px] text-ink-3">The plan printed no dimensions for this room — add a photo or type a wall.</span> : null}
+              </div>
+            ) : null}
+            {/* The confirmation itself: one pairing, one yes. `planConfirmed` is cleared by a re-map. */}
+            {fromPlan ? (
+              <div className="flex flex-wrap items-center gap-2 border-t border-line pt-2">
+                {room.planConfirmed ? (
+                  <>
+                    <Chip tone="ok">
+                      <Icon.Check size={12} /> Confirmed: this photo is {room.planRoom?.name}
+                    </Chip>
+                    <button type="button" onClick={() => onUpdate({ planConfirmed: undefined })} className="text-[11px] text-ink-3 hover:text-ink">
+                      Change
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-[12px] text-ink-2">
+                      Plan says <span className="mono text-ink">{g.width.toFixed(2)} × {g.depth.toFixed(2)} m</span> for {room.planRoom?.name}. Is that this photo?
+                    </span>
+                    <Button size="sm" variant="secondary" onClick={() => onUpdate({ planConfirmed: true })}>
+                      <Icon.Check size={14} /> Yes, that is this room
+                    </Button>
+                  </>
+                )}
               </div>
             ) : null}
           </div>
@@ -377,6 +454,201 @@ function DraftRoomCard({
         ) : null}
       </div>
     </div>
+  );
+}
+
+/* ---------- what to photograph ----------
+ * docs/ACCURACY.md 3.4. Two to four angles per room, and the three that matter are named: a corner,
+ * the doorway, the opposite corner. Said before the drop zone, because the shot is taken in the
+ * room and the leasing team is standing in it. */
+
+function AngleGuidance() {
+  return (
+    <div className="panel flex flex-col gap-3 p-5">
+      <div className="flex items-center gap-2">
+        <span className="text-ink">
+          <Icon.Camera size={16} />
+        </span>
+        <div className="micro">Two to four angles per room</div>
+      </div>
+      <p className="text-[13px] leading-relaxed text-ink-2">
+        One photograph has no parallax: the model has to invent the far wall. Two views triangulate it, three pin it. Shoot the same room from the three places below — phone
+        sideways, nothing moved between shots — and add them all to one room.
+      </p>
+      <ol className="grid gap-2 sm:grid-cols-3">
+        {ANGLE_PLAN.slice(0, 3).map((slot, i) => (
+          <li key={slot.key} className="flex gap-2.5 rounded-xl border border-line bg-surface p-3">
+            <span className="mono mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line-2 text-[11px] text-ink-2">{i + 1}</span>
+            <span className="min-w-0">
+              <span className="block text-[13px] font-medium text-ink">{slot.label}</span>
+              <span className="block text-[11.5px] leading-snug text-ink-3">{slot.hint}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+/* ---------- the quality gate ----------
+ * A poor primary photo is the one failure that is invisible until the world comes back wrong, so it
+ * blocks the room. "Use anyway" is on the record (`photoAccepted`) and is cleared the moment the
+ * primary photo changes, so the decision is always about the shot on screen. */
+
+function QualityGate({ intake, onAccept }: { intake: RoomIntake; onAccept: (v: boolean | undefined) => void }) {
+  const { verdict, accepted, blocked, angles } = intake;
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Chip tone={verdict.level === 'good' ? 'ok' : verdict.level === 'fair' ? 'warn' : 'danger'}>
+          {verdict.level === 'good' ? <Icon.Check size={12} /> : <Icon.Warning size={12} />}
+          {verdict.headline}
+        </Chip>
+        <Chip mono tone={angles.recommended ? 'ok' : angles.enough ? 'neutral' : 'warn'} className="!text-[10px]">
+          {intake.photos} of {RECOMMENDED_ANGLES} angles
+        </Chip>
+        {wantsReconstruction(intake.photos) ? (
+          <Chip mono className="!text-[10px]">
+            multi-image
+          </Chip>
+        ) : null}
+        {accepted ? (
+          <Chip tone="warn" className="!text-[10px] uppercase">
+            used anyway
+          </Chip>
+        ) : null}
+      </div>
+      {verdict.reasons.length ? (
+        <ul className="flex flex-col gap-0.5 text-[11.5px] text-ink-3">
+          {verdict.reasons.map((r, i) => (
+            <li key={i}>· {r}</li>
+          ))}
+        </ul>
+      ) : null}
+      {!angles.recommended ? <div className="text-[11.5px] text-ink-3">{angles.text}</div> : null}
+      {blocked ? (
+        <Callout tone="danger" title="This room is blocked">
+          <div className="flex flex-wrap items-center gap-2">
+            <span>Retake the primary photo and drop it in above, or say so explicitly:</span>
+            <Button size="sm" variant="secondary" onClick={() => onAccept(true)}>
+              Use anyway, accuracy will suffer
+            </Button>
+          </div>
+        </Callout>
+      ) : null}
+      {accepted ? (
+        <button type="button" onClick={() => onAccept(undefined)} className="self-start text-[11px] text-ink-3 hover:text-ink">
+          Undo “use anyway” and block this room again
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/* ---------- plan says / photo shows ---------- */
+
+/** One tap to take the plan room whose name this photo already looks like. Never automatic. */
+function PlanSuggestion({
+  room,
+  planRooms,
+  taken,
+  onMatchPlan,
+}: {
+  room: DraftRoom;
+  planRooms: FlatPlanRoom[];
+  taken: Set<string>;
+  onMatchPlan: (key: string | undefined) => void;
+}) {
+  const suggestion = suggestPlanRoom(room, planRooms, taken);
+  if (!suggestion) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => onMatchPlan(planRoomRef(suggestion).key)}
+      className="ease-audora chip self-start border-ink/25 font-semibold text-ink transition-colors duration-200 hover:border-ink hover:bg-surface-2"
+    >
+      <Icon.Sparkles size={12} /> Looks like {suggestion.floor} · {suggestion.name}
+      {metricText(suggestion) ? ` — ${metricText(suggestion)}` : ''}
+    </button>
+  );
+}
+
+/**
+ * The unit's confirmation table: every room, what the plan says about it, what photo it was matched
+ * to, and whether the leasing team has said yes. It is the summary; the per-room card is where the yes is
+ * given, so this only counts and links.
+ */
+function PlanConfirmation({ rooms, planRooms, onUpdate }: { rooms: DraftRoom[]; planRooms: FlatPlanRoom[]; onUpdate: (id: string, patch: Partial<DraftRoom>) => void }) {
+  const allRows = planPhotoRows(rooms);
+  const rows = allRows.filter((r) => r.state !== 'unmatched' || r.thumbnail);
+  const pending = allRows.filter((r) => r.state === 'unconfirmed');
+  /* Only a pairing that has dimensions to confirm can be confirmed. Counting the rest on the
+     confirmed side of the fraction read "19 of 19 confirmed" before the leasing team had touched one —
+     on a plan whose 19 rooms printed no dimensions at all, so none of them was confirmable. */
+  const confirmable = allRows.filter((r) => r.state === 'confirmed' || r.state === 'unconfirmed');
+  const unused = planRooms.filter((p) => !rooms.some((r) => r.planRoom?.key === p.key));
+  if (!rows.length) return null;
+  return (
+    <div className="panel flex flex-col gap-3 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="micro">Plan says · photo shows</div>
+        <span className="mono text-[11px] text-ink-3">
+          {confirmable.length ? `${confirmable.length - pending.length} of ${confirmable.length} confirmed` : 'nothing to confirm — the plan printed no dimensions'}
+        </span>
+      </div>
+      <p className="text-[12.5px] text-ink-3">
+        The plan’s metres become the room’s geometry and its anchor, so the pairing has to be right. A wrong pairing is the disagreement fusion flags later as “plan says
+        3.75 m, model measures 3.41 m”.
+      </p>
+      <ul className="flex flex-col gap-1.5">
+        {rows.map((row) => (
+          <PlanConfirmRow key={row.roomId} row={row} onConfirm={() => onUpdate(row.roomId, { planConfirmed: true })} />
+        ))}
+      </ul>
+      {unused.length ? (
+        <div className="text-[11.5px] text-ink-3">
+          <span className="text-ink-2">{unused.length}</span> plan room{unused.length === 1 ? '' : 's'} with no photo yet: {unused.map((p) => p.name).join(', ')}. They can
+          still be generated from the plan’s dimensions alone.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PlanConfirmRow({ row, onConfirm }: { row: PlanPhotoRow; onConfirm: () => void }) {
+  const tone = row.state === 'confirmed' ? 'ok' : row.state === 'unconfirmed' ? 'warn' : 'neutral';
+  return (
+    <li className="grid items-center gap-3 rounded-xl border border-line bg-surface p-2 sm:grid-cols-[56px_minmax(0,1fr)_auto]">
+      <div className="h-10 w-14 overflow-hidden rounded-lg border border-line bg-bg">
+        {row.thumbnail ? (
+          <img src={row.thumbnail} alt="" className="h-full w-full object-cover" draggable={false} />
+        ) : (
+          <div className="flex h-full items-center justify-center text-ink-3">
+            <Icon.Ruler size={14} />
+          </div>
+        )}
+      </div>
+      {/* The room's identity leads. Without it every row of a plan that printed no dimensions is the
+          same two sentences, and the leasing team is asked to confirm a pairing the row never names. */}
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <span className="truncate text-[12.5px] font-medium text-ink">{row.roomName}</span>
+          {row.planRoomName && row.planRoomName !== row.roomName ? <span className="truncate text-[11px] text-ink-3">on the plan: {row.planRoomName}</span> : null}
+          {row.planFloor ? <span className="mono shrink-0 text-[10.5px] text-faint">{row.planFloor}</span> : null}
+        </div>
+        <div className="mono truncate text-[11.5px] text-ink-2">{row.planLine}</div>
+        <div className="truncate text-[11.5px] text-ink-3">{row.photoLine}</div>
+      </div>
+      {row.state === 'unconfirmed' ? (
+        <Button size="sm" variant="secondary" onClick={onConfirm}>
+          <Icon.Check size={14} /> Confirm
+        </Button>
+      ) : (
+        <Chip tone={tone} className="!text-[10px] uppercase">
+          {row.state === 'confirmed' ? 'confirmed' : row.state === 'no-dimensions' ? 'no dimensions' : 'not on the plan'}
+        </Chip>
+      )}
+    </li>
   );
 }
 
@@ -459,6 +731,7 @@ function PhotoAngles({
   // The demo photo is drawn in the browser; extra angles of it would mean nothing.
   if (room.synthetic) return null;
   const extra = photos.slice(1);
+  const next = ANGLE_PLAN[photos.length];
 
   return (
     <div className="flex flex-col gap-2">
@@ -490,9 +763,18 @@ function PhotoAngles({
           })}
         </div>
       ) : null}
-      <Button variant="ghost" size="sm" disabled={!canAddPhoto(room)} onClick={() => fileRef.current?.click()} className="w-full justify-center">
-        <Icon.Plus size={14} /> {photos.length ? 'Add another angle' : 'Add a photo'} · <span className="mono">{photos.length} of {MAX_ROOM_PHOTOS}</span>
+      {/* The button names the shot that is missing, so "add another angle" becomes an instruction. */}
+      <Button
+        variant={next && photos.length < MIN_ANGLES ? 'secondary' : 'ghost'}
+        size="sm"
+        disabled={!canAddPhoto(room)}
+        onClick={() => fileRef.current?.click()}
+        className="w-full justify-center"
+        title={next?.hint}
+      >
+        <Icon.Plus size={14} /> {next ? next.label : 'Add another angle'} · <span className="mono">{photos.length} of {MAX_ROOM_PHOTOS}</span>
       </Button>
+      {next ? <span className="text-[11px] leading-snug text-ink-3">{next.hint}</span> : null}
       <input
         ref={fileRef}
         type="file"
@@ -510,7 +792,7 @@ function PhotoAngles({
 }
 
 /* ---------- photo URLs copied off the listing ----------
- * The agent's own listing already carries twenty photographs. The browser cannot read them (listing
+ * The unit's own listing page already carries twenty photographs. The browser cannot read them (listing
  * CDNs send no CORS header), so the URLs go to the dev server's /api/fetch-image proxy, which fetches
  * one image at a time with an 8 MB cap and refuses anything that is not an image. Audora never
  * touches the listing page itself. */
@@ -541,7 +823,7 @@ function PhotoUrlBox({ onSubmit, state }: { onSubmit: (text: string) => void; st
             rows={4}
             spellCheck={false}
             placeholder={'https://photos.zillowstatic.com/fp/….jpg\nhttps://ssl.cdn-redfin.com/photo/….jpg'}
-            aria-label="Listing photo URLs, one per line"
+            aria-label="Listing-page photo URLs, one per line"
             className="mono w-full resize-y rounded-[10px] border border-line-2 bg-bg px-3 py-2 text-xs text-ink outline-none placeholder:text-faint focus:border-ink"
           />
           <div className="flex flex-wrap items-center gap-3">

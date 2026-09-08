@@ -51,7 +51,7 @@ export const CATEGORY_LABELS: Record<CatalogItem['category'], string> = {
   decor: 'Decor',
 };
 
-/** Guess a procedural kind for a buyer-typed piece like "sectional 220 by 95". */
+/** Guess a procedural kind for a renter-typed piece like "sectional 220 by 95". */
 export function guessKind(name: string): CatalogItem['kind'] {
   const n = name.toLowerCase();
   if (/sectional|l-shape|chaise/.test(n)) return 'sectional';

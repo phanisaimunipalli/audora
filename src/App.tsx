@@ -29,9 +29,9 @@ function ScrollToTop() {
 }
 
 /**
- * Toasts are seller/agent chrome: job progress, credits, room names from the seller's own tour and
- * links into the authenticated hub. The public buyer view has no app chrome and no account, so a
- * job landing in another tab must not drop "Full quality is ready — Dining room … Open tour →" over
+ * Toasts are leasing-team chrome: job progress, credits, room names from their own units and
+ * links into the authenticated hub. The public renter view has no app chrome and no account, so a
+ * job landing in another tab must not drop "Full quality is ready — Dining room … Open unit →" over
  * a stranger's viewer. The tray, the title badge and browser notifications are already suppressed
  * there; this is the last one.
  */
@@ -62,7 +62,7 @@ export default function App() {
     <>
       <ScrollToTop />
       <Routes>
-        {/* Public buyer view: no app chrome, no account. */}
+        {/* Public renter view: no app chrome, no account. */}
         <Route path="/t/:shareId" element={<PublicTour />} />
         <Route path="/t/:shareId/:roomId" element={<PublicTour />} />
         {/* Full-bleed editor. */}

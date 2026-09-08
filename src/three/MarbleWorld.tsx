@@ -14,21 +14,16 @@ export const GEOMETRY_COLOR = '#7c6cf0';
 export const GEOMETRY_OPACITY = 0.3;
 
 /**
- * The collider `.glb` comes out of Marble's mesher with y flipped rather than rotated: x right,
- * y up, z forward is a *reflection* of the capture frame, so drawing it as delivered mirrors the
- * room. Mirroring x inside the Marble group puts it back — and lines it up with the SPZ splat,
- * which is a proper rotation of the same capture (rotX π; see SplatWorld) and needs no mirror.
+ * The reflection that puts a delivered collider mesh back into the splat's frame.
  *
- * Verified on the demo world 24be684c against public/demo/empty-room-corner-windows.jpg: with this
- * mirror, looking from the capture point into the room puts the tall window on the LEFT wall and the
- * small window on the far wall, and the wireframe hugs the panorama's walls. Without it the room is
- * a mirror image of the photograph.
- *
- * The mirror is also why the horizontal map is `(x, z) → (x, −z)` rather than a plain 180° turn:
- * raw +x is our EAST, not our west. `three/splat/frame.ts` writes the whole convention down, and
- * the group's `rotationY = π + yaw` carries the room's own turn on top of it.
+ * **Defined once in `shared/collider.ts`** — where the measurement that depends on it lives — and
+ * re-exported here because this is where the three.js side reaches for it. Two copies of a sign
+ * convention is how a room ends up measured in one frame and drawn in another; see that file for
+ * why the mesh is a reflection rather than a rotation, and `three/splat/frame.ts` for the whole
+ * raw → world map the group's `rotationY = π + yaw` sits on top of.
  */
-export const COLLIDER_MIRROR: [number, number, number] = [-1, 1, 1];
+export { COLLIDER_MIRROR } from '@shared/collider';
+import { COLLIDER_MIRROR } from '@shared/collider';
 
 /** How the Geometry layer draws the reconstruction's mesh when it is switched on. */
 export type GeometryView = 'wireframe' | 'occluder';
@@ -255,7 +250,7 @@ function ColliderPick({ target, enabled }: { target: THREE.Object3D | null; enab
  * floorOffset)`: the panorama sphere, the collider wireframe and (when the world has a `.spz`) the
  * Gaussian splat. The group's `position` is exactly where the capture point lands in Audora's metric
  * frame — floor y = 0, room centre at the origin — which is where the photo view puts its camera and
- * where walk mode spawns the buyer, facing yaw 0, so the first frame is the photograph.
+ * where walk mode spawns the renter, facing yaw 0, so the first frame is the photograph.
  *
  * Scale comes from Marble's own `metric_scale_factor` when the world carries metric semantics
  * (full quality) and from the room's anchor otherwise (draft); the floor comes from the collider's
@@ -268,7 +263,7 @@ function ColliderPick({ target, enabled }: { target: THREE.Object3D | null; enab
  * **The panorama is the splat's backdrop, and it stays there.** A 500k splat takes seconds to
  * arrive and the panorama about one, so whenever the splat is wanted the panorama loads too and
  * stands behind it — first as the whole picture while the splat streams, then as the sky the
- * reconstruction does not reach. The buyer never sees a black frame, at any viewport aspect, at
+ * reconstruction does not reach. The renter never sees a black frame, at any viewport aspect, at
  * any moment of the load. It is also the room's light (CaptureLight's environment map).
  */
 export function MarbleWorld({
@@ -301,7 +296,7 @@ export function MarbleWorld({
   const wantSplat = showSplat && Boolean(world.spzUrl);
   /* **A splat, once downloaded, stays.** Unmounting SplatWorld disposes every tier, so switching
      the Photo layer off and on again re-ran the whole ladder — pano, 100k, 500k, full res — and put
-     the buyer back in a blurry room for twenty seconds to see something they had already seen. It
+     the renter back in a blurry room for twenty seconds to see something they had already seen. It
      stays mounted and merely invisible until the *world* changes (a different capture is a
      teardown, not a hide), which costs GPU memory the room was already using a moment ago. */
   const [everSplat, setEverSplat] = useState(false);
@@ -324,7 +319,7 @@ export function MarbleWorld({
      reconstructed volume, most visible on a tall phone screen — as pure black. The sphere is 60 raw
      units out and drawn first (renderOrder −10), so the splat wins everywhere it has data and the
      photograph fills in everywhere it does not. Nothing in a real Marble room is ever a black
-     frame, and the buyer looking up sees the room's own ceiling rather than a hard horizontal edge. */
+     frame, and the renter looking up sees the room's own ceiling rather than a hard horizontal edge. */
   const keepLoaded = keepPanoLoaded ?? wantSplat;
   const wantPano = (showPano || keepLoaded) && Boolean(world.panoUrl);
   const [keptPano, setKeptPano] = useState<string | undefined>(undefined);

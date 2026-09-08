@@ -1,5 +1,7 @@
 # Audora
 
+Where this is going: `docs/PRODUCT.md` (an AI-generated Matterport for rentals: renters use it, leasing teams pay, marketplaces distribute it).
+
 **Matterport, but AI generated.** One photo of an empty room becomes a walkable, honestly measured 3D space that a buyer can test their own furniture inside.
 
 - Seller or agent: paste a listing URL or upload room photos, tap the door in each photo (the *scale anchor*), hit Generate.

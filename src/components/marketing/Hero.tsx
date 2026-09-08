@@ -101,11 +101,10 @@ export function Hero() {
         </Rise>
 
         <Rise delay={0.25}>
-          <dl className="mx-auto mt-10 grid max-w-md grid-cols-3 gap-4 border-t border-line pt-6 text-left">
+          <dl className="mx-auto mt-10 grid max-w-xs grid-cols-2 gap-4 border-t border-line pt-6 text-left">
             {[
               ['Draft', '≈ 1 min'],
               ['Full quality', '≈ 10 min'],
-              ['Cost to make', '$0.18'],
             ].map(([k, v]) => (
               <div key={k}>
                 <dt className="micro">{k}</dt>
@@ -119,10 +118,7 @@ export function Hero() {
       {/* The room itself, live: the same engine, the same anchor chip a buyer sees inside a tour. */}
       <div className="relative z-10 mx-auto mt-16 w-full max-w-6xl md:mt-24">
         <Rise delay={0.1}>
-          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-            <div className="micro">Photo to walkable 3D</div>
-            <div className="mono text-[11px] text-dim">every number below is the engine’s own output</div>
-          </div>
+          <div className="mono mb-4 text-[11px] text-dim">every number below is the engine’s own output</div>
           <div className="relative aspect-[4/5] overflow-hidden rounded-[18px] border border-line bg-surface shadow-soft sm:aspect-[16/11]">
             <HeroScene room={g} staging={room.staging} buyerPieces={buyer ? [buyer.piece] : []} className="absolute inset-0" />
             <div className="pointer-events-none absolute inset-x-3 top-3 flex flex-wrap items-start justify-between gap-2">

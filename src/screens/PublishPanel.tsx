@@ -23,7 +23,8 @@ import { watermark } from '@/three/stills';
 import { effectiveHeading, sunState } from '@/engine/siteSun';
 import { clock, timeAgo, usd } from '@/lib/format';
 import { AnchorChip } from '@/components/AnchorChip';
-import { Button, Callout, Card, Chip, IconButton, Input, Progress, Spinner, StagedLabel, Toggle, cx } from '@/components/ui';
+import { Button, Callout, Card, Chip, IconButton, Input, Progress, Spinner, Toggle, cx } from '@/components/ui';
+import { SourceLabel } from '@/components/marketing/SourceLabel';
 import { Icon } from '@/components/icons';
 import { ShadowedFullNote, TierChip } from '@/screens/hub/TierChip';
 import { UpgradeBanner } from '@/screens/hub/UpgradeBanner';
@@ -38,7 +39,7 @@ export interface PublishPanelProps {
 }
 
 const DISCLOSURE = (anchors: string[]) =>
-  `Digitally staged. The furniture in these images and in the 3D tour is virtual and shown for scale; the property is sold unfurnished unless stated otherwise. Room dimensions are derived from a declared scale reference for each room (${anchors.join('; ')}) and carry the stated ± uncertainty. Buyers should verify critical measurements in person.`;
+  `AI-generated from photos. The 3D model of this unit was generated from photographs of it and its floor plan; it is a reconstruction, not a photograph and not a survey. Room dimensions are derived from a declared scale reference for each room (${anchors.join('; ')}) and carry the stated ± uncertainty. Renters should verify critical measurements in person.`;
 
 function CopyButton({ text, label = 'Copy', size = 'sm' }: { text: string; label?: string; size?: 'sm' | 'md' }) {
   const [ok, setOk] = useState(false);
@@ -63,12 +64,12 @@ function fileName(tour: string, room: string, still: string) {
 }
 
 /**
- * Publish: the full-quality upgrade, the share link, the embed, listing stills, the disclosure and
- * the listing copy.
+ * Publish: the full-quality upgrade, the link for the listing feed, the embed, listing stills, the
+ * disclosure and the listing copy.
  *
- * The tier story lives here. A draft is what the seller stages against; a full `marble-1.1` world is
- * what a buyer should walk, so publishing offers to regenerate every draft-only room — with the
- * credit total on the button, never silently.
+ * The tier story lives here. A draft is what the leasing team checks the anchor and the plan
+ * against; a full `marble-1.1` world is what a renter should walk, so publishing offers to
+ * regenerate every draft-only room — with the credit total on the button, never silently.
  */
 export function PublishPanel({ tourId, className }: PublishPanelProps) {
   const tour = useAudora((s) => s.tours[tourId]);
@@ -94,9 +95,9 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
     setQueue((q) => q.slice(1));
   }, [queue, rendering, finishing]);
   const renderingRoom = rooms.find((r) => r.id === rendering);
-  /* The listing still is taken under the light the buyer will open the tour in: the address's own
-     sun at the hour the seller parked the time-of-day control on. A tour with no site simply has no
-     real sun and the room keeps the studio key it always had. */
+  /* The listing still is taken under the light the renter will open the unit in: the address's own
+     sun at the hour the leasing team parked the time-of-day control on. A unit with no site simply
+     has no real sun and the room keeps the studio key it always had. */
   const site = tour?.site;
   const stillSun = useMemo(
     () =>
@@ -112,7 +113,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
       if (!room) return;
       setFinishing(true);
       try {
-        const lines = ['Digitally staged · Audora', `anchor: ${room.anchor.label}`];
+        const lines = ['AI-generated from photos · Audora', `anchor: ${room.anchor.label}`];
         const marked = await Promise.all(raw.map(async (s) => ({ name: s.name, dataUrl: await watermark(s.dataUrl, lines) })));
         setStills((m) => ({ ...m, [room.id]: marked }));
       } catch (e: any) {
@@ -128,8 +129,8 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
     toast({ kind: 'error', title: 'Rendering failed', body: (e as Error)?.message });
   }, []);
   /* A room with a real capture whose photograph did not arrive comes back as a render of the
-     measured room. That is a usable fallback, but it is NOT the flat, and a seller about to put
-     four images on a listing has to be told which they are looking at. */
+     measured room. That is a usable fallback, but it is NOT the unit, and a leasing team about to
+     put four images on a listing has to be told which they are looking at. */
   const onStillsFallback = useCallback(
     (reason: string) => {
       const name = renderingRoom?.name ?? 'This room';
@@ -170,7 +171,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
   /* upgrades */
   const [armedRoom, setArmedRoom] = useState<string | null>(null);
   const [armedPublish, setArmedPublish] = useState(false);
-  /** null = follow the default; the seller's own choice wins once they touch the toggle. */
+  /** null = follow the default; the leasing team's own choice wins once they touch the toggle. */
   const [wantFull, setWantFull] = useState<boolean | null>(null);
   const running = useMemo(() => upgradeJobs(rooms, jobs), [rooms, jobs]);
   const now = useNow(running.length > 0);
@@ -187,13 +188,13 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
   const label = tour ? publishLabel({ published: tour.published, rooms: queueing, provider, cost }) : 'Publish';
   const spends = queueing > 0 && provider === 'marble';
 
-  if (!tour) return <div className={cx('p-6 text-sm text-ink-3', className)}>Tour not found.</div>;
+  if (!tour) return <div className={cx('p-6 text-sm text-ink-3', className)}>Unit not found.</div>;
 
   const link = publicUrl(tour.shareId);
   const embed = embedSnippet(tour.shareId, tour.title);
   const disclosure = DISCLOSURE(rooms.map((r) => `${r.name}: ${r.anchor.label}`));
   const readyRooms = rooms.filter((r) => r.status === 'ready');
-  /* Counted by what the buyer is shown, not by what is attached, and every room accounted for
+  /* Counted by what the renter is shown, not by what is attached, and every room accounted for
      exactly once: a simulated full that never displaces a real capture is not a full-quality room,
      and "6 full · 0 draft-only" one screen above a row reading "draft · simulated full attached"
      was the panel arguing with itself. */
@@ -246,10 +247,10 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="micro">Publish</div>
-            <div className="display mt-1 text-2xl text-ink">{tour.published ? 'Live for buyers' : 'Ready to publish'}</div>
+            <div className="display mt-1 text-2xl text-ink">{tour.published ? 'Live for renters' : 'Ready to publish'}</div>
             <div className="mt-1 max-w-xl text-sm text-ink-3">
-              {tour.published && tour.publishedAt ? `Published ${timeAgo(tour.publishedAt)}. ` : 'Buyers land standing in the first room at eye height. '}
-              A buyer should walk the best world the room has — that is a full <span className="mono">{FULL_MODEL}</span> reconstruction, not the draft you staged against.
+              {tour.published && tour.publishedAt ? `Published ${timeAgo(tour.publishedAt)}. ` : 'Renters land standing in the first room at eye height. '}
+              A renter should walk the best world the room has — that is a full <span className="mono">{FULL_MODEL}</span> reconstruction, not the draft you checked the anchor against.
             </div>
           </div>
           <div className="flex flex-col items-end gap-2">
@@ -264,7 +265,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
         </div>
 
         <div className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-3.5">
-          {/* Disabled rather than hidden: the seller should see the offer and why it is off today. */}
+          {/* Disabled rather than hidden: the leasing team should see the offer and why it is off today. */}
           <div className={cx(simulated && 'pointer-events-none opacity-55')} aria-disabled={simulated || undefined}>
             <Toggle
               checked={upgradeOn}
@@ -301,7 +302,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
             <div className="text-xs text-ink-3">
               {targets.length} room{targets.length === 1 ? '' : 's'} would be regenerated at full quality ={' '}
               <span className="mono text-ink-2">{fmtCreditsNumber(tierCost(targets.length).credits)} credits</span> ({usd(tierCost(targets.length).usd)}). The draft stays
-              walkable the whole time, and buyers see the full world the moment it lands.
+              walkable the whole time, and renters see the full world the moment it lands.
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2">
@@ -334,20 +335,20 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
         </div>
 
         {running.length ? <UpgradeBanner jobs={running} rooms={rooms} /> : null}
-        <StagedLabel className="self-start" />
+        <SourceLabel className="self-start" />
       </Card>
 
       {/* share */}
       <Card className="flex flex-col gap-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="text-sm font-medium text-ink">Share link</div>
-            <div className="text-xs text-ink-3">Every screen shows the scale anchor and the staged label.</div>
+            <div className="text-sm font-medium text-ink">The link for the listing feed</div>
+            <div className="text-xs text-ink-3">Paste it into the virtual-tour field of the feed you already syndicate. Every screen shows the scale anchor and the AI-generated label.</div>
           </div>
           <Toggle checked={tour.published} onChange={(v) => publishTour(tour.id, v)} label={tour.published ? 'Published' : 'Unpublished'} />
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
-          <Input readOnly value={link} onFocus={(e) => e.currentTarget.select()} className="mono" aria-label="Share link" />
+          <Input readOnly value={link} onFocus={(e) => e.currentTarget.select()} className="mono" aria-label="The link for the listing feed" />
           <div className="flex shrink-0 gap-2">
             <CopyButton text={link} label="Copy link" size="md" />
             <Link
@@ -360,7 +361,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
             </Link>
           </div>
         </div>
-        {!tour.published ? <Callout tone="info">The link opens as a preview right now. Flip the toggle when the staging is final; the buyer view is identical either way.</Callout> : null}
+        {!tour.published ? <Callout tone="info">The link opens as a preview right now. Flip the toggle once the anchor and the plan dimensions are confirmed; the renter view is identical either way.</Callout> : null}
       </Card>
 
       {/* per-room quality and links */}
@@ -369,7 +370,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
           <div>
             <div className="text-sm font-medium text-ink">Rooms, quality and links</div>
             <div className="text-xs text-ink-3">
-              Drafts are ready in about a minute. A full reconstruction takes around ten and looks like a photograph — it is what the buyer walks.
+              Drafts are ready in about a minute. A full reconstruction takes around ten and looks like a photograph — it is what the renter walks.
             </div>
           </div>
         </div>
@@ -412,7 +413,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
                       <Spinner size={11} /> {job.tier} · {job.progress}%
                     </Chip>
                   ) : full ? (
-                    // Green "Full quality" is a claim about the photograph the buyer walks, so a
+                    // Green "Full quality" is a claim about the photograph the renter walks, so a
                     // simulated world never earns it — attached or shadowed.
                     shadowed ? (
                       <Chip mono>simulated full attached</Chip>
@@ -493,7 +494,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-sm font-medium text-ink">Embed on the listing page</div>
-            <div className="text-xs text-ink-3">An iframe plus the disclosure line. Works on any site that allows iframes.</div>
+            <div className="text-xs text-ink-3">An iframe plus the disclosure line, for the property’s own site. Works anywhere iframes are allowed.</div>
           </div>
           <CopyButton text={embed} label="Copy snippet" />
         </div>
@@ -505,7 +506,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-sm font-medium text-ink">Listing stills</div>
-            <div className="text-xs text-ink-3">Four angles per room at 1600 × 1000, watermarked "Digitally staged · Audora" with the room's anchor.</div>
+            <div className="text-xs text-ink-3">Four angles per room at 1600 × 1000, watermarked "AI-generated from photos · Audora" with the room's anchor.</div>
           </div>
           <Button variant="primary" onClick={renderAll} disabled={!readyRooms.length || Boolean(rendering) || queue.length > 0} loading={Boolean(rendering) || finishing}>
             <Icon.Camera size={16} /> Render every room
@@ -560,7 +561,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
           onChange={(e) => setCopy(e.target.value)}
           onBlur={() => updateTour(tour.id, { copy })}
           rows={6}
-          placeholder={writing ? 'Writing…' : 'Real dimensions, no superlatives, and a sentence that says it is digitally staged.'}
+          placeholder={writing ? 'Writing…' : 'Real dimensions, no superlatives, the rent and the date it is available, and a sentence that says the model is AI-generated from photos.'}
           className="w-full resize-y rounded-[10px] border border-line-2 bg-bg px-3 py-2.5 text-sm leading-relaxed text-ink outline-none placeholder:text-faint focus:border-ink"
         />
       </Card>
@@ -575,7 +576,7 @@ function RoomStills({ tour, room, stills, busy, onRender }: { tour: string; room
         <div className="w-full min-w-0 sm:w-auto sm:flex-1">
           <div className="text-sm text-ink">{room.name}</div>
           <div className="mono text-[11px] text-ink-3">
-            {room.geometry.width.toFixed(2)} × {room.geometry.depth.toFixed(2)} m · {room.staging.length} staged pieces
+            {room.geometry.width.toFixed(2)} × {room.geometry.depth.toFixed(2)} m
             {room.full?.seconds ? ` · full in ${clock(room.full.seconds)}` : ''}
           </div>
         </div>
@@ -592,7 +593,7 @@ function RoomStills({ tour, room, stills, busy, onRender }: { tour: string; room
               <div className="relative overflow-hidden rounded-xl border border-line bg-surface">
                 <img src={s.dataUrl} alt={`${room.name}, ${s.name}`} className="aspect-[16/10] w-full object-cover" />
                 <span className="absolute left-2 top-2">
-                  <StagedLabel className="!bg-glass backdrop-blur-[10px]" />
+                  <SourceLabel className="!bg-glass backdrop-blur-[10px]" />
                 </span>
               </div>
               <figcaption className="flex items-center justify-between gap-2 text-xs text-ink-3">

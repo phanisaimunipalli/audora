@@ -28,7 +28,7 @@ export function ModeBadge() {
 }
 
 const NAV = [
-  { to: '/tours', label: 'Tours' },
+  { to: '/tours', label: 'Units' },
   { to: '/dashboard', label: 'Insights' },
 ];
 
@@ -43,8 +43,9 @@ export function AppShell() {
             Audora
           </Link>
           {/* The nav is never hidden. It used to disappear below 768 px with no hamburger and no
-              bottom bar behind it, which left a seller on a phone with the wordmark and "New tour"
-              as their entire map: /tours and /dashboard were unreachable from every other screen. */}
+              bottom bar behind it, which left a leasing team on a phone with the wordmark and
+              "New unit" as their entire map: /tours and /dashboard were unreachable from every
+              other screen. */}
           <nav className="flex min-w-0 items-center gap-4 md:gap-5">
             {NAV.map((n) => (
               <NavLink
@@ -62,7 +63,7 @@ export function AppShell() {
             <div className="hidden md:block"><ModeBadge /></div>
             <JobsTray />
             <Link to="/new" className={pillClass('primary', 'sm', 'h-9 shrink-0 px-3.5 text-[13px] md:px-4')}>
-              <Icon.Plus size={15} /> New tour
+              <Icon.Plus size={15} /> New unit
             </Link>
           </div>
         </div>
@@ -72,7 +73,7 @@ export function AppShell() {
       </main>
       <footer className="border-t border-line">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-8 text-xs text-dim md:flex-row md:items-center md:justify-between md:px-6">
-          <div>Audora · one photo, a room you can walk. Every artifact is labelled digitally staged and carries its scale anchor.</div>
+          <div>Audora: your photos and floor plan, a unit you can walk. Every model is labelled AI-generated from photos and carries its scale anchor.</div>
           <div className="flex flex-col gap-2 md:items-end">
             {/* The same links again at the foot of the page, so a phone always has two ways there. */}
             <nav className="flex items-center gap-4">

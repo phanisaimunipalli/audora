@@ -115,6 +115,10 @@ const DEFAULT_SETTINGS: Settings = {
   sound: true,
   agentName: 'Priya Natarajan',
   brandColor: '#0a0a0a',
+  /* Staging is deferred (docs/ACCURACY.md 3.7). Stated here rather than left undefined so the
+     default is visible in the one place people look for it; `stagingEnabled()` in state/staging.ts
+     reads undefined as off too, which is what makes stores persisted before the flag existed agree. */
+  stagingEnabled: false,
 };
 
 export const STORE_KEY = 'audora-v1';

@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react';
 import { Icon } from '@/components/icons';
-import { SectionTitle, StagedLabel } from '@/components/ui';
+import { SectionTitle } from '@/components/ui';
 import { MISTAP } from './demoRoom';
 import { Reveal } from './Reveal';
 import { Section } from './Section';
+import { SourceLabel } from './SourceLabel';
 
 interface Limit {
   title: string;
@@ -13,25 +14,25 @@ interface Limit {
 
 const LIMITS: Limit[] = [
   {
-    title: 'Generative reconstruction invents detail.',
-    body: 'Marble builds what the photo implies, including the parts behind the camera. Walls, openings and floor area are checked against the anchor; the grain of the floorboards is a guess. Treat the tour as a measured model with a plausible skin, not a survey.',
+    title: 'A reconstruction, not a survey.',
+    body: 'The model builds what the photographs imply, including the parts behind the camera. Walls, openings and floor area are checked against the floor plan and the anchor; the grain of the floorboards is a guess. It is a measured model with a plausible skin, and it never substitutes for disclosed square footage.',
     icon: <Icon.Sparkles />,
   },
   {
-    title: 'The anchor carries the risk.',
-    body: `Every number is derived from one reference. Mis-tap the door and every number is wrong by the same factor. Plausibility checks catch the wild ones (a ${MISTAP.geometry.height.toFixed(2)} m ceiling), not the subtle ones. A tape or laser measurement is better than a tap, and the chip always says which you used.`,
+    title: 'A draft has no metric scale until it is anchored.',
+    body: `The fast tier returns a walkable world with no size of its own. Until someone taps a door or types a wall length, the dimensions are assumptions with wide error bars — and the chip says so. Plausibility checks catch the wild ones (a ${MISTAP.geometry.height.toFixed(2)} m ceiling), not the subtle ones.`,
     icon: <Icon.Door />,
   },
   {
-    title: 'Reference dimensions are claims until verified.',
-    body: 'Catalogue pieces are category references: a “3-seat sofa” is 220 × 95 × 85 cm, and it is marked unverified. Mattress sizes are verified against the standard. Your own furniture is exactly as you typed it, so measure it.',
+    title: 'Verify before you rely on a measurement.',
+    body: 'Every dimension is shown with its ±, and where the plan and the model disagree the unit says both numbers rather than picking one. Before buying furniture, or signing anything that turns on a centimetre, measure the wall in person.',
     icon: <Icon.Ruler />,
   },
   {
-    title: 'Everything is labelled digitally staged.',
+    title: 'Always labelled.',
     body: (
       <>
-        Every tour, still and share link carries the label and the anchor chip. A buyer should never mistake a staged room for a furnished one, and a seller should never be able to make them. <StagedLabel className="ml-1 align-middle" />
+        Every model, still and share link says it was generated from photographs and carries its scale anchor. A renter should never mistake a reconstruction for a photograph of the unit, and a leasing team should never be able to make them. <SourceLabel className="ml-1 align-middle" />
       </>
     ),
     icon: <Icon.Eye />,
@@ -42,7 +43,7 @@ export function Limits() {
   return (
     <Section id="limits" className="border-y border-line bg-surface">
       <Reveal>
-        <SectionTitle eyebrow="Honest limits" title="What this is not." body="You will hear these from a sceptical buyer eventually. Better to hear them from us first." />
+        <SectionTitle eyebrow="Honest limits" title="What it is not." body="You will hear these from a sceptical renter eventually. Better to hear them from us first." />
       </Reveal>
       <div className="mt-10 grid gap-4 md:grid-cols-2">
         {LIMITS.map((l, i) => (
@@ -59,7 +60,7 @@ export function Limits() {
       </div>
       <Reveal delay={0.15}>
         <p className="display mt-10 text-center text-2xl text-ink-2 md:text-3xl">
-          Audora does not replace a viewing. <span className="text-ink">It replaces the guess before it.</span>
+          Audora does not replace the showing. <span className="text-ink">It replaces the guess before it.</span>
         </p>
       </Reveal>
     </Section>

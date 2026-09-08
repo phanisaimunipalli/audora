@@ -1,11 +1,11 @@
 import { AnchorMoment } from '@/components/marketing/AnchorMoment';
 import { FooterCta } from '@/components/marketing/FooterCta';
 import { ForAgents } from '@/components/marketing/ForAgents';
-import { FurniturePlayground } from '@/components/marketing/FurniturePlayground';
+import { Freshness } from '@/components/marketing/Freshness';
 import { Hero } from '@/components/marketing/Hero';
 import { HowItWorks } from '@/components/marketing/HowItWorks';
+import { LayoutPlan } from '@/components/marketing/LayoutPlan';
 import { Limits } from '@/components/marketing/Limits';
-import { Pricing } from '@/components/marketing/Pricing';
 import { Hairline } from '@/components/marketing/Section';
 import { Thesis } from '@/components/marketing/Thesis';
 
@@ -19,11 +19,11 @@ export default function Landing() {
       <Hairline />
       <HowItWorks />
       <AnchorMoment />
-      <FurniturePlayground />
+      <LayoutPlan />
+      <Hairline />
+      <Freshness />
       <Hairline />
       <ForAgents />
-      <Hairline />
-      <Pricing />
       <Limits />
       <FooterCta />
     </div>

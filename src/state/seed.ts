@@ -9,7 +9,7 @@ import { mockRawGeometry, mockWorld } from '@/services/mockWorld';
 import { uid } from '@/lib/ids';
 import { defaultHeading, dominantWindowWall, facingToHeading } from '@/engine/siteSun';
 import { useAudora } from './store';
-import type { AnalyticsEvent, Room, RoomWorld, TourSite } from './types';
+import type { AnalyticsEvent, Room, RoomWorld, Tour, TourFloorPlan, TourSite } from './types';
 import type { PlacedPiece, RawGeometry, RoomGeometry, RoomType, WallSide } from '@/engine/types';
 
 export const DEMO_SHARE_ID = 'oak1247';
@@ -87,7 +87,7 @@ export const FULL_MARBLE_WORLD = {
   credits: 1580,
   seconds: 612,
   caption:
-    'A furnished flat with white panelled doors, a dining table and chairs, open shelving and daylight from the left. Digitally staged furniture stands on the same floor as the real one.',
+    'A furnished flat with white panelled doors, a dining table and chairs, open shelving and daylight from the left.',
   note: 'real Marble · full quality',
   /**
    * Used when the collider mesh cannot be read in the browser (offline, or a CDN hiccup), and when
@@ -117,7 +117,7 @@ function rawFromMetres(m: { width: number; depth: number; height: number }, metr
  * flat is empty.
  *
  * Both pieces go IN FRONT of the capture point (toward the north wall, which is what the photo view
- * faces). A rug centred on the origin would lie under the buyer's own feet and a plant behind their
+ * faces). A rug centred on the origin would lie under the renter's own feet and a plant behind their
  * shoulder, so the one thing this staging exists to show — our furniture standing on the real floor
  * — would be out of frame the moment they arrive.
  */
@@ -144,7 +144,7 @@ function hasWorld(worldId: string): Room | undefined {
 function ensureDraftRoom(tourId: string) {
   const existing = hasWorld(REAL_MARBLE_WORLD.worldId);
   if (existing) {
-    // Older seeds carried the provenance in the room name (it leaked into buyer copy) and an
+    // Older seeds carried the provenance in the room name (it leaked into the renter's copy) and an
     // outdated panorama URL. Both move to where they belong without disturbing anything else.
     const patch: Partial<Room> = {};
     if (existing.name !== 'Corner room') patch.name = 'Corner room';
@@ -272,7 +272,7 @@ function refreshFullBounds(roomId: string) {
  *
  * Not invented: the coordinates are Nominatim's answer for the demo address and the ring is the
  * building way Overpass returns nearest to it (`way/513962743`, tagged `building=yes`,
- * `addr:housenumber=1245` — one address plate for the pair, which is why the seller confirms the
+ * `addr:housenumber=1245` — one address plate for the pair, which is why the leasing team confirms the
  * heading rather than the map dictating it). Fetched 2026-09-06; data © OpenStreetMap contributors,
  * ODbL. The same two calls `StepSite` makes, run once and baked in so the demo has a real sun on a
  * first run with no network.
@@ -312,7 +312,7 @@ export const DEMO_SITE_RING: [number, number][] = [
 
 /**
  * The demo's site. `previewTime` is late afternoon **on the day the demo is first opened**, because
- * that is when a west-facing flat is worth showing — the buyer can drag the hour anywhere from the
+ * that is when a west-facing flat is worth showing — the renter can drag the hour anywhere from the
  * Time of day panel and the tour reopens on wherever they left it.
  */
 export function demoSite(windowWall: WallSide): TourSite {
@@ -324,7 +324,7 @@ export function demoSite(windowWall: WallSide): TourSite {
     displayName: '1247, Oak Street, Panhandle, San Francisco, California, 94117, United States',
     footprint: { ring: DEMO_SITE_RING, principalHeading: 171.4, levels: undefined },
     /* `heading` is the engine's frame — the bearing the room's NORTH wall faces — while 261° is the
-       façade, i.e. what the seller answers on the compass ("the windows face west"). `StepSite`
+       façade, i.e. what the leasing team answers on the compass ("the windows face west"). `StepSite`
        stores exactly this conversion; storing the façade bearing raw turns the sun by however far
        the window wall is from north, which on these rooms is a whole 90°. */
     heading: facingToHeading(defaultHeading(171.4), windowWall),
@@ -353,10 +353,108 @@ export function ensureRealRoom(tourId: string) {
   if (!tour) return;
   ensureDraftRoom(tourId);
   ensureFullRoom(tourId);
+  ensureDemoPlan(tourId);
 }
 
-/** Bump when the staging engine or demo rooms change; existing browsers re-stage the demo on next load. */
-export const SEED_VERSION = 6;
+
+/* ------------------------------------------------------------------ the demo unit's floor plan
+ *
+ * The listing's own drawing, as the parser would have returned it (docs/ACCURACY.md 2: a plan is
+ * the cheapest metric truth a listing has). It is what makes the demo a *unit* rather than six
+ * unrelated rooms: `buildUnitGraph` reads it into a room graph, `UnitMap` draws the storey with
+ * "you are here", and each plan door that lands on a measured opening becomes a portal you can walk
+ * through (`shared/unitGraph.ts`).
+ *
+ * Every printed dimension is the room's real size rounded to the nearest inch, which is what a
+ * draughtsman does — so the "plan says / model measures" line shows a genuine one-centimetre
+ * residual rather than a suspicious exact match. `metres` is our own reading of `text`, not a
+ * second number: 17'-5" is 17 × 0.3048 + 5 × 0.0254.
+ *
+ * The sheet order matters. With no hallway on the plan, `inferAdjacency` chains rooms in the order
+ * they are drawn, so the four rooms that have a capture are listed contiguously and you can walk
+ * living → dining → primary → second. The kitchen is drawn last: it is on the plan, it appears on
+ * the unit map, and it has no photograph — so the viewer shows it and offers no doorway into it,
+ * which is the honest version of a room nobody shot.
+ */
+const DEMO_PLAN_ROOMS: { name: string; type: RoomType; width: number; depth: number; text: string; windows: number; doors: number }[] = [
+  { name: 'Living room', type: 'living', width: 5.3086, depth: 5.7912, text: `17'-5" × 19'-0"`, windows: 2, doors: 1 },
+  { name: 'Dining room', type: 'dining', width: 3.302, depth: 4.0894, text: `10'-10" × 13'-5"`, windows: 1, doors: 2 },
+  { name: 'Primary bedroom', type: 'bedroom', width: 3.3274, depth: 3.7846, text: `10'-11" × 12'-5"`, windows: 1, doors: 1 },
+  { name: 'Second bedroom', type: 'bedroom', width: 2.7432, depth: 3.048, text: `9'-0" × 10'-0"`, windows: 1, doors: 1 },
+  { name: 'Kitchen', type: 'kitchen', width: 2.5908, depth: 3.4036, text: `8'-6" × 11'-2"`, windows: 1, doors: 1 },
+];
+
+const DEMO_PLAN_FLOOR = 'Third floor';
+
+/** The parsed plan the demo tour carries. Fixed, so the demo is the same unit in every browser. */
+function demoFloorPlan(): TourFloorPlan {
+  return {
+    units: 'feet',
+    floors: [
+      {
+        label: DEMO_PLAN_FLOOR,
+        rooms: DEMO_PLAN_ROOMS.map((r) => ({
+          name: r.name,
+          type: r.type,
+          width: r.width,
+          depth: r.depth,
+          dimensionsText: r.text,
+          dimensionsFrom: 'text',
+          windows: r.windows,
+          doors: r.doors,
+        })),
+      },
+    ],
+    // Up the page is north, so a room's `yawToNorth` is zero and the map's arrow points straight up.
+    northArrow: { present: true, direction: 'up' },
+    notes: ['Dimensions are printed to the nearest inch, as drawn.'],
+    source: 'heuristic',
+    // Time is an input: the plan was read when the demo unit was created, three days ago.
+    parsedAt: Date.now() - 3 * 86400e3,
+  };
+}
+
+/**
+ * Attach the plan to the tour and its printed dimensions to the rooms it names.
+ *
+ * Only `planDims` is written: the rooms keep the geometry their reconstruction gave them, so the
+ * plan stays a *source to compare against* rather than an answer that overwrites the model. That is
+ * what makes the AccuracyCard's "plan says 5.31 m · model measures 5.30 m" a measurement and not a
+ * tautology. Idempotent, so re-seeding an existing browser fills it in without disturbing anything.
+ */
+function ensureDemoPlan(tourId: string) {
+  const st = useAudora.getState();
+  const tour = st.tours[tourId];
+  if (!tour) return;
+  if (!tour.floorPlan) st.updateTour(tourId, { floorPlan: demoFloorPlan() });
+  for (const id of st.tours[tourId]?.roomIds ?? []) {
+    const room = useAudora.getState().rooms[id];
+    if (!room || room.planDims) continue;
+    const plan = DEMO_PLAN_ROOMS.find((r) => r.name === room.name);
+    if (!plan) continue; // the two showcase worlds are not rooms of this flat
+    useAudora.getState().updateRoom(id, {
+      planDims: { width: plan.width, depth: plan.depth, text: plan.text, planRoomName: plan.name, floor: DEMO_PLAN_FLOOR },
+    });
+  }
+}
+
+/**
+ * The demo unit, as a rental. The address, the `shareId` and the rooms are fixed (other code and
+ * tests depend on them); the title, rent, availability and summary are what a renter reads.
+ */
+export const DEMO_UNIT = {
+  title: '1247 Oak Street, Unit 3',
+  address: '1247 Oak St, San Francisco, CA 94117',
+  /** Rent per month. A string, because that is what goes on the listing. */
+  rent: '$4,250/mo',
+  availableFrom: '1 October',
+  listingUrl: 'https://www.zillow.com/apartments/san-francisco-ca/1247-oak-st/unit-3/',
+  summary:
+    'Top-floor Edwardian flat, vacant and freshly painted. Two bedrooms, a long living room and a dining room off the kitchen. Available 1 October, unfurnished. Walk it before you book a showing.',
+};
+
+/** Bump when the staging engine, the demo rooms or the demo unit's own copy change; existing browsers re-seed on next load. */
+export const SEED_VERSION = 8;
 
 /** Re-run the current stager over the demo rooms (keeps rooms, anchors, worlds and analytics). */
 export function restageDemo(tourId: string) {
@@ -381,6 +479,25 @@ export function restageDemo(tourId: string) {
   });
 }
 
+/**
+ * Bring a demo tour seeded as a sale ("1247 Oak Street", "$1.49M") over to the rental it is now.
+ * Only the fields the demo owns are touched: a leasing team that edited the title keeps it, because
+ * a browser that has been used is not a fixture. Runs once per `SEED_VERSION` bump.
+ */
+export function relabelDemo(tourId: string) {
+  const tour = useAudora.getState().tours[tourId];
+  if (!tour) return;
+  const patch: Partial<Tour> = {};
+  if (tour.title === '1247 Oak Street') patch.title = DEMO_UNIT.title;
+  if (tour.price === '$1.49M') patch.price = DEMO_UNIT.rent;
+  if (!tour.summary || tour.summary.startsWith('Top-floor Edwardian flat, empty since June')) patch.summary = DEMO_UNIT.summary;
+  if (tour.listingUrl?.includes('/homedetails/')) patch.listingUrl = DEMO_UNIT.listingUrl;
+  /* Copy written for a sale ("offers", "the seller") reads wrong on a rental; drop it and let the
+     publish panel write it again from the unit as it is now. */
+  if (tour.copy) patch.copy = undefined;
+  if (Object.keys(patch).length) useAudora.getState().updateTour(tourId, patch);
+}
+
 export function seedDemo() {
   const s = useAudora.getState();
   const existing = Object.values(s.tours).find((t) => t.shareId === DEMO_SHARE_ID);
@@ -389,21 +506,22 @@ export function seedDemo() {
     ensureRealRoom(existing.id);
     if (s.seedVersion < SEED_VERSION) {
       restageDemo(existing.id);
+      relabelDemo(existing.id);
       useAudora.getState().setSeedVersion(SEED_VERSION);
     }
     return;
   }
   if (s.seeded) return;
   const tour = s.createTour({
-    title: '1247 Oak Street',
-    address: '1247 Oak St, San Francisco, CA 94117',
-    listingUrl: 'https://www.zillow.com/homedetails/1247-Oak-St-San-Francisco-CA-94117/15080123_zpid/',
+    title: DEMO_UNIT.title,
+    address: DEMO_UNIT.address,
+    listingUrl: DEMO_UNIT.listingUrl,
     listingSource: 'zillow',
-    price: '$1.49M',
+    price: DEMO_UNIT.rent,
     beds: 2,
     baths: 1,
     sqft: 1180,
-    summary: 'Top-floor Edwardian flat, empty since June. Two bedrooms, a long living room and a dining room off the kitchen.',
+    summary: DEMO_UNIT.summary,
     quality: 'draft',
   });
   s.updateTour(tour.id, { shareId: DEMO_SHARE_ID, createdAt: Date.now() - 3 * 86400e3, published: true, publishedAt: Date.now() - 3 * 86400e3 });
@@ -419,7 +537,7 @@ export function seedDemo() {
     const raw = mockRawGeometry(`demo:${r.name}`, r.type);
     const anchor = r.anchor === 'laser' ? anchorFromWall(raw, 'width', Math.round(raw.width * 2.03 * 100) / 100, 'laser') : anchorFromDoor(raw, 0.42, [{ x: 0.18, y: 0.28 }, { x: 0.18, y: 0.71 }]);
     const room = s.addRoom(tour.id, { name: r.name, type: r.type, raw, anchor });
-    // Make the second bedroom deliberately small: it is the room buyers' beds fail in.
+    // Make the second bedroom deliberately small: it is the room a renter's bed does not fit in.
     if (i === 2) {
       const small = { ...raw, width: 2.75 / 2.03, depth: 3.05 / 2.03 };
       useAudora.getState().setRaw(room.id, small);
@@ -432,7 +550,8 @@ export function seedDemo() {
     ids.push(room.id);
   });
 
-  // Three days of buyer activity: 84 visitors, 31 walked, 12 tested furniture, 4 failures in the second bedroom.
+  // Three days of renter activity: 84 visitors, 31 walked the unit, 26 measurements, 12 furniture
+  // tests, 4 of which did not fit in the second bedroom.
   const events: AnalyticsEvent[] = [];
   const base = Date.now() - 3 * 86400e3;
   const push = (type: AnalyticsEvent['type'], visitor: string, at: number, roomId?: string, item?: string) =>
@@ -466,9 +585,22 @@ export function seedDemo() {
     push('test', visitor, at, roomId, item);
     push(fits ? 'fit' : 'nofit', visitor, at + 5e3, roomId, item);
   });
+  /* Measurements are the thing a renter actually does before a showing — how wide is that wall,
+     does the wardrobe wall take a 120 — so the demo has them, weighted toward the rooms whose size
+     is in question: the small second bedroom first, then the living room. */
+  const measuresPerRoom = [7, 4, 11, 4];
+  measuresPerRoom.forEach((n, r) => {
+    for (let k = 0; k < n; k++) {
+      const visitor = `seed_${(r * 7 + k * 3) % 31}`;
+      push('measure', visitor, base + ((r * 11 + k * 5) % 68) * 3600e3 + k * 97e3, ids[r]);
+    }
+  });
+  // A handful of renters sent the link on to whoever they are moving in with.
+  [2, 9, 14, 22, 27].forEach((v, i) => push('share', `seed_${v}`, base + (6 + i * 12) * 3600e3));
   useAudora.setState((st) => ({ events: [...st.events, ...events] }));
   ensureSite(tour.id);
   ensureRealRoom(tour.id);
+  ensureDemoPlan(tour.id);
   useAudora.getState().setSeeded();
   useAudora.getState().setSeedVersion(SEED_VERSION);
 }

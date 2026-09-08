@@ -17,6 +17,8 @@ export interface RoomStat {
   fits: number;
   nofits: number;
   walked: number;
+  /** Measurements a renter took in this room. */
+  measures: number;
 }
 
 export interface Summary {
@@ -41,7 +43,7 @@ export interface Summary {
 const DAY = 86400e3;
 
 /**
- * Buyers type their furniture, so the same piece arrives as "Sofa", "sofa " and "sofas". Group on a
+ * Renters type their furniture, so the same piece arrives as "Sofa", "sofa " and "sofas". Group on a
  * normalised key (trimmed, lower case, collapsed spaces, naive singular) and show it title-cased.
  */
 export function itemKey(name: string): string {
@@ -77,7 +79,7 @@ function unique(events: AnalyticsEvent[], type: AnalyticsEvent['type']): number 
   return set.size;
 }
 
-/** Roll a tour's events into what an agent wants to know. Pure, so the dashboard can call it for every tour. */
+/** Roll a unit's events into what a leasing team wants to know. Pure, so the dashboard can call it for every unit. */
 export function summarize(events: AnalyticsEvent[], rooms: Room[], opts?: { days?: number; binsPerDay?: number; now?: number }): Summary {
   const days = opts?.days ?? 3;
   const binsPerDay = opts?.binsPerDay ?? 4;
@@ -85,7 +87,7 @@ export function summarize(events: AnalyticsEvent[], rooms: Room[], opts?: { days
 
   const byItem = new Map<string, ItemStat>();
   const byRoom = new Map<string, RoomStat>();
-  for (const r of rooms) byRoom.set(r.id, { roomId: r.id, name: r.name, tests: 0, fits: 0, nofits: 0, walked: 0 });
+  for (const r of rooms) byRoom.set(r.id, { roomId: r.id, name: r.name, tests: 0, fits: 0, nofits: 0, walked: 0, measures: 0 });
   const walkedByRoom = new Map<string, Set<string>>();
 
   for (const e of events) {
@@ -97,7 +99,7 @@ export function summarize(events: AnalyticsEvent[], rooms: Room[], opts?: { days
       else it.nofits++;
       byItem.set(key, it);
       if (e.roomId) {
-        const rs = byRoom.get(e.roomId) || { roomId: e.roomId, name: 'Removed room', tests: 0, fits: 0, nofits: 0, walked: 0 };
+        const rs = byRoom.get(e.roomId) || { roomId: e.roomId, name: 'Removed room', tests: 0, fits: 0, nofits: 0, walked: 0, measures: 0 };
         if (e.type === 'test') rs.tests++;
         else if (e.type === 'fit') rs.fits++;
         else rs.nofits++;
@@ -108,6 +110,11 @@ export function summarize(events: AnalyticsEvent[], rooms: Room[], opts?: { days
       const s = walkedByRoom.get(e.roomId) || new Set<string>();
       s.add(e.visitor);
       walkedByRoom.set(e.roomId, s);
+    }
+    if (e.type === 'measure' && e.roomId) {
+      const rs = byRoom.get(e.roomId) || { roomId: e.roomId, name: 'Removed room', tests: 0, fits: 0, nofits: 0, walked: 0, measures: 0 };
+      rs.measures++;
+      byRoom.set(e.roomId, rs);
     }
   }
   for (const [id, s] of walkedByRoom) {
@@ -149,7 +156,7 @@ export function summarize(events: AnalyticsEvent[], rooms: Room[], opts?: { days
   };
 }
 
-/** Merge item stats from several tours into one ranking. */
+/** Merge item stats from several units into one ranking. */
 export function mergeItems(lists: ItemStat[][]): ItemStat[] {
   const m = new Map<string, ItemStat>();
   for (const list of lists) {

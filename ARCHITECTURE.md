@@ -331,3 +331,82 @@ all at 6° elevation); the four composite stills come out named Portrait / From 
 Across the room / Looking back with the disclosure plate burned in, and the 09:00 and 17:00 renders
 of the same angle differ; and the wizard runs listing → site → floor plan → photos → anchor → launch
 end to end, reading 12 rooms off the demo townhouse plan and generating 16 simulated rooms.
+
+## Backend and determinism (2026-09-08, integrator)
+
+**`docs/BACKEND.md` is the contract** for everything in this section: what a unit needs as input
+(§1), the determinism rules (§2), how the prompt is compiled (§3), the pipeline (§4), the schema
+(§5), the route table (§6), the environment (§7) and how the store moves over (§8).
+`supabase/migrations/0001_init.sql` + `0002_claim_jobs.sql` are the schema; `server/` is the
+implementation. It is **opt-in**: with `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` unset,
+`/api/status` reports `backend: false`, every `/api/v1/*` route answers 503, no worker starts, and
+the app keeps its browser-local store — the demo and offline path is unchanged.
+
+### Module map
+
+```
+server/prompt.ts      compileMarblePrompt(facts) → the text prompt, fixed order, fixed phrasing
+server/recipe.ts      canonicalJson · buildRecipe · recipeHash · seedFromHash · marbleRequestFrom
+server/photos.ts      canonicalizePhoto (EXIF read then stripped, 2048 px, JPEG q90) + hashes
+server/db.ts          PostgREST over fetch: select/insert/update/del/rpc, DbError carries a status
+server/storage.ts     Storage over fetch: upload/download/publicUrl/signedUrl/remove
+server/auth.ts        GoTrue: bearerToken · verifyUser · memberOrg · authenticate · AUDORA_DEV_ORG
+server/pipeline.ts    §4: createUnit · addPhoto · addFloorPlan · planRecipes · attachOrEnqueue ·
+                      generateUnit · publishUnit · publicTour · events · visitor stuff
+server/worker.ts      the provider port (marble | mock), claim_jobs, generate → poll → copy_assets
+server/routes.ts      §6 exactly: handleV1(req, res, ctx), mounted first inside handleApi
+server/api.ts         unchanged /api/* proxy + the v1 mount + startBackendWorker()
+server/marbleRequest.ts  the browser flow's /api/marble/generate → worlds:generate mapping
+src/services/marblePrompt.ts  the browser copy of the prompt renderer (see "one compiler" below)
+src/services/marble.ts        the browser recipe: PIPELINE_VERSION, browserRecipe, seed, tags
+```
+
+### Conventions
+
+- **Determinism is the point.** Every photo is canonicalised and hashed; a room's request is a
+  canonical JSON *recipe* (sorted keys, numbers to 5 decimals, no `-0`); `recipe_hash =
+  sha256(recipe)`; Marble's `seed` is its first 32 bits; `disable_recaption: true` keeps the
+  compiled prompt verbatim; and `worlds.recipe_hash` is unique among non-failed worlds, so the
+  same inputs attach the world they already made instead of spending credits twice. Nothing that
+  feeds a recipe, a prompt or a hash reads a clock or a random source — **time is an input**, and
+  every function that writes a timestamp takes `now`.
+- **Where the Marble fields sit** (settled at integration, because two modules had drifted):
+  `seed` is a generation parameter beside `world_prompt`; `disable_recaption` sits **inside**
+  `world_prompt`, next to the `text_prompt` it is about and beside `reconstruct_images` / `is_pano`.
+  `server/recipe.ts` (the pipeline) and `server/marbleRequest.ts` (the browser flow) now agree
+  field for field, and both shapes are pinned in tests, so they can only ever be wrong together.
+- **One prompt compiler, two copies.** `server/prompt.ts` and `src/services/marblePrompt.ts` carry
+  a byte-identical renderer between explicit markers, because `server/` must not import `src/` and
+  `src/` must not import `server/` (vite.config.ts type-imports `server/api.ts`, so an import the
+  other way would pull the dev server into the bundle). `tests/prompt-parity.test.ts` compares the
+  two marked regions character for character *and* compiles the same facts through both. Only the
+  small mapper differs: `roomPromptFacts` (a `Room` from the store) against `defaultRoomContext` +
+  `buildRecipe` (the stored rows).
+- **server/ compiles twice.** `tsconfig.node.json` (bundler, type-check only, what the Vite plugin
+  needs) and `tsconfig.server.json` (NodeNext, emits `dist-server/`), so every relative import
+  inside `server/` carries the `.js` extension and every file that touches Node globals declares
+  `/// <reference types="node" />`. Nothing in `server/` imports from `src/`; the few types and
+  numbers that mirror the app (`AZIMUTH_FOR_ANGLE`, `RoomType`) are copied with a pointer to their
+  source and pinned by a test.
+- **Structural ports, not classes.** The pipeline and the worker are written against `PipelineDb` /
+  `PipelineStorage` / `WorldProvider`, which `server/db.ts`, `server/storage.ts` and the Marble
+  provider satisfy and the tests implement in memory (`tests/support/backend.ts`). That is why the
+  whole backend is unit-tested without Supabase, without World Labs and without a network.
+- **Errors carry their own status.** `PipelineError`, `AuthError`, `DbError` and `StorageError` all
+  expose `status`, so `server/routes.ts` maps them with one line; an undecodable upload is a 415, a
+  transport failure to Supabase is a 502, and anything without a status is a 500.
+- **The mock provider is the end-to-end path.** `MARBLE_MOCK=1` (or no `WORLDLABS_API_KEY`) runs
+  the queue, the asset copy, publication and the public tour with no key and no credits. Live
+  generation stays behind the credit guard (`MARBLE_MAX_GENERATIONS`, default 3).
+
+Not implemented yet, and named so nobody looks for them: **the collider measurement in step 5**
+(`copy_assets` copies the assets and stops, so `worlds.bounds` and `rooms.geometry` are null on a
+backend-generated world; the wall-rectangle fit and the metric room live in the browser, in
+`src/services/marble.ts`, and a reader of the public tour has the collider URL to run it on), the
+`analyze`, `parse_plan` and `stage` job handlers (the queue, retries and backoff are generic over the kind — they are one `case` each
+in `runJob`; until then `POST /api/v1/units/:id/floor-plan` enqueues `parse_plan` only when the
+caller did **not** post an already-parsed plan, so the wizard's own browser-side reader never
+leaves a doomed job in a seller's queue), `worlds.credits` / `worlds.usd` (the provider's cost is
+not read back on completion), and `src/services/backend.ts`, the §8 adapter that would switch the
+store over when `/api/status` reports `backend: true`. `ProviderStatus.backend` is already the flag
+it will read, and `server/routes.ts` is the contract it will read it against.

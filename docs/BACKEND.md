@@ -46,9 +46,13 @@ they allow nothing, repeatability is enforced by never asking twice.
    same recipe always asks Marble for the same seed.
 4. **No recaptioning.** `disable_recaption: true`, so the prompt we compile is the prompt Marble
    uses; Marble's own captioner is a second stochastic model and it is switched off.
-5. **Never generate twice.** `worlds.recipe_hash` is unique among non-failed worlds. A request
-   whose recipe already has a world attaches that world; regeneration happens only when an input
-   changes (new photos at turnover, a corrected dimension) or the pipeline version is bumped.
+5. **Never generate twice.** `worlds.recipe_hash` is unique among non-failed worlds *of one
+   organisation* (`worlds_recipe` is on `(org_id, recipe_hash)`). A request whose recipe already has
+   a world in the caller's organisation attaches that world; regeneration happens only when an input
+   changes (new photos at turnover, a corrected dimension) or the pipeline version is bumped. The
+   organisation is the scope because a world is org-owned — its room, its storage objects, its cost —
+   so another tenant that computes the same recipe gets its own world rather than a pointer into
+   someone else's.
 6. **Language models at zero temperature with a seed.** Photo analysis, floor-plan reading and
    staging run at temperature 0 with `seed` set from the input hash, on pinned model ids, and their
    outputs are cached by input hash (`ai_calls.input_hash`, `stagings.input_hash`).
@@ -99,14 +103,20 @@ All of it runs on the server; the browser only uploads, watches and walks.
    the operation id, polls, and on completion enqueues `copy_assets`.
 5. **Own the assets.** Splats at every resolution, the collider mesh, the panorama and the
    thumbnail are copied into the `worlds` bucket under the world id; provider URLs are kept only
-   as provenance. The collider is measured (floor, ceiling, wall rectangle, openings) and the metric
-   room is derived with the anchor.
+   as provenance. The collider is then measured (floor, ceiling, wall rectangle, openings) and the
+   metric room derived with the anchor — **not implemented on the server yet**: `worlds.bounds` and
+   `rooms.geometry` stay null on a backend-generated world, and the measurement lives only in the
+   browser (`colliderGeometry` / `rawFromBounds` in `src/services/marble.ts`, run by
+   `src/state/jobs.ts` after a generation it started itself). A reader of the public tour has the
+   collider URL and can measure it the same way; nothing on the server does it for them.
 6. **Stage** (optional, later). Auto-stage at temperature 0 with a seed; cached by input hash.
 7. **Publish.** Share id, model date (newest world), disclosures. The public tour endpoint reads
    only published rows.
 8. **Freshness.** New photos at turnover change the recipe and trigger regeneration of exactly the
-   rooms whose inputs changed. Unit types share worlds across identical units until a unit gets its
-   own photos.
+   rooms whose inputs changed. Unit types share worlds across identical units *of one organisation*
+   until a unit gets its own photos — so a room reaches its world either by `worlds.room_id` or by
+   the `rooms.draft_world_id` / `full_world_id` pointer it was given, and every reader (and the
+   `worlds` public-tour policy) has to follow both.
 
 ## 5. Schema (Supabase)
 

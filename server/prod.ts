@@ -14,7 +14,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
-import { configureEnv, handleApi } from './api.js';
+import { configureEnv, handleApi, startBackendWorker } from './api.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = path.join(ROOT, 'dist');
@@ -165,11 +165,20 @@ const server = http.createServer((req, res) => {
   serveFile(req, res, index);
 });
 
+// The job queue only moves while something claims from it. In production that is this process, so
+// the worker starts once the port is open (a claim before then would race the deploy's health
+// check) and is stopped on the way out, before the process exits, so a job it is holding is left
+// with a lease that expires rather than a lock nobody will ever release.
+let worker: ReturnType<typeof startBackendWorker> = null;
+
 server.listen(PORT, HOST, () => {
   console.log(`audora listening on http://${HOST}:${PORT}  (serving ${DIST})`);
+  worker = startBackendWorker();
 });
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.on(signal, () => {
+    worker?.stop();
+    worker = null;
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 5000).unref();
   });

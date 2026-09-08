@@ -12,11 +12,17 @@
  *   GET  /api/marble/operations/:id        → poll a generation
  *   GET  /api/marble/worlds/:id            → fetch a finished world
  *   GET  /api/fetch-image?url=             → fetch one https image for the seller (listing photo URLs)
+ *   ANY  /api/v1/*                         → the Supabase backend (server/routes.ts, docs/BACKEND.md §6)
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { appendFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { Plugin } from 'vite';
+import { marbleGenerateRequest } from './marbleRequest.js';
+import { dbFromEnv, type Db } from './db.js';
+import { Storage } from './storage.js';
+import { defaultAuth, handleV1 } from './routes.js';
+import { selectProvider, startWorker, type RunningWorker } from './worker.js';
 
 type Env = Record<string, string>;
 let ENV: Env = {};
@@ -24,6 +30,36 @@ let ENV: Env = {};
 /** Production entry point (server/prod.ts) hands the process environment in here; the Vite plugin loads .env itself. */
 export function configureEnv(env: Env) {
   ENV = { ...env };
+  backendState = null;
+}
+
+/* ---------- the Supabase backend (docs/BACKEND.md §6) ----------
+ * `dbFromEnv` answers null when SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are not set, and then
+ * every /api/v1 route answers 503 and the app keeps its browser-local store. The clients are built
+ * once and thrown away whenever the environment is replaced. */
+
+let backendState: { db: Db | null; storage: Storage | null } | null = null;
+
+function backend(): { db: Db | null; storage: Storage | null } {
+  if (!backendState) {
+    const db = dbFromEnv(ENV);
+    backendState = { db, storage: db ? Storage.from(db) : null };
+  }
+  return backendState;
+}
+
+/**
+ * Start the job worker when the backend is configured, or answer null when it is not. The dev
+ * server starts one from `configureServer` and the production server from `server/prod.ts`, so a
+ * generation makes progress wherever the API is being served from.
+ */
+export function startBackendWorker(): RunningWorker | null {
+  const { db, storage } = backend();
+  if (!db || !storage) return null;
+  const provider = selectProvider(ENV);
+  const worker = startWorker({ db, storage, provider, env: ENV });
+  console.log(`audora worker ${worker.workerId} started (${provider.name} provider)`);
+  return worker;
 }
 
 const NEBIUS_BASE = 'https://api.tokenfactory.nebius.com/v1';
@@ -53,9 +89,6 @@ function resolveProvider(modelId: string): { name: string; base: string; key: st
 let liveGenerations = 0;
 const maxGenerations = () => Number(ENV.MARBLE_MAX_GENERATIONS || 3);
 const MARBLE_BASE = 'https://api.worldlabs.ai/marble/v1';
-/** Marble takes 4 images in a multi-image prompt, or 8 in reconstruction mode. */
-const MARBLE_PLAIN_IMAGES = 4;
-const MARBLE_MAX_IMAGES = 8;
 
 // Prices (USD per 1M tokens). Filled from GET /v1/models?verbose=true on first use so the
 // cost-per-task log reflects the account's real list prices; the static rows are a fallback.
@@ -115,11 +148,68 @@ function json(res: ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
-function readBody(req: IncomingMessage): Promise<any> {
+/**
+ * The most JSON one request may carry. The biggest thing the product posts is a photo as a base64
+ * data URL — a phone photo is a few megabytes and base64 inflates it by a third — so this is
+ * generous for that and still small enough that a few concurrent uploads cannot exhaust a 512 MB
+ * instance. Without a cap the whole body is buffered at once as chunks, one concatenated Buffer, a
+ * UTF-8 string and `JSON.parse`'s copy, so peak memory is several times the payload.
+ * `AUDORA_MAX_BODY_BYTES` moves it.
+ */
+const DEFAULT_MAX_BODY_BYTES = 24 * 1024 * 1024;
+
+/** A body refused for its size. Carries its own status, so the routes answer 413, not 400 or 500. */
+export class BodyTooLargeError extends Error {
+  readonly status = 413;
+
+  constructor(limit: number) {
+    super(`The request body is larger than ${Math.round(limit / (1024 * 1024))} MB.`);
+    this.name = 'BodyTooLargeError';
+  }
+}
+
+function maxBodyBytes(): number {
+  const raw = Number(ENV.AUDORA_MAX_BODY_BYTES);
+  return Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : DEFAULT_MAX_BODY_BYTES;
+}
+
+/**
+ * The request body as JSON, refused above `maxBodyBytes()`.
+ *
+ * `content-length` is checked before a byte is read, which is the whole answer for an honest
+ * client; the running total is checked as well, because the header is the client's claim and a
+ * chunked request has none. Over the limit, what was buffered is dropped at once and the rest of
+ * the body is drained (`resume`) rather than accumulated, so the connection stays usable and memory
+ * stays flat while the route writes its 413.
+ */
+export function readBody(req: IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+    const limit = maxBodyBytes();
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > limit) {
+      req.resume();
+      reject(new BodyTooLargeError(limit));
+      return;
+    }
+    let chunks: Buffer[] = [];
+    let size = 0;
+    let settled = false;
+    req.on('data', (c) => {
+      if (settled) return;
+      const buf = Buffer.isBuffer(c) ? c : Buffer.from(c);
+      size += buf.length;
+      if (size > limit) {
+        settled = true;
+        chunks = [];
+        req.resume();
+        reject(new BodyTooLargeError(limit));
+        return;
+      }
+      chunks.push(buf);
+    });
     req.on('end', () => {
+      if (settled) return;
+      settled = true;
       const raw = Buffer.concat(chunks).toString('utf8');
       if (!raw) return resolve({});
       try {
@@ -128,7 +218,11 @@ function readBody(req: IncomingMessage): Promise<any> {
         reject(e);
       }
     });
-    req.on('error', reject);
+    req.on('error', (e) => {
+      if (settled) return;
+      settled = true;
+      reject(e);
+    });
   });
 }
 
@@ -227,13 +321,6 @@ async function nebiusChat(body: any, res: ServerResponse) {
   }
   }
   return json(res, 502, { error: 'Token Factory request failed', detail: lastErr });
-}
-
-function dataUrlToBase64(dataUrl: string): { base64: string; extension: string } {
-  const m = /^data:image\/(\w+);base64,(.*)$/s.exec(dataUrl);
-  if (!m) throw new Error('Expected a base64 image data URL');
-  const ext = m[1] === 'jpeg' ? 'jpg' : m[1];
-  return { base64: m[2], extension: ext };
 }
 
 /* ---------- listing photo proxy ----------
@@ -347,10 +434,28 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
   const p = url.pathname;
   if (!p.startsWith('/api/')) return false;
   try {
+    // The v1 backend owns everything under /api/v1/, including its own 404s and its 503 when
+    // Supabase is not configured (docs/BACKEND.md §6). Mounted first so nothing below can shadow it.
+    if (p.startsWith('/api/v1/') || p === '/api/v1') {
+      const { db, storage } = backend();
+      return await handleV1(req, res, {
+        db,
+        storage,
+        env: ENV,
+        // `V1Request` is the structural subset the routes read; the request really is the
+        // `IncomingMessage` this handler was called with, which is what readBody needs.
+        readBody: (r) => readBody(r as IncomingMessage),
+        auth: db ? defaultAuth(db, ENV) : async () => { throw new Error('backend not configured'); },
+        models: { draft: models().marbleDraft, full: models().marbleFull },
+      });
+    }
     if (p === '/api/status' && req.method === 'GET') {
       json(res, 200, {
         nebius: Boolean(ENV.NEBIUS_API_KEY),
         marble: Boolean(ENV.WORLDLABS_API_KEY),
+        // Whether /api/v1 is live at all: the app's adapter (src/services/backend.ts) switches the
+        // store over on this one flag, and keeps its local store when it is false.
+        backend: Boolean(backend().db),
         models: models(),
         liveGenerations,
         maxGenerations: maxGenerations(),
@@ -369,56 +474,21 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
     if (p === '/api/marble/generate' && req.method === 'POST') {
       const body = await readBody(req);
       const m = models();
+      /* One angle or several, a seed, `disableRecaption` and extra tags: the whole mapping from this
+         body to Marble's request is `marbleGenerateRequest` (server/marbleRequest.ts), pure and
+         unit-tested. It runs BEFORE the credit guard so a malformed request answers 400 without
+         using up one of the live slots. */
+      const built = marbleGenerateRequest(body, { draft: m.marbleDraft, full: m.marbleFull });
+      if ('error' in built) {
+        json(res, built.status, { error: built.error });
+        return true;
+      }
       if (liveGenerations >= maxGenerations()) {
         json(res, 429, { error: `Credit guard: this server has already started ${liveGenerations} live Marble generations (cap ${maxGenerations()}). Set MARBLE_MAX_GENERATIONS in .env to raise it, or use simulated reconstruction.` });
         return true;
       }
       liveGenerations += 1;
-      /* One angle or several. `images` is the general form — `{ dataUrl, azimuth? }` per angle, in
-         the order the seller shot them — and `imageDataUrl` stays for the single-photo callers.
-         Marble's multi-image prompt takes up to 4 images, or 8 with `reconstruct_images`; an
-         `azimuth` (degrees round the capture point, 0 = the first shot) tells it where each angle
-         faces instead of making it guess. Shape per the World API's own schema:
-         multi_image_prompt: [{ azimuth?, content: { source, data_base64, extension } }]. */
-      const angles: { dataUrl: string; azimuth?: number }[] = Array.isArray(body.images) && body.images.length
-        ? body.images.filter((a: any) => typeof a?.dataUrl === 'string')
-        : [{ dataUrl: body.imageDataUrl }];
-      if (!angles.length) {
-        json(res, 400, { error: 'No image supplied.' });
-        return true;
-      }
-      const shots = angles.slice(0, MARBLE_MAX_IMAGES).map((a) => ({ ...dataUrlToBase64(a.dataUrl), azimuth: Number.isFinite(Number(a.azimuth)) ? Number(a.azimuth) : undefined }));
-      const textPrompt = body.textPrompt || 'An empty residential room, photographed from the doorway. Keep the real geometry.';
-      const world_prompt =
-        shots.length === 1
-          ? {
-              type: 'image',
-              image_prompt: { source: 'data_base64', data_base64: shots[0].base64, extension: shots[0].extension },
-              text_prompt: textPrompt,
-            }
-          : {
-              type: 'multi-image',
-              multi_image_prompt: shots.map((s) => ({
-                ...(s.azimuth == null ? {} : { azimuth: s.azimuth }),
-                content: { source: 'data_base64', data_base64: s.base64, extension: s.extension },
-              })),
-              reconstruct_images: shots.length > MARBLE_PLAIN_IMAGES,
-              text_prompt: textPrompt,
-            };
-      await marble(
-        '/worlds:generate',
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            display_name: String(body.displayName || 'Audora room').slice(0, 64),
-            model: body.tier === 'full' ? m.marbleFull : m.marbleDraft,
-            tags: ['audora'],
-            permission: { public: false, allow_id_access: true },
-            world_prompt,
-          }),
-        },
-        res,
-      );
+      await marble('/worlds:generate', { method: 'POST', body: JSON.stringify(built.request) }, res);
       return true;
     }
     if (p === '/api/fetch-image' && req.method === 'GET') {
@@ -438,7 +508,9 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
     json(res, 404, { error: `No route for ${req.method} ${p}` });
     return true;
   } catch (e: any) {
-    json(res, 500, { error: e?.message || 'server error' });
+    // An error that knows its own status keeps it — a body refused for its size is a 413, not a 500.
+    const status = typeof e?.status === 'number' && e.status >= 400 && e.status <= 599 ? e.status : 500;
+    json(res, status, { error: e?.message || 'server error' });
     return true;
   }
 }
@@ -460,11 +532,17 @@ export function audoraApi(): Plugin {
     async configResolved(config) {
       // Loaded lazily so the production server (which imports handleApi) never pulls Vite in at runtime.
       const { loadEnv } = await import('vite');
-      ENV = { ...loadEnv(config.mode, config.root, ''), ...(process.env as Env) };
+      // Through configureEnv rather than assigning ENV, so the Supabase clients built from it are
+      // discarded too and a .env edit does not leave a stale one behind.
+      configureEnv({ ...loadEnv(config.mode, config.root, ''), ...(process.env as Env) });
     },
     configureServer(server) {
       server.watcher.unwatch(LOG_DIR);
       mount(server.middlewares);
+      // Generations only make progress while something is claiming jobs, and in development that is
+      // this process. The worker stops with the dev server.
+      const worker = startBackendWorker();
+      if (worker) server.httpServer?.once('close', () => worker.stop());
     },
     configurePreviewServer(server) {
       mount(server.middlewares);

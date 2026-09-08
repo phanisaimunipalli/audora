@@ -173,6 +173,8 @@ create table public.worlds (
   created_at timestamptz not null default now(),
   finished_at timestamptz
 );
+-- Superseded by 0003_public_world_columns.sql: scoped to (org_id, recipe_hash), because a world
+-- belongs to an organisation and two tenants can legitimately compute the same recipe.
 create unique index worlds_recipe on public.worlds (recipe_hash) where status <> 'failed';
 create index worlds_room on public.worlds (room_id, created_at desc);
 alter table public.rooms
@@ -333,6 +335,10 @@ create policy "public tour" on public.publications for select using (published);
 create policy "public tour" on public.units for select using (public.unit_is_published(id));
 create policy "public tour" on public.properties for select using (exists (select 1 from public.units u where u.property_id = properties.id and public.unit_is_published(u.id)));
 create policy "public tour" on public.rooms for select using (public.unit_is_published(unit_id));
+-- Superseded by 0003_public_world_columns.sql: this shape follows only `worlds.room_id` (so a world
+-- SHARED across identical units is invisible to the anon key, docs/BACKEND.md §4.8) and, being a row
+-- policy, has no column list — it hands anon the recipe, the seed, the provider ids and the cost that
+-- `publicTour` withholds. 0003 replaces the policy and adds the column grants.
 create policy "public tour" on public.worlds for select using (status = 'done' and exists (select 1 from public.rooms r where r.id = worlds.room_id and public.unit_is_published(r.unit_id)));
 create policy "public tour" on public.stagings for select using (exists (select 1 from public.rooms r where r.id = stagings.room_id and public.unit_is_published(r.unit_id)));
 create policy "public tour events" on public.analytics_events for insert with check (public.unit_is_published(unit_id));

@@ -1,7 +1,8 @@
-import type { PhotoAngle, PhotoRecord, ProviderStatus, Room, RoomWorld, Tier, WorldBoundsRecord, WorldWallOpening, WorldWallRect } from '@/state/types';
+import type { PhotoAngle, PhotoRecord, ProviderStatus, Room, RoomWorld, Tier, TourSite, WorldBoundsRecord, WorldWallOpening, WorldWallRect } from '@/state/types';
 import type { RawGeometry, WallSide, WindowSpec } from '@/engine/types';
 import { applyScale, plausibility, unitsFromMetres, WALL_BAND_MARGIN_M, WINDOW_HEAD_M, WINDOW_SILL_M } from '@/engine/anchor';
 import { mockRawGeometry } from './mockWorld';
+import { compileRoomPrompt, MAX_ROOM_PHOTOS } from './marblePrompt';
 
 /**
  * An opening found in the wall band — a window, or a doorway into the next room. Raw units, on a
@@ -904,10 +905,15 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 export async function providerStatus(): Promise<ProviderStatus> {
   try {
-    const s = await api<{ nebius: boolean; marble: boolean; models: Record<string, string> }>('/api/status');
-    return { ...s, checkedAt: Date.now() };
+    // `backend` says whether /api/v1 is live (docs/BACKEND.md §8); an older server that does not
+    // report it is the same as false, which is what the local store already assumes.
+    const s = await api<{ nebius: boolean; marble: boolean; backend?: boolean; models: Record<string, string> }>('/api/status');
+    return { ...s, backend: s.backend === true, checkedAt: Date.now() };
   } catch {
-    return { nebius: false, marble: false, checkedAt: Date.now() };
+    // No `models`: an unreachable server has not told us which Marble model it runs, and the model
+    // id is part of the recipe hash. Callers must treat a missing one as "not known yet" rather than
+    // falling back to a default that may not be what the server would have run (`src/state/jobs.ts`).
+    return { nebius: false, marble: false, backend: false, checkedAt: Date.now() };
   }
 }
 
@@ -922,8 +928,12 @@ export async function providerStatus(): Promise<ProviderStatus> {
  * An unlabelled angle sends no azimuth at all, which is the documented "work it out yourself" mode —
  * a wrong hint is worse than none. */
 
-/** Marble's own cap in reconstruction mode; the create flow stops the seller at six. */
-export const MAX_ROOM_PHOTOS = 6;
+/**
+ * Marble's own cap in reconstruction mode; the create flow stops the seller at six. Defined in
+ * `./marblePrompt` (the leaf) and re-exported here, so the sentence the prompt opens with counts
+ * exactly the shots this module sends.
+ */
+export { MAX_ROOM_PHOTOS };
 
 /** Where an angle faces, relative to the room's primary photo (declared on the stored photo record). */
 export type { PhotoAngle };
@@ -952,9 +962,164 @@ export function generationImages(room: Pick<Room, 'photo' | 'photos'>): { dataUr
   });
 }
 
-export async function startGeneration(room: Room, tier: Tier): Promise<{ operationId: string; worldId?: string }> {
+/* ---------- the recipe: determinism in the browser ----------
+ * docs/BACKEND.md section 2, applied to the flow that still runs in the browser. A room's request
+ * is written down as a canonical JSON document — pipeline version, provider and model id, tier, the
+ * photo hashes with their azimuths, the compiled text prompt, the anchor, the plan dimensions and
+ * the site — and hashed. The Marble seed is the first 32 bits of that hash, so the same room asks
+ * Marble for the same seed every time, and `disable_recaption` keeps the compiled prompt verbatim.
+ *
+ * Everything here is pure in the inputs: sorted keys, fixed rounding (metres to 2 decimals,
+ * anchor references to 3, lat/lon to 5, bearings and azimuths to whole degrees), no clock, no
+ * randomness. `server/recipe.ts` is the canonical version for the backend; this one mirrors it. */
+
+/** Bump to invalidate every browser recipe on purpose (mirrors PIPELINE_VERSION on the server). */
+export const PIPELINE_VERSION = '1';
+
+/** The model id a tier maps to when the server has not told us otherwise (matches server/api.ts defaults). */
+export const DEFAULT_MARBLE_MODEL: Record<Tier, string> = { draft: 'marble-1.0-draft', full: 'marble-1.1' };
+
+export interface BrowserRecipe {
+  anchor: { method: string; referenceMetres: number } | null;
+  isPano: false;
+  model: string;
+  photos: { azimuth?: number; sha256: string }[];
+  pipelineVersion: string;
+  planDims: { depth: number; width: number } | null;
+  prompt: string;
+  provider: 'marble';
+  reconstructImages: boolean;
+  site: { heading: number; lat: number; lon: number } | null;
+  tier: Tier;
+}
+
+/** `Number(x.toFixed(dp))`: a fixed number of decimals that still serialises as a JSON number. */
+function fixed(x: number, dp: number): number {
+  return Number(x.toFixed(dp));
+}
+
+/**
+ * JSON with object keys sorted at every depth and `undefined` members dropped, so two equal recipes
+ * are the same bytes whatever order their fields were assigned in. Arrays keep their order — the
+ * photo order is part of the recipe.
+ */
+export function canonicalJson(value: unknown): string {
+  return JSON.stringify(sortKeys(value));
+}
+
+function sortKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeys);
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(value as object).sort()) {
+      const v = (value as Record<string, unknown>)[k];
+      if (v !== undefined) out[k] = sortKeys(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+/** Lower-case hex of a sha256, via WebCrypto, or node:crypto where `crypto.subtle` is missing (tests). */
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const subtle = globalThis.crypto?.subtle;
+  if (subtle) {
+    const digest = await subtle.digest('SHA-256', bytes as BufferSource);
+    return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  // A variable specifier keeps Vite from trying to bundle a Node built-in for the browser.
+  const mod = 'node:crypto';
+  const nodeCrypto: { createHash: (alg: string) => { update: (d: Uint8Array) => { digest: (enc: string) => string } } } = await import(/* @vite-ignore */ mod);
+  return nodeCrypto.createHash('sha256').update(bytes).digest('hex');
+}
+
+/** The bytes a base64 image data URL carries. Only the image bytes are hashed, never the URL text. */
+export function dataUrlBytes(dataUrl: string): Uint8Array {
+  const comma = dataUrl.indexOf(',');
+  const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+/** The first 32 bits of a hex hash, unsigned: Marble's `seed` range is exactly a uint32. */
+export function seedFromHash(hex: string): number {
+  return parseInt(hex.slice(0, 8), 16) >>> 0;
+}
+
+/**
+ * The canonical recipe for a room's generation request. Async only because the photos are hashed.
+ * The compiled prompt is part of it, so anything the prompt states (plan dims, anchor, heading)
+ * changes the hash through the prompt as well as through its own field.
+ */
+export async function browserRecipe(room: Room, tier: Tier, modelId: string, pipelineVersion: string = PIPELINE_VERSION, site?: TourSite | null): Promise<BrowserRecipe> {
+  const images = generationImages(room);
+  const photos = await Promise.all(
+    images.map(async (img) => {
+      const sha256 = await sha256Hex(dataUrlBytes(img.dataUrl));
+      return img.azimuth == null ? { sha256 } : { azimuth: Math.round(img.azimuth), sha256 };
+    }),
+  );
+  const dims = room.planDims;
+  return {
+    anchor: room.anchor ? { method: room.anchor.method, referenceMetres: fixed(room.anchor.referenceMetres, 3) } : null,
+    isPano: false,
+    model: modelId,
+    photos,
+    pipelineVersion,
+    planDims: dims && dims.width > 0 && dims.depth > 0 ? { depth: fixed(dims.depth, 2), width: fixed(dims.width, 2) } : null,
+    prompt: compileRoomPrompt(room, site),
+    provider: 'marble',
+    reconstructImages: photos.length > 4,
+    site: site && Number.isFinite(site.lat) && Number.isFinite(site.lon) ? { heading: Math.round(site.heading), lat: fixed(site.lat, 5), lon: fixed(site.lon, 5) } : null,
+    tier,
+  };
+}
+
+/** sha256 hex of a recipe's canonical JSON. */
+export async function recipeHashBrowser(recipe: BrowserRecipe): Promise<string> {
+  return sha256Hex(new TextEncoder().encode(canonicalJson(recipe)));
+}
+
+export interface RecipeResult {
+  recipe: BrowserRecipe;
+  recipeHash: string;
+  seed: number;
+  prompt: string;
+}
+
+/** Recipe, hash, seed and prompt for a room in one go — what `startGeneration` sends and what the world records. */
+export async function recipeForRoom(room: Room, tier: Tier, opts: { modelId?: string; site?: TourSite | null; pipelineVersion?: string } = {}): Promise<RecipeResult> {
+  const recipe = await browserRecipe(room, tier, opts.modelId || DEFAULT_MARBLE_MODEL[tier], opts.pipelineVersion ?? PIPELINE_VERSION, opts.site);
+  const recipeHash = await recipeHashBrowser(recipe);
+  return { recipe, recipeHash, seed: seedFromHash(recipeHash), prompt: recipe.prompt };
+}
+
+export interface StartGenerationOptions {
+  /** The model id the server will run for this tier (from /api/status), so the recipe names the real model. */
+  modelId?: string;
+  /** The tour's site: its heading goes into the prompt and its position into the recipe. */
+  site?: TourSite | null;
+  pipelineVersion?: string;
+}
+
+export interface StartedGeneration {
+  operationId: string;
+  worldId?: string;
+  recipeHash: string;
+  seed: number;
+  prompt: string;
+}
+
+/**
+ * Kick off a Marble generation for a room. Returns immediately with the operation id, plus the
+ * recipe hash, seed and prompt it was asked for with, so the finished world can record them.
+ */
+export async function startGeneration(room: Room, tier: Tier, opts: StartGenerationOptions = {}): Promise<StartedGeneration> {
   const images = generationImages(room);
   if (!images.length) throw new Error('This room has no photo to reconstruct from.');
+  const { recipeHash, seed, prompt } = await recipeForRoom(room, tier, opts);
   const op = await api<MarbleOperation>('/api/marble/generate', {
     method: 'POST',
     body: JSON.stringify({
@@ -963,13 +1128,14 @@ export async function startGeneration(room: Room, tier: Tier): Promise<{ operati
       imageDataUrl: images[0].dataUrl,
       tier,
       displayName: `Audora · ${room.name}`,
-      textPrompt:
-        images.length > 1
-          ? 'One residential room photographed from several angles. All the images are the same room; keep the real geometry and do not invent extra space.'
-          : undefined,
+      textPrompt: prompt,
+      seed,
+      // The prompt above is the prompt Marble uses; its own captioner is a second stochastic model.
+      disableRecaption: true,
+      tags: [`recipe:${recipeHash.slice(0, 12)}`],
     }),
   });
-  return { operationId: op.operation_id, worldId: op.metadata?.world_id };
+  return { operationId: op.operation_id, worldId: op.metadata?.world_id, recipeHash, seed, prompt };
 }
 
 export async function pollOperation(operationId: string): Promise<MarbleOperation> {
@@ -1046,8 +1212,14 @@ export function pickSpz(urls?: Record<string, string>): string | undefined {
   return entries[0][1];
 }
 
-/** Convert a finished Marble world into Audora's RoomWorld. Pass collider bounds to derive raw room geometry from the world itself. */
-export function worldFromMarble(room: Room, tier: Tier, w: MarbleWorld, credits?: number, seconds?: number, bounds?: WorldBounds): RoomWorld {
+/** What a generation was asked for with (from `startGeneration`), recorded on the world it made. */
+export type WorldProvenance = Partial<Pick<RoomWorld, 'recipeHash' | 'seed' | 'prompt'>>;
+
+/**
+ * Convert a finished Marble world into Audora's RoomWorld. Pass collider bounds to derive raw room
+ * geometry from the world itself, and the provenance so the world says which recipe and seed made it.
+ */
+export function worldFromMarble(room: Room, tier: Tier, w: MarbleWorld, credits?: number, seconds?: number, bounds?: WorldBounds, provenance?: WorldProvenance): RoomWorld {
   const a = w.assets || {};
   const msf = a.splats?.semantics_metadata?.metric_scale_factor ?? null;
   const fallbackRaw = room.raw ?? mockRawGeometry(room.id, room.type);
@@ -1076,5 +1248,8 @@ export function worldFromMarble(room: Room, tier: Tier, w: MarbleWorld, credits?
     credits,
     usd: credits ? credits / 1250 : undefined,
     seconds,
+    ...(provenance?.recipeHash ? { recipeHash: provenance.recipeHash } : {}),
+    ...(provenance?.seed != null ? { seed: provenance.seed } : {}),
+    ...(provenance?.prompt ? { prompt: provenance.prompt } : {}),
   };
 }

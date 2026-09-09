@@ -86,7 +86,7 @@ Engine helpers you'll use: `fitReport(pieces, room)`, `pieceStatus(piece, others
 
 ## Demo data
 
-`seedDemo()` creates "1247 Oak Street" (shareId `oak1247`) with four staged rooms and three days of buyer events (84 visitors, 31 walked, 12 tested, 4 fit failures in the small second bedroom). Use it to develop and to demo.
+`seedDemo()` creates "1247 Oak Street, Unit 3" (shareId `oak1247`) with its floor plan and seven rooms — four simulated, the corridor they all open off, and two real Marble worlds — plus three days of renter events (84 visitors, 31 walked, 12 tested, 4 fit failures in the small second bedroom). Use it to develop and to demo.
 
 ## Verification bar
 
@@ -425,6 +425,12 @@ shared/unitGraph.ts    the plan as a graph: rooms, inferred adjacency, a determi
                        plan↔capture quarter turn, and matchPortals → the doorways you walk through.
 shared/marblePrompt.ts the one prompt compiler. shared/canonical.ts the one recipe encoder.
 shared/marbleLimits.ts Marble's image limits and the rule that decides reconstruction mode.
+shared/modelPolicy.ts  the model a room is reconstructed with: the `-plus` threshold (30 m² of
+                       printed floor, or an open plan), the open-plan test, and the allowlist the
+                       generate route checks a request against. Four callers, one function.
+shared/exifPrior.ts    the photograph's field of view as a scale prior: focal length (35 mm
+                       equivalent, else a 20-entry sensor table) → hfov → the wall the capture
+                       faces → metres per raw unit, or null. See "the EXIF prior" below.
 ```
 
 Both builds compile `shared/`; the browser imports `@shared/*`, the server `../shared/*.js`.
@@ -482,23 +488,143 @@ assumed ceiling alone the median is 5.97 % — the anchor, not the reconstructio
 budget, which is the whole argument for the floor plan.
 
 
+## One plan, one room: the doorway, the turn, the sun and the model id (2026-09-08, integrator)
+
+Four pieces of the accuracy pass landed separately and disagreed at their seams. They now meet in
+one module and one rule each.
+
+### `screens/viewer/unit.ts` — the plan, met by one room
+
+The renter's viewer, the staging editor, the hub and the publish panel all have to answer the same
+questions about a room: which room on the drawing is it, where are its doorways, which of them lead
+somewhere the renter can stand, and how much is its world turned. They each answered separately,
+which is how `RoomShell` came to cut the engine's door spec while `Portals` stood its lit pane on
+the plan's matched portal — two doorways, one wall. `unitModel(plan, rooms)` and
+`roomPlan(model, room)` are now the single answer, and every screen reads them.
+
+- **One doorway list.** `roomPlan().doorways` is `doorOpeningsFor`'s answer for the whole room —
+  every hole in its walls, including one into a room nobody photographed. `roomPlan().markers` is
+  the *subset* of that array whose portal leads to a room the tour has; `Portals` draws those. The
+  markers are the same objects, so a lit pane can only ever be the size and the place of a hole
+  that is really there. `tests/unit-model.test.ts` asserts it by identity, not by equality.
+- **One turn.** `roomTurn` is the only place a room's world is turned, and the Marble group
+  (`plan` → `planYaw`), the shell (`yaw`), the markers (`yaw`) and the unit map (`roomYaw`,
+  `quarters`) all read the one object it returns.
+- **One bearing for the sun.** `sunHeading(site.heading, room, turn)` — the room's own north wall
+  over the building's (`effectiveHeading`), re-expressed against whatever wall is north after the
+  turn (`headingAfterYaw`). The viewer, the editor, the listing stills and the hub's room cards all
+  call it, so the four cannot light the same room from different walls.
+- **The walk spawn is a doorway, not a spec.** `freeSpawn`/`spawnPose` take the doorway the shell
+  actually cut. Before, a room whose plan puts its door on another wall spawned the renter 0.7 m in
+  front of a blank wall.
+
+### How much of the plan's turn Audora carries — and why it is none
+
+`roomTurn`'s doc is the contract; the short version: the two candidate terms are the quarter turn
+between the drawing's frame and the capture's (`matchPortals().quarters`) and the plan's north
+arrow (`UnitRoom.yawToNorth`), and **neither is carried as a world rotation**.
+
+- The **quarter turn** does not need to be. `matchPortals` already folds every plan door onto the
+  room's own walls (`foldDoor`), and `toUnitPose` already undoes the same turn when the pose goes on
+  the sheet. The two frames therefore agree about the only two things that cross between them —
+  where the doorways are and where the renter is standing. Carrying it as a rotation *as well* means
+  folding `rooms.geometry`'s door wall, its window walls and, on an odd quarter, its width against
+  its depth — which moves the room's stored numbers, its staging coordinates and its measurement's
+  width and depth, for nothing the renter can see.
+- The **north arrow** is a bearing, not a rotation. Turning the world by it would turn the capture
+  and the shell while the furniture, the walker's bounds, the minimap and the fit report stayed in
+  the room's own rectangle; turning those too is a rotation of the whole scene *including the
+  camera*, which is the identity. Its one observable consumer is the sun, and the sun takes it as a
+  bearing through `sunHeading`. The unit map draws north as an arrow rather than by turning the
+  page, for the same reason.
+
+The mechanism is wired end to end anyway and `TurnPolicy` is the one switch: give it
+`foldedQuarters` and the group turns back by `−q·π/2` onto the folded shell; give it `turnScene` and
+the shell, the markers and the map turn together. `tests/unit-model.test.ts` drives both, and pins
+that `roomTurn().world` is exactly `planYaw({quarters, yawToNorth})` — one turn, never two numbers.
+
+### The EXIF prior, from the photos table to the residual line
+
+`shared/exifPrior.ts` turns a photograph's lens into metres per raw unit: the 35 mm equivalent the
+camera wrote (else a make/model sensor table) gives the horizontal field of view, `roomRect` says
+which wall the capture faces and how far away it is, and the wall's storey height closes the system —
+a field of view is scale-free, so one metric length has to. It returns `null` unless the photograph
+really framed that wall (within 1.25 either way), so a wrong table entry is silence rather than a
+wrong number. `server/worker.ts` and `server/pipeline.ts`'s `updateRoom` both pass the room's
+primary photo, so the prior survives a plan correction; and because it is closed on the *same*
+ceiling that feeds the `ceiling` constraint, `scaleConstraintsFor` declares `group: 'ceiling'` and
+fusion weights the two as one assumption instead of two.
+
+### The model id a room is reconstructed with
+
+`shared/modelPolicy.ts` is the rule and four callers share it: the wizard's launch step, the browser
+recipe, `planRecipes` on the server, and `modelFor` on the generate route (which now **refuses** an
+unknown id with a 400 rather than substituting the default — a silent substitution records a recipe
+hash describing a request that was never sent). The hub's per-room cost line and the publish
+banner name the model *that room* will get (`marble-1.1-plus / marble-1.1` on the demo unit, whose
+living room is 30.6 m² of printed floor), not the tier's default.
+
+### The QA pass: the demo walks, and a measurement measures the same room twice (2026-09-08)
+
+Two majors and four minors from the accuracy pass's QA. The two that mattered:
+
+- **The demo unit is walkable room to room.** Its corridor is now photographed like every other
+  room — `ensureHallwayRoom` (src/state/seed.ts), simulated from `mockRawGeometry` at the size the
+  drawing prints (6.97 × 1.21 m against a printed 7.00 × 1.20, a real residual like every other
+  room), `SEED_VERSION` 11 so an existing browser gets it. `inferAdjacency` hangs all five
+  photographed rooms off that corridor, so until it existed every doorway in the unit led to the one
+  room the tour had not got: the shell cut the hole, `markers` was empty in all six rooms, and
+  walking into a framed 0.85 × 2.03 m opening did nothing. Two rules in `shared/unitGraph.ts` made
+  that a hole to nowhere rather than a plain wall, and both are fixed: `placeChild` tries a parent's
+  **long walls first for every child** (it used to rotate the wall list by the child's order, which
+  sent the third room to a 1.20 m end while both 7 m walls had room, and left the fifth nowhere) and
+  `shiftsAlong` adds flush-against-a-sibling candidates to the 25 cm grid, which is what a corridor
+  actually needs; and `doorBetween` marks a door `nominal` unless the rooms **touch across** the
+  wall, not merely overlap along it — a room the layout could not place used to claim a wall it was
+  4.8 m away from, on top of another room's doorway. The hub now reads *6 of 7 rooms measured ·
+  median 0.5% against the plan · 4 ceilings over 10 cm*.
+- **Re-measuring a room is idempotent.** `measureRoom` fits the scale from the room's own wall
+  rectangle whenever the mesh found one, whatever `method` the bounds handed to it carry, and
+  `scaleConstraintsFor` takes that same rectangle for the EXIF prior. `method` is pass two's answer
+  about which rectangle to *draw*; `writeMeasurement` persists it, so reading it back as an input to
+  pass one meant a plan correction re-measured a different room from the one the world was measured
+  with — a no-op `PATCH` moved a real room's published scale by 48 % and dropped the EXIF residual.
+
+The four minors: the walk spawn and the portal arrival count only the staged pieces the walker will
+actually meet (`spawnSolids` in `screens/viewer/spawn`, the same `showStaging` rule as `walkPieces`,
+read from the store rather than subscribed so switching furniture on does not teleport a standing
+renter); the fit report judges the drawn doorways (above); the hub says "1 room disagrees with the
+plan"; and the measured panel no longer prints a four-decimal metric scale for a *simulated* world,
+where the number is a placeholder derived from the room's id — a different number in every browser,
+deliberately excluded from the fit, sitting directly above "every number on it is derived from the
+anchor".
+
+Left alone, with reasons: `shared/exifPrior.ts` stays as it is (docs/ACCURACY.md §2 source 5 now
+records that it fires on no real world in the repository and why the gate is right to refuse), and
+`autoStage`'s placement rules still read the room's door spec.
+
 ### Still to build (named so nobody looks for them)
 
-From the accuracy pass: **the room world is not yawed onto plan north**. The quarter turn is
-recovered (`matchPortals().quarters`, `UnitRoom.yawToNorth`) and the unit map applies it, so the
-map is right today, but the rendered capture is still drawn in its own frame. Doing it properly
-means threading one extra quarter turn through the single existing rotation path
-(`roomRect` → `splatTransform` → `marbleFrame` → `MarbleWorld`) and folding `rooms.geometry`'s door
-and window walls by the same turn — a second rotation path would be worse than the gap. Also:
-`shared/fusion.ts` accepts an EXIF field-of-view prior but nothing converts focal length and sensor
-size into one; adjacency is inferred because the plan parser returns no doors, so the "every plan
-door leads to the right room" row of the contract is measured against our own inference.
+- **The room's geometry is not folded onto the plan's frame.** See above: it is a decision, and
+  `TurnPolicy.foldedQuarters` is where it would go. Nothing in the tree has a non-zero quarter turn
+  today, because it is recovered from measured collider openings and neither demo world reports any.
+- **Adjacency is inferred**, because the plan parser returns room names, types, printed dimensions
+  and door *counts* but never which two rooms a door joins. So the "every plan door leads to the
+  right room" row of the contract measures `shared/unitGraph`'s own inference, and the graph says so
+  (`adjacency: 'inferred'`).
+- **Auto-stage still places against `room.geometry.door`.** The reporting surfaces no longer do:
+  `doorSwings` (src/engine/geometry.ts) takes the drawn doorways and `fitReport`, `pieceStatus` and
+  `buyerVerdict` take them as an optional last argument, which the stage editor, the staging layer
+  and the renter's furniture test all pass from `screens/viewer/unit`. So a piece across the drawn
+  doorway is named instead of being passed as "everything fits". `autoStage`'s own placement rules
+  (`farFromDoor`, the wall it keeps clear) still read the room's door spec, so it still parks the
+  demo's TV console in the drawn doorway — the difference is that the report says so.
 
-From the backend run: the
+- **From the backend run**: the
 `analyze`, `parse_plan` and `stage` job handlers (the queue, retries and backoff are generic over the kind — they are one `case` each
 in `runJob`; until then `POST /api/v1/units/:id/floor-plan` enqueues `parse_plan` only when the
 caller did **not** post an already-parsed plan, so the wizard's own browser-side reader never
-leaves a doomed job in a seller's queue), `worlds.credits` / `worlds.usd` (the provider's cost is
+leaves a doomed job in a leasing team's queue), `worlds.credits` / `worlds.usd` (the provider's cost is
 not read back on completion), and `src/services/backend.ts`, the §8 adapter that would switch the
 store over when `/api/status` reports `backend: true`. `ProviderStatus.backend` is already the flag
 it will read, and `server/routes.ts` is the contract it will read it against.

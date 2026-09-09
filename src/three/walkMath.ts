@@ -2,7 +2,7 @@
  * The walker's physics, kept pure so it can be unit-tested without a WebGL context.
  * Metres, radians; yaw 0 looks north (-z). See WalkControls for the input wiring.
  */
-import type { PlacedPiece, RoomGeometry } from '@/engine/types';
+import type { DoorSpec, PlacedPiece, RoomGeometry } from '@/engine/types';
 import { pointInFootprint } from '@/engine/geometry';
 
 /** The walker's collision radius. */
@@ -79,9 +79,15 @@ export interface WalkBounds {
   blocked(x: number, z: number): boolean;
 }
 
-/** Where the walker stands when walk mode starts: just inside the door, facing into the room. */
-export function spawnPose(room: RoomGeometry): { x: number; z: number; yaw: number } {
-  const d = room.door;
+/**
+ * Where the walker stands when walk mode starts: just inside the door, facing into the room.
+ *
+ * `door` defaults to the room's own spec — where `rawFromBounds` put the photographer. Pass the
+ * doorway the shell actually cut (`doorOpeningsFor`, three/RoomShell) whenever the room has one, or
+ * the renter spawns 0.7 m in front of a blank wall while the door they can see is elsewhere.
+ */
+export function spawnPose(room: RoomGeometry, door: Pick<DoorSpec, 'wall' | 'offset'> = room.door): { x: number; z: number; yaw: number } {
+  const d = door;
   const inset = 0.7;
   switch (d.wall) {
     case 'south':

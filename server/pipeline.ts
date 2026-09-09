@@ -48,12 +48,15 @@ import {
   isOneRoom,
   measureColliderGlb,
   rawFromBounds,
+  wallsOf,
   type DoorSpec,
   type RawRoomGeometry,
   type WindowSpec,
   type WorldBounds,
 } from '../shared/collider.js';
+import { exifScalePrior } from '../shared/exifPrior.js';
 import { fuseScale, orientPlan, roomFromFusion, type RoomMeasurement, type ScaleConstraints } from '../shared/fusion.js';
+import { modelForModelRoom, type ModelRoom } from '../shared/modelPolicy.js';
 
 /* ---------- the two ports ---------- */
 
@@ -656,7 +659,11 @@ export interface PlanContext {
   /** `PIPELINE_VERSION`; bumping it invalidates every recipe on purpose. */
   pipelineVersion: string;
   provider: RecipeProvider;
-  /** The model id this tier resolves to (`marble-1.0-draft`, `marble-1.1`, or the mock's). */
+  /**
+   * The tier's own model id (`marble-1.0-draft`, `marble-1.1`, or the mock's). It is the *base*: a
+   * room the plan draws over 30 m² or calls open plan is routed to full quality's larger sibling by
+   * `modelForRoomRow`, so one unit can plan several models.
+   */
   model: string;
   /** Prompt facts per room id, merged over what the stored rows already say. */
   context?: Record<string, RecipeContext>;
@@ -813,10 +820,37 @@ export function roomRecipe(room: RoomRow, unit: UnitRow, property: PropertyRow |
   });
 }
 
+/** A stored room, as the model rule sees it (`shared/modelPolicy.ts`). */
+function modelRoomOfRow(room: RoomRow): ModelRoom {
+  const plan = planDimsOf(room);
+  const planRoomName = typeof room.plan_dims?.planRoomName === 'string' ? room.plan_dims.planRoomName : undefined;
+  return { name: room.name, type: roomTypeOf(room.type), planRoomName, planWidthM: plan?.width, planDepthM: plan?.depth };
+}
+
+/**
+ * The model id THIS room's recipe names: the tier's own model, or full quality's larger sibling for
+ * a room the plan draws over 30 m² or calls open plan.
+ *
+ * It is the same function the wizard's launch step calls (`modelForModelRoom`), not a second reading
+ * of the same rule, because the model is hashed into the recipe: a browser-started room and a
+ * backend-started room that disagreed here would generate twice and attach neither. `ctx.model` is
+ * the tier's base id, which is what `PlanContext` carries. The mock provider is left alone — its two
+ * ids are the only ones it has, and a `-plus` sibling of them does not exist.
+ */
+export function modelForRoomRow(room: RoomRow, tier: RecipeTier, ctx: { provider: RecipeProvider; model: string }): string {
+  if (ctx.provider !== 'marble') return ctx.model;
+  const models = tier === 'full' ? { marbleFull: ctx.model } : { marbleDraft: ctx.model };
+  return modelForModelRoom(modelRoomOfRow(room), tier, models).model;
+}
+
 /**
  * Build a recipe for every room of the unit that has a photo (docs/BACKEND.md §4 step 3). Rooms
  * that cannot be generated yet come back in `skipped` with the reason, because "nothing happened"
  * is the one answer a seller must never get without one.
+ *
+ * Each room chooses its own model (`modelForRoomRow`), so a 35 m² living room and a 12 m² bedroom in
+ * the same unit go to different Marble models and carry different recipe hashes — which is the point
+ * of the tier policy, and the reason the model id is in the recipe at all.
  */
 export async function planRecipes(db: PipelineDb, org: string, unitId: string, tier: RecipeTier, ctx: PlanContext): Promise<PlanResult> {
   if (!TIERS.has(tier)) throw new PipelineError(400, `tier must be draft or full, got ${JSON.stringify(tier)}`);
@@ -851,7 +885,7 @@ export async function planRecipes(db: PipelineDb, org: string, unitId: string, t
       recipe = roomRecipe(room, unit, property, roomPhotos, {
         pipelineVersion: ctx.pipelineVersion,
         provider: ctx.provider,
-        model: ctx.model,
+        model: modelForRoomRow(room, tier, ctx),
         tier,
         context: ctx.context?.[room.id],
       });
@@ -1429,6 +1463,12 @@ export interface MeasureRoomInput {
   anchor?: AnchorJson | null;
   /** `worlds.metric_scale_factor`: the provider's own estimate, full tier only. */
   metricScaleFactor?: number | null;
+  /**
+   * The room's **primary** photo — the shot the reconstruction is of — for the field-of-view prior
+   * (`shared/exifPrior.ts`). A `PhotoRow` satisfies it; `orderPhotos(...)[0]` is the one to pass.
+   * Absent, or carrying no lens the prior can read, it contributes nothing.
+   */
+  photo?: Pick<PhotoRow, 'exif' | 'width' | 'height'> | null;
   worldId?: string;
   now: number;
 }
@@ -1454,13 +1494,17 @@ const CEILING_ANCHORS: ReadonlySet<string> = new Set(['ceiling', 'assumed']);
  * With none printed, the standard 2.44 m ±12 cm is still a real prior — but only when the anchor is
  * not itself a ceiling anchor, because then the two would be the same assertion entered twice and
  * the fit would report a confidence it has not earned.
+ *
+ * The EXIF field of view is the last constraint and the weakest. It is computed from `bounds` — the
+ * rectangle the fit was given (`measureRoom`'s own: the room's own walls whenever the mesh found
+ * them), never from `input.bounds`, which on a re-measurement is the record the `aabb` fallback
+ * already wrote. Reading the stored record instead moved the wall the capture faces to the far side
+ * of the bounding box, took its framing outside the gate, and withheld the prior on the second
+ * measurement of a room that had it on the first. It is closed on the same ceiling height that fed
+ * `c.ceiling`, printed or standard, rather than a second opinion about it.
  */
-function scaleConstraintsFor(
-  raw: RawRoomGeometry,
-  planDims: PlanDimsJson | null | undefined,
-  anchor: AnchorJson | null | undefined,
-  metricScaleFactor: number | null | undefined,
-): { constraints: ScaleConstraints; planSwapped: boolean } {
+function scaleConstraintsFor(raw: RawRoomGeometry, input: MeasureRoomInput, bounds: WorldBounds): { constraints: ScaleConstraints; planSwapped: boolean } {
+  const { planDims, anchor, metricScaleFactor } = input;
   const c: ScaleConstraints = { raw: { width: raw.width, depth: raw.depth, height: raw.height } };
   let planSwapped = false;
   if (planDims && (isFiniteNumber(planDims.width) || isFiniteNumber(planDims.depth))) {
@@ -1490,6 +1534,19 @@ function scaleConstraintsFor(
   if (isFiniteNumber(printed) && printed > 0) c.ceiling = { heightM: printed, printed: true };
   else if (!(typeof anchor?.method === 'string' && CEILING_ANCHORS.has(anchor.method))) c.ceiling = { heightM: CEILING_HEIGHT_M, printed: false };
   if (isFiniteNumber(metricScaleFactor) && metricScaleFactor > 0) c.marble = { metricScaleFactor };
+  const exif = exifScalePrior({
+    exif: input.photo?.exif,
+    width: input.photo?.width,
+    height: input.photo?.height,
+    bounds,
+    ceilingM: c.ceiling?.heightM ?? CEILING_HEIGHT_M,
+  });
+  /* `group: 'ceiling'` whenever there IS a ceiling constraint, because the prior is closed on that
+     very height (see the paragraph above): the two are one metric assumption read against two
+     different raw quantities, and fusion must weight them as one source rather than two. Without a
+     ceiling constraint — a ceiling anchor supplied it instead — the prior stands on the standard
+     height on its own and keeps its own group. */
+  if (exif) c.exif = { metresPerUnit: exif.metresPerUnit, sigmaRel: exif.sigmaRel, ...(c.ceiling ? { group: 'ceiling' as const } : {}) };
   return { constraints: c, planSwapped };
 }
 
@@ -1529,19 +1586,31 @@ function scaleGeometry(raw: RawRoomGeometry, scale: number, dims: { width: numbe
  * pass only changes which rectangle the extent comes from, and the "plan says / model measures"
  * lines then state the gap in metres instead of hiding it.
  *
+ * **Measuring twice gives the same answer.** The fit always starts from the room's own walls when
+ * the mesh found any, whatever `method` the bounds handed in carry — because the bounds handed in
+ * are, on every measurement after the first, the record pass two wrote and `writeMeasurement`
+ * stored. Taking the stored `method` as the fit's rectangle meant a re-fusion measured a different
+ * room from the one the world was measured with: on a real local run a no-op `PATCH` (the same plan
+ * dimensions the room already had) moved the published scale by 48 % and dropped the EXIF residual,
+ * because the wall rectangle it had been fitted with was no longer being read. So `method` is
+ * pass two's answer about the *extent*, and never an input to pass one.
+ *
  * Pure: no clock (the caller passes `now`), no I/O, no randomness.
  */
 export function measureRoom(input: MeasureRoomInput): RoomMeasurementResult {
-  let bounds = input.bounds;
+  // The rectangle the scale is fitted from: the walls, whenever the mesh has them.
+  const walls = Boolean(wallsOf(input.bounds));
+  const fitBounds: WorldBounds = walls ? { ...input.bounds, method: 'walls' } : input.bounds;
+  let bounds = fitBounds;
   let raw = rawFromBounds(bounds);
   // Whether the plan had to be read the other way round is a property of the fit that was used, so
   // it is read off the constraints the fit was given rather than recomputed against a later pass.
-  const fitted = scaleConstraintsFor(raw, input.planDims, input.anchor, input.metricScaleFactor);
+  const fitted = scaleConstraintsFor(raw, input, fitBounds);
   const planSwapped = fitted.planSwapped;
   const fusion = fuseScale(fitted.constraints);
   let room = roomFromFusion(raw, fusion);
-  if (!isOneRoom(room) && extentMethodOf(bounds) === 'walls') {
-    bounds = { ...bounds, method: 'aabb' };
+  if (!isOneRoom(room) && walls) {
+    bounds = { ...input.bounds, method: 'aabb' };
     raw = rawFromBounds(bounds);
     room = roomFromFusion(raw, fusion);
   }
@@ -1734,11 +1803,16 @@ export async function updateRoom(db: PipelineDb, org: string, unitId: string, ro
   const world = await measuredWorldOf(db, org, updated);
   if (!world || !world.bounds) return { room: updated, changed, measurement: null, recipe: null };
   const recipe = await roomRecipeState(db, org, unit, updated, world);
+  /* The room's primary photo, for the field-of-view prior. Without it a plan correction would
+     silently re-measure the room with one fewer constraint than the world was measured with, so the
+     residual line the seller was shown would disappear on the request that was meant to improve it. */
+  const primaryPhoto = orderPhotos(await db.select<PhotoRow>('photos', { filters: { room_id: updated.id, org_id: org } }))[0] ?? null;
   const result = measureRoom({
     bounds: world.bounds as unknown as WorldBounds,
     planDims: updated.plan_dims,
     anchor: updated.anchor,
     metricScaleFactor: world.metric_scale_factor,
+    photo: primaryPhoto,
     worldId: world.id,
     now,
   });

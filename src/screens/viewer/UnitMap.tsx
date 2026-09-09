@@ -17,6 +17,12 @@
  *   then dropped, rather than drawn illegibly.
  * - **One conversion, borrowed.** The renter's pose is in the room's own frame; `toUnitPose` puts it
  *   on the sheet, and `toRoomPoint` brings a click back. Neither is re-derived here.
+ * - **The map consumes the room's turn, it does not invent one.** When the viewer yaws a room's
+ *   world onto plan north (`planYaw` in services/marble), the pose it publishes is already in that
+ *   turned frame, so this panel *undoes* exactly that number (`roomYaw`) before handing the pose to
+ *   `toUnitPose` — it never turns the drawing itself. Undone turn and quarter turn then cancel down
+ *   to the north arrow, which is right: the sheet draws north as an arrow rather than by turning
+ *   the page.
  * - **The drawing is the plan's, the position is the model's.** Room rectangles are what the plan
  *   printed (a drawing, ±5 cm); the dot is where the renter actually is in the reconstruction. The
  *   two are not the same measurement and the map never pretends otherwise — the caption says which
@@ -68,6 +74,17 @@ export interface UnitMapProps {
   activeRoomRef?: string;
   /** The quarter turn between that room's frame and the plan's, from `matchPortals`. */
   quarters?: number;
+  /**
+   * Radians the frame the renter's pose is measured in has already been turned by — undone here
+   * before the pose is put on the sheet.
+   *
+   * Which number that is depends on how much of the plan's turn the room has taken: it is
+   * `SplatTransform.planYaw` when the whole room world carries it, and `UnitRoom.yawToNorth` when
+   * the quarter turn has been folded into the room's own geometry instead and only the north arrow
+   * is left as a turn (`quarters` is then 0). Both give the same dot on the sheet. 0 — the default,
+   * and every room without a floor plan — leaves the pose exactly as it arrives.
+   */
+  roomYaw?: number;
   /** Clicking another room on the plan goes to it. */
   onPickRoom?: (roomRef: string) => void;
   /** Clicking the room you are in walks there — room metres, in that room's own frame. */
@@ -77,6 +94,40 @@ export interface UnitMapProps {
 }
 
 const rectOf = (r: UnitRoom) => ({ x: r.position.x - r.width / 2, y: r.position.z - r.depth / 2, w: r.width, h: r.depth });
+
+/**
+ * `Ry(a)` on the floor plane: `(x cos a + z sin a, z cos a − x sin a)`. The same turn the Marble
+ * group applies, in two dimensions — it is how a room's world is yawed onto plan north, so it is
+ * also how a pose measured in that world is brought back off it.
+ */
+function turnXZ(x: number, z: number, a: number): { x: number; z: number } {
+  if (!a) return { x, z };
+  const c = Math.cos(a);
+  const s = Math.sin(a);
+  return { x: x * c + z * s, z: z * c - x * s };
+}
+
+/**
+ * The renter's pose, on the sheet.
+ *
+ * Two steps, and neither is invented here. `roomYaw` is the turn the viewer already applied to the
+ * frame the pose is measured in, so it is undone first; `quarters` is what is left of the turn
+ * between that frame and the plan's, and `toUnitPose` is the one place it is undone.
+ *
+ * The two ways a room can be oriented land on the same point, which is what makes this safe to call
+ * either way round: a room drawn in its capture's frame passes `(quarters, 0)`, and one yawed fully
+ * onto plan north — its geometry folded by the quarter turn — passes `(0, yawToNorth)`.
+ */
+export function poseOnSheet(room: Pick<UnitRoom, 'position'>, pose: { x: number; z: number; yaw?: number }, quarters = 0, roomYaw = 0) {
+  const p = turnXZ(pose.x, pose.z, -roomYaw);
+  return toUnitPose(room, { ...p, yaw: (pose.yaw ?? 0) - roomYaw }, quarters);
+}
+
+/** {@link poseOnSheet} the other way: a point on the sheet, in the frame the renter's pose lives in. */
+export function pointInRoom(room: Pick<UnitRoom, 'position'>, point: { x: number; z: number }, quarters = 0, roomYaw = 0) {
+  const local = toRoomPoint(room, point, quarters);
+  return turnXZ(local.x, local.z, roomYaw);
+}
 
 /** The two ends of a doorway on one wall of a room, in sheet metres. */
 function doorSegment(room: UnitRoom, wall: string, offset: number, width: number) {
@@ -96,7 +147,7 @@ function doorSegment(room: UnitRoom, wall: string, offset: number, width: number
  * The unit's plan, with "you are here" on it. Draws one storey — the one the renter is standing on —
  * and nothing at all when the plan produced no rooms for it.
  */
-export function UnitMap({ graph, activeRoomRef, quarters = 0, onPickRoom, onWalkTo, className, style }: UnitMapProps) {
+export function UnitMap({ graph, activeRoomRef, quarters = 0, roomYaw = 0, onPickRoom, onWalkTo, className, style }: UnitMapProps) {
   /* The pose is read here rather than passed in, as in `three/Minimap`: the renter's dot moves every
      frame they walk, and the HUD around this panel must not re-render with it. */
   const pose = useViewer((s) => s.pose);
@@ -111,7 +162,7 @@ export function UnitMap({ graph, activeRoomRef, quarters = 0, onPickRoom, onWalk
   const rooms = useMemo(() => graph.rooms.filter((r) => r.floorIndex === floorIndex), [graph, floorIndex]);
   const box = useMemo(() => floorBounds(graph, floorIndex), [graph, floorIndex]);
 
-  const here = useMemo(() => (active ? toUnitPose(active, pose, quarters) : null), [active, pose, quarters]);
+  const here = useMemo(() => (active ? poseOnSheet(active, pose, quarters, roomYaw) : null), [active, pose, quarters, roomYaw]);
 
   useEffect(() => {
     const el = svgRef.current;
@@ -175,8 +226,8 @@ export function UnitMap({ graph, activeRoomRef, quarters = 0, onPickRoom, onWalk
       return;
     }
     if (!onWalkTo) return;
-    // Inside the room you are already in: walk to that spot, in the room's own frame.
-    const local = toRoomPoint(hit, { x: p.x, z: p.y }, quarters);
+    // Inside the room you are already in: walk to that spot, in the frame the renter's pose lives in.
+    const local = pointInRoom(hit, { x: p.x, z: p.y }, quarters, roomYaw);
     onWalkTo(local.x, local.z);
   };
 

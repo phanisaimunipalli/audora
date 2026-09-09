@@ -36,6 +36,7 @@ import {
   PipelineError,
   measureColliderBytes,
   measureRoom,
+  orderPhotos,
   pointRoomAtWorld,
   roomRecipeState,
   splitStoragePath,
@@ -635,11 +636,19 @@ async function measureWorld(ctx: Ctx, job: JobRow, world: WorldRow, collider: Bu
   }
   try {
     const room = job.room_id ? await ctx.db.select<RoomRow>('rooms', { filters: { id: job.room_id }, single: true }) : null;
+    /* The shot the reconstruction is of, for the field-of-view prior (`shared/exifPrior.ts`). It is
+       the same ordering the recipe used, so the photo the prior reads is the photo Marble was given
+       first. A room with no photos, or a photo whose EXIF says nothing about the lens, contributes
+       nothing — `exifScalePrior` returns null rather than a guess. */
+    const primaryPhoto = job.room_id
+      ? orderPhotos(await ctx.db.select<PhotoRow>('photos', { filters: { room_id: job.room_id, org_id: world.org_id } }))[0] ?? null
+      : null;
     const result = measureRoom({
       bounds: measureColliderBytes(collider),
       planDims: room?.plan_dims,
       anchor: room?.anchor,
       metricScaleFactor,
+      photo: primaryPhoto,
       worldId: world.id,
       now: ctx.now(),
     });

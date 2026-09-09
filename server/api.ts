@@ -19,6 +19,7 @@ import { appendFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { Plugin } from 'vite';
 import { marbleGenerateRequest } from './marbleRequest.js';
+import { DEFAULT_DRAFT_MODEL, DEFAULT_FULL_MODEL } from '../shared/modelPolicy.js';
 import { dbFromEnv, type Db } from './db.js';
 import { Storage } from './storage.js';
 import { defaultAuth, handleV1 } from './routes.js';
@@ -136,8 +137,11 @@ function models() {
     // Product decision 2026-09-06: staging runs on the hosted 235B on Token Factory. STAGER_MODEL can point
     // at the fine-tuned 8B (e.g. "modal:stager") when a host for it exists; same accuracy, ~10× cheaper.
     stager: ENV.STAGER_MODEL || ENV.NEBIUS_TEXT_MODEL || DEFAULT_TEXT,
-    marbleDraft: ENV.MARBLE_DRAFT_MODEL || 'marble-1.0-draft',
-    marbleFull: ENV.MARBLE_FULL_MODEL || 'marble-1.1',
+    // The two ids the whole product agrees on (shared/modelPolicy.ts): /api/status reports them to
+    // the browser, the recipe hashes whichever one the room chose, and this route only runs one of
+    // them or full quality's `-plus` sibling.
+    marbleDraft: ENV.MARBLE_DRAFT_MODEL || DEFAULT_DRAFT_MODEL,
+    marbleFull: ENV.MARBLE_FULL_MODEL || DEFAULT_FULL_MODEL,
   };
 }
 
@@ -474,10 +478,13 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
     if (p === '/api/marble/generate' && req.method === 'POST') {
       const body = await readBody(req);
       const m = models();
-      /* One angle or several, a seed, `disableRecaption` and extra tags: the whole mapping from this
-         body to Marble's request is `marbleGenerateRequest` (server/marbleRequest.ts), pure and
-         unit-tested. It runs BEFORE the credit guard so a malformed request answers 400 without
-         using up one of the live slots. */
+      /* One angle or several, a seed, `disableRecaption`, extra tags and the model the room's recipe
+         named: the whole mapping from this body to Marble's request is `marbleGenerateRequest`
+         (server/marbleRequest.ts), pure and unit-tested. `body.model` is checked against the ids this
+         server runs for that tier (`knownModels`) — a known one is used, none means the tier's own,
+         and an unknown one is a 400 rather than a silent substitution, because the caller's recipe
+         hash names the model it asked for. All of it runs BEFORE the credit guard, so a malformed or
+         unrunnable request answers without using up one of the live slots. */
       const built = marbleGenerateRequest(body, { draft: m.marbleDraft, full: m.marbleFull });
       if ('error' in built) {
         json(res, built.status, { error: built.error });

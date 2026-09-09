@@ -1,5 +1,5 @@
 /** A finished demo unit so the dashboard, its public page and the viewer have something to show on first run. */
-import { anchorFromCeiling, anchorFromDoor, anchorFromMarble, anchorFromWall } from '@/engine/anchor';
+import { anchorFromCeiling, anchorFromDoor, anchorFromMarble, anchorFromWall, CEILING_HEIGHT_M } from '@/engine/anchor';
 import { clampToRoom, placeAgainstWall } from '@/engine/geometry';
 import { catalogItem } from '@/engine/catalog';
 import { extentMethodOf, fetchColliderGeometry, rawFromBounds, roomExtent, wallsOf } from '@/services/marble';
@@ -8,8 +8,11 @@ import { autoStage, makePiece } from '@/engine/autostage';
 import { mockRawGeometry, mockWorld } from '@/services/mockWorld';
 import { uid } from '@/lib/ids';
 import { defaultHeading, dominantWindowWall, facingToHeading } from '@/engine/siteSun';
+import { isOneRoom } from '@shared/collider';
+import { fuseScale, orientPlan, roomFromFusion, type RoomMeasurement, type ScaleConstraints } from '@shared/fusion';
+import { pickWorld } from './publish';
 import { useAudora } from './store';
-import type { AnalyticsEvent, Room, RoomWorld, Tour, TourFloorPlan, TourSite } from './types';
+import type { AnalyticsEvent, PlanDimensions, Room, RoomWorld, Tour, TourFloorPlan, TourSite } from './types';
 import type { PlacedPiece, RawGeometry, RoomGeometry, RoomType, WallSide } from '@/engine/types';
 
 export const DEMO_SHARE_ID = 'oak1247';
@@ -351,6 +354,7 @@ export function ensureSite(tourId: string) {
 export function ensureRealRoom(tourId: string) {
   const tour = useAudora.getState().tours[tourId];
   if (!tour) return;
+  ensureHallwayRoom(tourId);
   ensureDraftRoom(tourId);
   ensureFullRoom(tourId);
   ensureDemoPlan(tourId);
@@ -359,37 +363,104 @@ export function ensureRealRoom(tourId: string) {
 
 /* ------------------------------------------------------------------ the demo unit's floor plan
  *
- * The unit's own drawing, as the parser would have returned it (docs/ACCURACY.md 2: a plan is
- * the cheapest metric truth a unit has). It is what makes the demo a *unit* rather than six
- * unrelated rooms: `buildUnitGraph` reads it into a room graph, `UnitMap` draws the storey with
- * "you are here", and each plan door that lands on a measured opening becomes a portal you can walk
- * through (`shared/unitGraph.ts`).
+ * The unit's own drawing, as the parser would have returned it (docs/ACCURACY.md §2: a plan is the
+ * cheapest metric truth a unit has). It is what makes the demo a *unit* rather than six unrelated
+ * rooms: `buildUnitGraph` reads it into a room graph, `UnitMap` draws the storey with "you are
+ * here", and each plan door that lands on a measured opening becomes a portal you can walk through
+ * (`shared/unitGraph.ts`).
  *
- * Every printed dimension is the room's real size rounded to the nearest inch, which is what a
- * draughtsman does — so the "plan says / model measures" line shows a genuine one-centimetre
- * residual rather than a suspicious exact match. `metres` is our own reading of `text`, not a
- * second number: 17'-5" is 17 × 0.3048 + 5 × 0.0254.
+ * The drawing is real and it is in the repository: `public/demo/floorplan-oak-unit3.png`, drawn by
+ * `scripts/make-demo-plan.mjs` from a room table in metres, with door swings, a north arrow and a
+ * title block. **Nothing here parses it at runtime.** The parsed shape is written out below, so the
+ * wizard's demo and the hub have the numbers on the first frame, with no vision call, no network
+ * and no key — and so the demo reads identically in every browser.
  *
- * The sheet order matters. With no hallway on the plan, `inferAdjacency` chains rooms in the order
- * they are drawn, so the four rooms that have a capture are listed contiguously and you can walk
- * living → dining → primary → second. The kitchen is drawn last: it is on the plan, it appears on
- * the unit map, and it has no photograph — so the viewer shows it and offers no doorway into it,
- * which is the honest version of a room nobody shot.
+ * Each `text` is the string printed beside that room on the sheet, verbatim: feet and inches, with
+ * the draughtsman's own metric restatement in brackets. `width`/`depth` are our own reading of that
+ * string — `metresFromDimensions` (services/floorplan) prefers a bracketed metric restatement,
+ * which is why `dimensionsFrom` is `'text'` and not `'model'`, and why `tests/demo-plan.test.ts`
+ * can re-read every one of them and get these numbers back.
+ *
+ * The numbers are the rooms' own sizes rounded the way a drawing rounds them, so "plan says / model
+ * measures" shows a real residual — a centimetre or two on most rooms, a full 5 cm on the second
+ * bedroom, which is the room a renter's bed does not fit in and the one worth arguing about.
+ *
+ * The hallway is on the sheet because `inferAdjacency` hangs every room off the storey's hallway,
+ * so the graph is the one a renter would actually walk — living → hall → each bedroom — instead of
+ * a chain in sheet order. It is photographed too (`ensureHallwayRoom` below): a corridor nobody
+ * shot leaves every other room's doorway leading nowhere, which is honest about the unit and a
+ * demonstration of nothing.
  */
-const DEMO_PLAN_ROOMS: { name: string; type: RoomType; width: number; depth: number; text: string; windows: number; doors: number }[] = [
-  { name: 'Living room', type: 'living', width: 5.3086, depth: 5.7912, text: `17'-5" × 19'-0"`, windows: 2, doors: 1 },
-  { name: 'Dining room', type: 'dining', width: 3.302, depth: 4.0894, text: `10'-10" × 13'-5"`, windows: 1, doors: 2 },
-  { name: 'Primary bedroom', type: 'bedroom', width: 3.3274, depth: 3.7846, text: `10'-11" × 12'-5"`, windows: 1, doors: 1 },
-  { name: 'Second bedroom', type: 'bedroom', width: 2.7432, depth: 3.048, text: `9'-0" × 10'-0"`, windows: 1, doors: 1 },
-  { name: 'Kitchen', type: 'kitchen', width: 2.5908, depth: 3.4036, text: `8'-6" × 11'-2"`, windows: 1, doors: 1 },
+interface DemoPlanRoom {
+  name: string;
+  type: RoomType;
+  /** Metres, read off `text`. */
+  width: number;
+  depth: number;
+  /** Exactly what the sheet prints beside the room. */
+  text: string;
+  windows: number;
+  doors: number;
+}
+
+const DEMO_PLAN_ROOMS: DemoPlanRoom[] = [
+  { name: 'Living room', type: 'living', width: 5.3, depth: 5.78, text: `17'-5" × 19'-0" (5.30 × 5.78 m)`, windows: 2, doors: 2 },
+  { name: 'Dining room', type: 'dining', width: 3.3, depth: 4.1, text: `10'-10" × 13'-5" (3.30 × 4.10 m)`, windows: 2, doors: 1 },
+  { name: 'Hallway', type: 'hallway', width: 7, depth: 1.2, text: `23'-0" × 3'-11" (7.00 × 1.20 m)`, windows: 0, doors: 5 },
+  { name: 'Primary bedroom', type: 'bedroom', width: 3.3, depth: 3.8, text: `10'-10" × 12'-6" (3.30 × 3.80 m)`, windows: 2, doors: 1 },
+  { name: 'Second bedroom', type: 'bedroom', width: 2.8, depth: 3, text: `9'-2" × 9'-10" (2.80 × 3.00 m)`, windows: 1, doors: 1 },
+  { name: 'Corner room', type: 'bedroom', width: 3, depth: 4.06, text: `9'-10" × 13'-4" (3.00 × 4.06 m)`, windows: 2, doors: 1 },
 ];
 
 const DEMO_PLAN_FLOOR = 'Third floor';
+/** The drawing itself. Synthetic — see public/demo/ATTRIBUTION.md. */
+export const DEMO_PLAN_IMAGE = '/demo/floorplan-oak-unit3.png';
+export const DEMO_PLAN_FILE = 'floorplan-oak-unit3.png';
+
+/* ---------- the corridor every other room opens off ----------
+ *
+ * `inferAdjacency` hangs all five photographed rooms off the storey's hallway, so until the tour
+ * had a Hallway room every doorway in the demo led somewhere the tour did not have: the shell cut
+ * the hole the plan says is there, no marker stood in it, and walking into it did nothing. The
+ * headline renter feature — walking the unit room to room — was dead on the only unit that ships.
+ *
+ * So the corridor is photographed too. It is simulated exactly like the other four rooms, from the
+ * same `mockRawGeometry` on its own seed, and it is measured against the same printed string with
+ * the same `shared/fusion` functions — but a 7.00 × 1.20 m corridor is not a shape `mockRawGeometry`
+ * can draw for any seed (its hallway range is 1.3–2.0 m by 3.0–5.0 m, a hall and not a passage), so
+ * the drawn size is overridden with what the model "measured". Everything else about it — its
+ * ceiling, its door's width and where along the wall it sits — is still the seed's own draw.
+ *
+ * The numbers below are the model's, not the drawing's: 3 cm under the printed width and 1 cm over
+ * the printed depth, inside the ±5 cm a drawing is worth, so the corridor shows a real residual
+ * like every other room instead of agreeing with the plan to the millimetre.
+ */
+const DEMO_HALLWAY_NAME = 'Hallway';
+const DEMO_HALLWAY_METRES = { width: 6.97, depth: 1.21 };
+
+/** Give the demo unit its corridor, once. Idempotent: it runs on every load, like the real rooms. */
+function ensureHallwayRoom(tourId: string) {
+  const s = useAudora.getState();
+  const tour = s.tours[tourId];
+  if (!tour || tour.roomIds.some((id) => s.rooms[id]?.name === DEMO_HALLWAY_NAME)) return;
+  const raw = mockRawGeometry(`demo:${DEMO_HALLWAY_NAME}`, 'hallway', DEMO_HALLWAY_METRES);
+  // The same anchor the demo's other simulated rooms carry: a tapped interior door, ±4 cm.
+  const anchor = anchorFromDoor(raw, 0.42, [{ x: 0.18, y: 0.28 }, { x: 0.18, y: 0.71 }]);
+  const room = s.addRoom(tourId, { name: DEMO_HALLWAY_NAME, type: 'hallway', raw, anchor });
+  const fresh = useAudora.getState().rooms[room.id];
+  // Generated with the rest of the unit, three days ago — the model date every demo room shows.
+  useAudora.getState().attachWorld(room.id, { ...mockWorld(fresh, 'draft', 24), createdAt: Date.now() - 3 * 86400e3 });
+  const staged = useAudora.getState().rooms[room.id];
+  useAudora.getState().setStaging(room.id, autoStage(staged.geometry, staged.type, 'warm'), 'warm');
+}
+
+/** What goes on a room: the plan's metres, its printed string, and which sheet it came off. */
+const planDimsOf = (r: DemoPlanRoom): PlanDimensions => ({ width: r.width, depth: r.depth, text: r.text, planRoomName: r.name, floor: DEMO_PLAN_FLOOR });
 
 /** The parsed plan the demo tour carries. Fixed, so the demo is the same unit in every browser. */
-function demoFloorPlan(): TourFloorPlan {
+export function demoFloorPlan(): TourFloorPlan {
   return {
-    units: 'feet',
+    units: 'mixed',
     floors: [
       {
         label: DEMO_PLAN_FLOOR,
@@ -407,35 +478,143 @@ function demoFloorPlan(): TourFloorPlan {
     ],
     // Up the page is north, so a room's `yawToNorth` is zero and the map's arrow points straight up.
     northArrow: { present: true, direction: 'up' },
-    notes: ['Dimensions are printed to the nearest inch, as drawn.'],
+    notes: [
+      'Dimensions are printed to the nearest inch, with the metric restatement in brackets.',
+      'Synthetic drawing: 1247 Oak Street, Unit 3 is a demonstration unit, not a real property.',
+    ],
     source: 'heuristic',
+    imageUrl: DEMO_PLAN_IMAGE,
+    fileName: DEMO_PLAN_FILE,
     // Time is an input: the plan was read when the demo unit was created, three days ago.
     parsedAt: Date.now() - 3 * 86400e3,
   };
 }
 
-/**
- * Attach the plan to the tour and its printed dimensions to the rooms it names.
+/* ---------- what the model measured, against what the plan says ----------
  *
- * Only `planDims` is written: the rooms keep the geometry their reconstruction gave them, so the
- * plan stays a *source to compare against* rather than an answer that overwrites the model. That is
- * what makes the AccuracyCard's "plan says 5.31 m · model measures 5.30 m" a measurement and not a
- * tautology. Idempotent, so re-seeding an existing browser fills it in without disturbing anything.
+ * The server measures a room once, after `copy_assets`, and stores the answer on the room
+ * (docs/ACCURACY.md §3.2; `measureRoom` in server/pipeline.ts). The demo unit has no server: its
+ * rooms are seeded straight into the browser store. So the seed runs the *same* pure functions over
+ * the same inputs — `shared/fusion.ts` for the fit and `shared/collider.ts` for the one-room test —
+ * and stores a `RoomMeasurement` of exactly the shape the worker writes and the hub reads. Without
+ * it every card in the demo says "not measured", and the one thing the demo exists to show — a
+ * printed dimension beside the number the model got — is not on screen anywhere.
+ *
+ * Two departures from `scaleConstraintsFor`, both because this is a seed and not a worker:
+ *
+ * - **No provider metric scale.** `mockWorld` derives its `metricScaleFactor` from the room's id,
+ *   which is a random id, so feeding it to the fit would give every browser a different demo. The
+ *   real draft world has none either (draft tier returns no metric semantics), so the constraint is
+ *   left out rather than faked, and the fit rests on the plan, the anchor and the ceiling.
+ * - **No clock.** `measuredAt` is the world's own `createdAt`, which is already on the record —
+ *   nothing that feeds or stamps a measurement reads `Date.now()` here.
  */
-function ensureDemoPlan(tourId: string) {
+
+/** Anchors that already ARE the assumed ceiling; adding a ceiling constraint beside one counts it twice. */
+const CEILING_ANCHORS: ReadonlySet<string> = new Set(['ceiling', 'assumed']);
+
+function demoMeasurement(room: Pick<Room, 'raw' | 'anchor' | 'planDims' | 'draft' | 'full'>): RoomMeasurement | undefined {
+  const plan = room.planDims;
+  if (!plan || !(plan.width > 0) || !(plan.depth > 0)) return undefined;
+  // No reconstruction, nothing to measure: a room's numbers are only a measurement once a model has
+  // produced a room to measure. `measuredAt` comes off that world, so there is no clock read either.
+  const world = pickWorld(room.draft, room.full);
+  if (!world) return undefined;
+  const source = world.raw ?? room.raw;
+  const raw = { width: source.width, depth: source.depth, height: source.height };
+  if (!(raw.width > 0) || !(raw.depth > 0) || !(raw.height > 0)) return undefined;
+
+  // The wall fit's rotation is only defined modulo 90°, so orient the printed pair onto the model's
+  // axes before pairing them — the same rule the server uses, from the same module.
+  const oriented = orientPlan(raw, { width: plan.width, depth: plan.depth });
+  const constraints: ScaleConstraints = {
+    raw,
+    plan: { width: oriented.width, depth: oriented.depth },
+    anchor: { metresPerUnit: room.anchor.metresPerUnit, uncertaintyM: room.anchor.uncertaintyM, referenceMetres: room.anchor.referenceMetres },
+    ...(CEILING_ANCHORS.has(room.anchor.method) ? {} : { ceiling: { heightM: CEILING_HEIGHT_M, printed: false } }),
+  };
+  const fusion = fuseScale(constraints);
+  const fused = roomFromFusion(raw, fusion);
+  const oneRoom = isOneRoom(fused);
+  return {
+    scale: fusion.scale,
+    sigma: fusion.sigma,
+    sigmaRel: fusion.sigmaRel,
+    confidence: oneRoom ? fusion.confidence : 0,
+    independentSources: fusion.independentSources,
+    residuals: fusion.residuals,
+    flags: fusion.flags,
+    lines: fused.lines,
+    /* A simulated reconstruction hands back the room itself rather than a mesh, so its extent is the
+       room's walls and there is no enclosing box to mistake it for; a real world says which it is. */
+    method: extentMethodOf(world.bounds) ?? 'walls',
+    oneRoom,
+    ...(oriented.swapped ? { planSwapped: true as const } : {}),
+    worldId: world.worldId,
+    measuredAt: new Date(world.createdAt).toISOString(),
+  };
+}
+
+/**
+ * Attach the plan to the tour, its printed dimensions to the rooms it names, and each room's
+ * measurement against them.
+ *
+ * The rooms keep the geometry their reconstruction gave them: the plan is a *source to compare
+ * against*, never an answer that overwrites the model, which is what makes the AccuracyCard's "plan
+ * says 2.80 m · model measures 2.75 m" a measurement and not a tautology.
+ *
+ * `replace` is the migration. Off, this only fills in what is missing, so re-seeding a browser that
+ * already has the plan disturbs nothing. On, it re-writes the plan and every room's numbers — but
+ * only where they are still the demo's own (`ownsPlan` / `ownsDims`), so a leasing team who uploaded
+ * their own drawing or typed their own dimensions keeps them.
+ */
+function applyDemoPlan(tourId: string, replace: boolean) {
   const st = useAudora.getState();
   const tour = st.tours[tourId];
   if (!tour) return;
-  if (!tour.floorPlan) st.updateTour(tourId, { floorPlan: demoFloorPlan() });
-  for (const id of st.tours[tourId]?.roomIds ?? []) {
+  if (!tour.floorPlan || (replace && ownsPlan(tour.floorPlan))) st.updateTour(tourId, { floorPlan: demoFloorPlan() });
+
+  for (const id of useAudora.getState().tours[tourId]?.roomIds ?? []) {
     const room = useAudora.getState().rooms[id];
-    if (!room || room.planDims) continue;
+    if (!room) continue;
     const plan = DEMO_PLAN_ROOMS.find((r) => r.name === room.name);
-    if (!plan) continue; // the two showcase worlds are not rooms of this flat
-    useAudora.getState().updateRoom(id, {
-      planDims: { width: plan.width, depth: plan.depth, text: plan.text, planRoomName: plan.name, floor: DEMO_PLAN_FLOOR },
-    });
+    if (!plan) continue; // the furnished flat is a showcase world, not a room of this unit
+    const mine = replace && ownsDims(room.planDims);
+    const patch: Partial<Room> = {};
+    if (!room.planDims || mine) patch.planDims = planDimsOf(plan);
+    if (!room.measurement || mine) {
+      // Measure against the dimensions this room is about to hold, not the ones it still holds.
+      const measurement = demoMeasurement({ ...room, planDims: patch.planDims ?? room.planDims });
+      if (measurement) patch.measurement = measurement;
+    }
+    if (Object.keys(patch).length) useAudora.getState().updateRoom(id, patch);
   }
+}
+
+/** True for a plan the demo put there: ours, or an older seed's (which carried no file name). */
+function ownsPlan(plan: TourFloorPlan): boolean {
+  return plan.source === 'heuristic' && (!plan.fileName || plan.fileName === DEMO_PLAN_FILE);
+}
+
+/** True for dimensions the demo put there. A leasing team's own numbers name their own sheet. */
+function ownsDims(dims: PlanDimensions | undefined): boolean {
+  return !dims || dims.floor === DEMO_PLAN_FLOOR;
+}
+
+/** Fill in whatever the demo plan is missing. Idempotent; runs on every load. */
+function ensureDemoPlan(tourId: string) {
+  applyDemoPlan(tourId, false);
+}
+
+/**
+ * Bring a browser that already holds the demo up to the current plan.
+ *
+ * Seeds before {@link SEED_VERSION} 10 carried a five-room plan with no drawing behind it, no
+ * hallway and no Corner room, and no room carried a measurement. This replaces all three and
+ * touches nothing else on the tour or its rooms.
+ */
+export function migrateDemoPlan(tourId: string) {
+  applyDemoPlan(tourId, true);
 }
 
 /**
@@ -455,7 +634,7 @@ export const DEMO_UNIT = {
 };
 
 /** Bump when the staging engine, the demo rooms or the demo unit's own copy change; existing browsers re-seed on next load. */
-export const SEED_VERSION = 9;
+export const SEED_VERSION = 11;
 
 /** Re-run the current stager over the demo rooms (keeps rooms, anchors, worlds and analytics). */
 export function restageDemo(tourId: string) {
@@ -508,6 +687,7 @@ export function seedDemo() {
     ensureSite(existing.id);
     ensureRealRoom(existing.id);
     if (s.seedVersion < SEED_VERSION) {
+      migrateDemoPlan(existing.id);
       restageDemo(existing.id);
       relabelDemo(existing.id);
       useAudora.getState().setSeedVersion(SEED_VERSION);

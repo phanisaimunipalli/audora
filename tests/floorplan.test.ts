@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { floorLabel, lengthToMetres, metresFromDimensions, planFromJson, planRoomType, planRooms, planSummary, storeyLabel } from '@/services/floorplan';
+import { floorLabel, lengthToMetres, metresFromDimensions, planFromJson, planRoomType, planRooms, planSummary, printedDimensions, storeyLabel } from '@/services/floorplan';
 
 /**
  * The floor plan is the only place in Audora where a number arrives as *text a model read off a
@@ -168,5 +168,39 @@ describe('floor labels', () => {
     const taken = new Set(['ground floor']);
     expect(floorLabel('Ground Floor', 1, rooms('Hall'), { taken })).toBe('First floor');
     expect(storeyLabel(4)).toBe('Level 5');
+  });
+});
+
+/**
+ * A listing sheet prints feet and inches with the draughtsman's own metric restatement in brackets,
+ * and that restatement is exactly where the stored metres come from. So every line that shows the
+ * metres *and* quotes the print has to drop the echo, or it says the same pair three times.
+ */
+describe('what the plan printed, minus what the metres already say', () => {
+  it('drops a bracketed restatement that agrees with the stored metres', () => {
+    expect(printedDimensions(`17'-5" × 19'-0" (5.30 × 5.78 m)`, 5.3, 5.78)).toBe(`17'-5" × 19'-0"`);
+    expect(printedDimensions(`11'-2" x 13'-5" (3.40 x 4.09 m)`, 3.4, 4.09)).toBe(`11'-2" x 13'-5"`);
+  });
+
+  it('keeps a restatement that disagrees, because that is the conversion a human is checking', () => {
+    expect(printedDimensions(`17'-5" × 19'-0" (5.30 × 4.00 m)`, 5.3, 5.78)).toBe(`17'-5" × 19'-0" (5.30 × 4.00 m)`);
+  });
+
+  it('says nothing at all when the print is only the metres', () => {
+    expect(printedDimensions('5.30 × 5.78 m', 5.3, 5.78)).toBeUndefined();
+    expect(printedDimensions('(5.30 × 5.78 m)', 5.3, 5.78)).toBeUndefined();
+    expect(printedDimensions(undefined, 5.3, 5.78)).toBeUndefined();
+    expect(printedDimensions('', 5.3, 5.78)).toBeUndefined();
+  });
+
+  it('keeps feet and inches on a plan that never restated them', () => {
+    expect(printedDimensions(`12'-4" × 13'-1"`, 3.75, 4.0)).toBe(`12'-4" × 13'-1"`);
+  });
+
+  it('is what the demo sheet actually stores, read back through the converter', () => {
+    const text = `17'-5" × 19'-0" (5.30 × 5.78 m)`;
+    const metres = metresFromDimensions(text, 'mixed')!;
+    expect(metres).toEqual({ width: 5.3, depth: 5.78 });
+    expect(printedDimensions(text, metres.width, metres.depth)).toBe(`17'-5" × 19'-0"`);
   });
 });

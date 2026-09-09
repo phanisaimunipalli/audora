@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useThree, type ThreeEvent } from '@react-three/fiber';
 import type { CatalogItem, PieceOwner, PlacedPiece, RoomGeometry } from '@/engine/types';
-import { clampToRoom, snapRotation, snapToWalls } from '@/engine/geometry';
+import { clampToRoom, snapRotation, snapToWalls, type Doorway } from '@/engine/geometry';
 import { pieceStatus } from '@/engine/fit';
 import { makePiece, pieceId } from '@/engine/autostage';
 import { FurniturePiece, type PieceStatus } from './FurniturePiece';
@@ -11,6 +11,12 @@ import { ACCENT, BUYER_BLUE } from './palette';
 
 export interface StagingLayerProps {
   room: RoomGeometry;
+  /**
+   * The room's drawn doorways (`doorOpeningsFor` by way of `screens/viewer/unit`) — what a piece
+   * has to keep clear to swing. Omitted, the room's own door spec is the only doorway known, which
+   * is where a room with no floor plan has always been.
+   */
+  doorways?: readonly Doorway[];
   /** Leasing team staging. */
   pieces: PlacedPiece[];
   /** Renter's own pieces, drawn in the renter colour; also editable when `editable`. */
@@ -101,7 +107,7 @@ const PieceView = memo(function PieceView({ piece, status, selected, hovered, co
  * Works with a single touch pointer. Orbit controls are paused while dragging.
  */
 export function StagingLayer(props: StagingLayerProps) {
-  const { room, pieces, buyerPieces = [], editable = false, showSeller = true, selectedId, placing = null, placingOwner = 'seller', snap = 0.12, contactShadows = false } = props;
+  const { room, doorways, pieces, buyerPieces = [], editable = false, showSeller = true, selectedId, placing = null, placingOwner = 'seller', snap = 0.12, contactShadows = false } = props;
   const controls = useThree((s) => s.controls) as unknown as { enabled: boolean } | null;
   const gl = useThree((s) => s.gl);
 
@@ -413,11 +419,11 @@ export function StagingLayer(props: StagingLayerProps) {
 
   const statusById = useMemo(() => {
     const out: Record<string, PieceStatus> = {};
-    for (const p of visible) out[p.id] = pieceStatus(p, visible, room);
+    for (const p of visible) out[p.id] = pieceStatus(p, visible, room, doorways);
     return out;
-  }, [visible, room]);
+  }, [visible, room, doorways]);
 
-  const ghostStatus = useMemo(() => (ghost ? pieceStatus(ghost, visible, room) : 'ok'), [ghost, visible, room]);
+  const ghostStatus = useMemo(() => (ghost ? pieceStatus(ghost, visible, room, doorways) : 'ok'), [ghost, visible, room, doorways]);
 
   const selPiece = sel ? visible.find((p) => p.id === sel) : undefined;
   const showHandle = Boolean(selPiece && editable && !placing && canEdit(selPiece!.owner) && !live);

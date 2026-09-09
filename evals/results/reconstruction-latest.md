@@ -1,4 +1,4 @@
-# Reconstruction accuracy — 2026-09-08T20:49:31.023Z
+# Reconstruction accuracy — 2026-09-09T00:26:36.244Z
 
 6 colliders measured (6 synthetic, 0 real), each scaled three ways. **This eval never generates**: no model, no World Labs call, no network. It reads .glb bytes that already exist, measures them with `shared/collider.ts` and scales them with `shared/fusion.ts` — the same code the worker runs after `copy_assets`.
 

@@ -4,11 +4,11 @@ import { Vector3 } from 'three';
 import type { Object3D, PerspectiveCamera, Texture } from 'three';
 import { useShallow } from 'zustand/react/shallow';
 import type { PlacedPiece } from '@/engine/types';
-import type { Room, RoomWorld } from '@/state/types';
+import type { Room, RoomWorld, Settings } from '@/state/types';
 import { bestWorld, toast, useAudora, useTourJobs, useTourRooms } from '@/state/store';
 import { isFirstPerson, useViewer, type Pose, type ViewMode } from '@/three/viewerStore';
 import { SceneCanvas } from '@/three/SceneCanvas';
-import { RoomShell } from '@/three/RoomShell';
+import { RoomShell, type DoorOpening } from '@/three/RoomShell';
 import { OrbitRig, PhotoRig } from '@/three/OrbitRig';
 import { WalkControls } from '@/three/WalkControls';
 import { buildWalkMask, type WalkMask } from '@/three/walkMask';
@@ -18,7 +18,7 @@ import { captureYaw } from '@/three/splat/frame';
 import { CaptureLight, externalSunScale, type LightBudget, type PanoramaLight } from '@/three/CaptureLight';
 import { describeSun, windowPositions, type SunDescription } from '@/three/lighting/describe';
 import { SunLight } from '@/three/SunLight';
-import { effectiveHeading, sunState, type SunState } from '@/engine/siteSun';
+import { sunState, type SunState } from '@/engine/siteSun';
 import { MeasureTool } from '@/three/MeasureTool';
 import { Minimap } from '@/three/Minimap';
 import { Portals } from '@/three/Portals';
@@ -35,12 +35,13 @@ import { TimeOfDay } from './viewer/TimeOfDay';
 import { ExplodedLayer } from './viewer/ExplodedLayer';
 import { LayersPanel } from './viewer/LayersPanel';
 import { usePortraitLayers, type PortraitLayers } from './viewer/layers';
-import { freeSpawn } from './viewer/spawn';
+import { freeSpawn, spawnSolids } from './viewer/spawn';
 import { HudPill, HudPillLink, PillDivider, RoomStrip, TierTag, TopBar, Wordmark, tierWord } from './viewer/hud';
 import { MeasuredPanel } from './viewer/MeasuredPanel';
 import { UnitMap } from './viewer/UnitMap';
 import { MODE_LABEL, allowedMode, defaultMode, floorOffsetOf, hasPano, isReal, layerLoading, layerReady, loadPill, type MarbleStatusMap } from './viewer/marble';
-import { arrivalPose, buildUnitGraph, floorBounds, linkRooms, matchPortals, roomOf, type Portal, type PortalMatch, type UnitGraph } from '@shared/unitGraph';
+import { sunHeading, useRoomPlan, useUnitModel, type RoomTurn } from './viewer/unit';
+import { arrivalPose, floorBounds, type Portal } from '@shared/unitGraph';
 
 export interface TourViewerProps {
   tourId: string;
@@ -72,6 +73,31 @@ function CameraTuning({ mode }: { mode: ViewMode }) {
 
 /** An empty stand-in so the frame hook can be called unconditionally. */
 const NO_WORLD = { metricScaleFactor: null, groundPlaneOffset: null, bounds: undefined } as const;
+
+/**
+ * Is the staging layer really on screen? Two switches, and both have to be on: the setting that
+ * defers staging altogether (`state/staging`) and the renter's own "see it bare" toggle.
+ *
+ * The viewer store's `showStaging` starts `true` and an effect turns it off when the setting says
+ * staging is deferred — so on the first render of a staging-off build the store still says on, and
+ * anything that reads it alone counts furniture that will never be drawn. That first render is
+ * exactly the one the walk spawn is computed on.
+ */
+function stagingOnScreen(showStaging: boolean, settings: Pick<Settings, 'stagingEnabled'>): boolean {
+  return showStaging && showsStaging(settings, 'staging-layer');
+}
+
+/**
+ * {@link spawnSolids} against the layer as it stands: the staged pieces a spawn must avoid are the
+ * ones `Scene`'s `walkPieces` gives `WalkControls` to collide with, and nothing else.
+ *
+ * Read from the stores rather than subscribed, deliberately: the spawn is consumed when the renter
+ * arrives in a room, and `WalkControls` respawns on a *changed* spawn — so a reactive dependency
+ * here would teleport a renter who switches the furniture on while standing in the middle of it.
+ */
+function stagedSolids(pieces: PlacedPiece[]): PlacedPiece[] {
+  return spawnSolids(pieces, stagingOnScreen(useViewer.getState().showStaging, useAudora.getState().settings));
+}
 
 const LOOK = new Vector3();
 
@@ -126,17 +152,31 @@ interface SceneProps {
   onCaptureLight: (info: { light: PanoramaLight; budget: LightBudget } | null) => void;
   /** The panorama's pixel size, for "WHAT THE MODEL MEASURED". */
   onPanoSize: (size: { w: number; h: number } | null) => void;
-  /** The doorways out of this room, matched to the plan (`shared/unitGraph`). Empty without a plan. */
+  /**
+   * Every doorway in this room's walls (`doorOpeningsFor`, via `screens/viewer/unit`) — what the
+   * shell cuts. Includes doorways into rooms nobody photographed: still a hole in this wall.
+   */
+  doorways: readonly DoorOpening[];
+  /**
+   * The subset of them that leads to a room the tour has — what `Portals` stands a lit pane in. A
+   * subset of `doorways` by construction, which is the only reason the pane can be trusted to be
+   * the size and the place of the hole behind it.
+   */
+  markers: readonly DoorOpening[];
+  /** The doorways behind those markers, for the walk-through handler. */
   portals: readonly Portal[];
+  /** How much this room's world is turned onto the plan (`roomTurn`). Zero for a room with no plan. */
+  turn: RoomTurn;
   /** The renter walked through, or clicked, one of them. */
   onPortal: (portal: Portal) => void;
   editable: boolean;
 }
 
-function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus, splatReady, panoReady, sky, layers, exploded, geometryView, onCaptureLight, onPanoSize, portals, onPortal, editable }: SceneProps) {
+function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus, splatReady, panoReady, sky, layers, exploded, geometryView, onCaptureLight, onPanoSize, doorways, markers, portals, turn, onPortal, editable }: SceneProps) {
   const mode = useViewer((s) => s.mode);
   const tool = useViewer((s) => s.tool);
   const showStaging = useViewer((s) => s.showStaging);
+  const settings = useAudora((s) => s.settings);
   const showSplat = useViewer((s) => s.showSplat);
   const showGeometry = useViewer((s) => s.showGeometry);
   const photoFov = useViewer((s) => s.photoFov);
@@ -147,7 +187,7 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
 
   const real = isReal(world) ? world : undefined;
   const floorOffset = floorOffsetOf(room);
-  const frame = useMarbleFrame(real ?? NO_WORLD, room.anchor.metresPerUnit, floorOffset);
+  const frame = useMarbleFrame(real ?? NO_WORLD, room.anchor.metresPerUnit, floorOffset, turn.world);
   /* Photo view's camera and rig belong to the *mode*; whether the photograph is actually drawn
      belongs to the *layer*. Keeping them apart is what lets the Layers panel take the capture away
      without throwing the renter out of the room they were standing in. */
@@ -167,7 +207,9 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
   const composite = photoOnly || splat;
   /** The address's own sun is up: it, not the panorama's estimate, casts the furniture's shadows. */
   const sunUp = Boolean(sky && sky.intensity > 0.01);
-  const walkPieces = useMemo(() => [...(showStaging ? room.staging : []), ...buyerPieces], [showStaging, room.staging, buyerPieces]);
+  /* What the walker actually meets — and therefore what a spawn has to stay out of (`stagedSolids`
+     above is the same rule for the spawn). Furniture the layer is not drawing is not solid. */
+  const walkPieces = useMemo(() => [...spawnSolids(room.staging, stagingOnScreen(showStaging, settings)), ...buyerPieces], [showStaging, settings, room.staging, buyerPieces]);
   const walking = mode === 'walk' && tool !== 'measure';
   const span = Math.max(room.geometry.width, room.geometry.depth);
   // The panorama doubles as the room's light: PMREM environment plus a sun estimated from it.
@@ -284,6 +326,8 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
       {shell ? (
         <RoomShell
           room={room.geometry}
+          doorways={doorways}
+          yaw={turn.shell}
           cullNearWalls={mode === 'orbit'}
           showGrid={mode === 'orbit'}
           showCeiling={mode === 'walk'}
@@ -309,6 +353,7 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
           showGeometry={showGeometry && Boolean(real.colliderUrl)}
           geometryView={geometryView}
           showOccluder={layers.occluder && composite && Boolean(real.colliderUrl)}
+          plan={turn.world}
           onStatus={onMarbleStatus}
           onCollider={setCollider}
           onPanoTexture={takePano}
@@ -318,6 +363,7 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
         <ExplodedLayer active={exploded}>
           <StagingLayer
             room={room.geometry}
+            doorways={doorways}
             pieces={room.staging}
             buyerPieces={buyerPieces}
             showSeller={showStaging}
@@ -344,7 +390,7 @@ function Scene({ room, world, buyerPieces, onBuyerChange, spawn, onMarbleStatus,
       )}
       {/* The doorways this room shares with the rest of the flat. Not in the dollhouse: from above
           the room is a diagram, and the unit plan is what shows how it joins the others. */}
-      <Portals portals={portals} height={room.geometry.height} enabled={isFirstPerson(mode) && tool !== 'measure'} walking={walking} onEnter={onPortal} />
+      <Portals portals={portals} doorways={markers} yaw={turn.shell} height={room.geometry.height} enabled={isFirstPerson(mode) && tool !== 'measure'} walking={walking} onEnter={onPortal} />
       <MeasureTool room={room.geometry} enabled={tool === 'measure'} uncertaintyM={room.anchor.uncertaintyM} />
     </>
   );
@@ -386,49 +432,21 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
   const world = bestWorld(room);
 
   /* ---- the unit as one model (docs/ACCURACY.md 3.3) ----
-     The floor plan is the only thing that knows this flat is one flat: `buildUnitGraph` turns it
-     into rooms, their places and the doors between them, `linkRooms` says which tour room is which
-     room on the drawing, and `matchPortals` puts each of those doors on the opening the collider
-     actually measured in the room the renter is standing in. Without a plan every one of these is
-     empty and the viewer behaves exactly as it did. */
-  const floorPlan = tour?.floorPlan;
-  const unit = useMemo<UnitGraph | null>(() => (floorPlan?.floors?.length ? buildUnitGraph(floorPlan) : null), [floorPlan]);
-  const planRefs = useMemo(
-    () => (unit ? linkRooms(unit, rooms.map((r) => ({ id: r.id, name: r.name, planRoomName: r.planDims?.planRoomName, floor: r.planDims?.floor }))) : {}),
-    [unit, rooms],
-  );
-  const roomIdForRef = useMemo(() => {
-    const out: Record<string, string> = {};
-    for (const [id, ref] of Object.entries(planRefs)) out[ref] = id;
-    return out;
-  }, [planRefs]);
-  /** One room's doorways, in its own metric frame — the same call for the room we are in and the one we are entering. */
-  const portalsFor = useCallback(
-    (r: Room | undefined): PortalMatch => {
-      const ref = r ? planRefs[r.id] : undefined;
-      if (!unit || !r || !ref) return { portals: [], quarters: 0, matched: 0 };
-      return matchPortals({
-        graph: unit,
-        roomRef: ref,
-        geometry: r.geometry,
-        openings: bestWorld(r)?.bounds?.walls?.openings ?? [],
-        /* The openings are in the provider's raw units. The scale that turns them into the frame the
-           portals are drawn in is the room's OWN anchor — `Room.geometry` is `applyScale(raw,
-           anchor.metresPerUnit)` (state/store), and a doorway has to land on that room's walls. */
-        metresPerUnit: r.anchor.metresPerUnit,
-      });
-    },
-    [unit, planRefs],
-  );
-  /* Only doorways that lead somewhere the renter can actually stand. A plan usually draws rooms the
-     leasing team never photographed — a hall, a kitchen — and `matchPortals` reports those doors because
-     they are on the drawing; drawing a doorway that does nothing when you walk into it is worse
-     than not drawing it. The unit map still shows those rooms, greyed, so the flat stays whole. */
-  const doorways = useMemo(() => {
-    const all = portalsFor(room);
-    const walkable = all.portals.filter((p) => roomIdForRef[p.toRoomRef]);
-    return walkable.length === all.portals.length ? all : { ...all, portals: walkable };
-  }, [portalsFor, room, roomIdForRef]);
+     The floor plan is the only thing that knows this flat is one flat, and `screens/viewer/unit` is
+     the one place it is read: the graph, which tour room is which room on the drawing, this room's
+     doorways, which of them lead somewhere the renter can stand, and how much this room's world is
+     turned. The staging editor reads the same module, so the shell it draws cuts exactly the
+     doorways this one does. Without a plan every answer is empty and the viewer behaves as it did.
+
+     `here.doorways` is every hole in this room's walls and `here.markers` is the subset that leads
+     to a room the tour has — a plan usually draws rooms nobody photographed, and a lit pane you can
+     walk into that does nothing is worse than a plain doorway. The map still shows those rooms, so
+     the flat stays whole. */
+  const model = useUnitModel(tour?.floorPlan, rooms);
+  const unit = model.graph;
+  const roomIdForRef = model.roomIdForRef;
+  const here = useRoomPlan(model, room);
+  const planOf = here.planOf;
 
   const mode = useViewer((s) => s.mode);
   const setMode = useViewer((s) => s.setMode);
@@ -453,7 +471,10 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
      sentence, which the scene's light and the HUD's readout both read from. The chosen instant is
      parked on the tour so the next visitor opens on it. */
   const site = tour?.site;
-  const heading = effectiveHeading(site?.heading, room?.northWallHeading);
+  /* One rule for every screen that shows a sun (`sunHeading` in screens/viewer/unit): the room's own
+     north-wall bearing, re-expressed against whatever wall is north after this room's world has been
+     turned. Zero turn — every room without a floor plan — leaves it exactly as it is. */
+  const heading = sunHeading(site?.heading, room, here.turn);
   const setPreviewTime = useAudora((s) => s.setPreviewTime);
   const [previewTime, setLocalPreviewTime] = useState<number>(() => site?.previewTime ?? Date.now());
   useEffect(() => {
@@ -526,11 +547,13 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
      On a real reconstruction it is the capture point, facing the way the camera faced (the room's own
      yaw in our frame; see three/splat/frame) — so the renter's first frame IS the photograph, exactly as it is
      in photo view, and the splat lines up with what they were promised. Everywhere else it is just
-     inside the door. Either way `freeSpawn` nudges out of a staged piece, because spawning inside
-     the sofa leaves the walker stuck against it. Renter pieces are deliberately not a dependency:
-     dropping a sofa must not teleport the walker back to the door. */
+     inside the doorway the shell cut — the room's own door spec is only where the reconstruction put
+     the photographer, so on a room the plan has doors for it is a different wall. Either way
+     `freeSpawn` nudges out of a staged piece the renter can actually walk into (`stagedSolids`),
+     because spawning inside the sofa leaves the walker stuck against it. Renter pieces are
+     deliberately not a dependency: dropping a sofa must not teleport the walker back to the door. */
   const realWorld = isReal(world) ? world : undefined;
-  const captureFrame = useMarbleFrame(realWorld ?? NO_WORLD, room?.anchor.metresPerUnit ?? 1, floorOffsetOf(room));
+  const captureFrame = useMarbleFrame(realWorld ?? NO_WORLD, room?.anchor.metresPerUnit ?? 1, floorOffsetOf(room), here.turn.world);
   const captureX = captureFrame.position[0];
   const captureZ = captureFrame.position[2];
   const captureFacing = captureYaw(captureFrame);
@@ -542,8 +565,8 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
     if (arrival.current && arrival.current.roomId === room?.id) return arrival.current.pose;
     if (!room) return { x: 0, z: 0, yaw: 0 };
     const base = realWorld ? { x: captureX, z: captureZ, yaw: captureFacing } : undefined;
-    return freeSpawn(room.geometry, room.staging, base);
-  }, [teleport, room, realWorld, captureX, captureZ, captureFacing]);
+    return freeSpawn(room.geometry, stagedSolids(room.staging), base, here.doorways[0]);
+  }, [teleport, room, realWorld, captureX, captureZ, captureFacing, here.doorways]);
 
   /* mode on mount, reset on unmount. A public tour of a real reconstruction opens in the photograph. */
   useEffect(() => {
@@ -682,8 +705,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
         st.requestTeleport(x, z);
         return;
       }
-      const solids = [...(st.showStaging ? room.staging : []), ...buyerPieces];
-      setTeleport(freeSpawn(room.geometry, solids, { x, z, yaw: st.pose.yaw }));
+      setTeleport(freeSpawn(room.geometry, [...stagedSolids(room.staging), ...buyerPieces], { x, z, yaw: st.pose.yaw }));
       if (st.mode !== 'walk') setMode('walk');
     },
     [setMode, room, buyerPieces],
@@ -699,17 +721,17 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
       const nextId = roomIdForRef[portal.toRoomRef];
       const next = rooms.find((r) => r.id === nextId);
       if (!next || next.id === room?.id) return;
-      const back = portalsFor(next).portals.find((p) => p.toRoomRef === planRefs[room?.id ?? '']);
+      const back = planOf(next).match.portals.find((p) => p.toRoomRef === model.planRefs[room?.id ?? '']);
       const pose = back ? arrivalPose(back, next.geometry) : null;
       // `freeSpawn` for the same reason walking always uses it: landing inside the sofa behind the
       // door leaves the renter stuck against it.
-      arrival.current = pose ? { roomId: next.id, pose: freeSpawn(next.geometry, next.staging, pose) } : null;
+      arrival.current = pose ? { roomId: next.id, pose: freeSpawn(next.geometry, stagedSolids(next.staging), pose) } : null;
       if (useViewer.getState().mode === 'photo') setMode('walk');
       setLocalRoomId(next.id);
       onRoomChange?.(next.id);
       if (publicMode && tourId) trackEvent(tourId, 'toggle', { roomId: next.id, item: `door to ${portal.toName}` });
     },
-    [roomIdForRef, rooms, room?.id, portalsFor, planRefs, setMode, onRoomChange, publicMode, tourId],
+    [roomIdForRef, rooms, room?.id, planOf, model.planRefs, setMode, onRoomChange, publicMode, tourId],
   );
 
   const changeMode = (m: ViewMode) => {
@@ -717,7 +739,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
     if (m === 'walk' && room) {
       // resume where the renter last stood (in photo view that is the capture point), not at the door
       const p = useViewer.getState().pose;
-      if (Math.abs(p.x) > 0.01 || Math.abs(p.z) > 0.01) setTeleport(freeSpawn(room.geometry, room.staging, { ...p }));
+      if (Math.abs(p.x) > 0.01 || Math.abs(p.z) > 0.01) setTeleport(freeSpawn(room.geometry, stagedSolids(room.staging), { ...p }));
     }
     if (useViewer.getState().tool === 'measure') setTool('select');
     setMode(m);
@@ -809,8 +831,8 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
      in one of its rooms; without one it is this room, measured from its own collider. The unit map
      only takes over when the plan really places this room among others — a one-room plan, or a room
      the plan never named, is better served by the room's own drawing. */
-  const unitRef = unit ? planRefs[room.id] : undefined;
-  const unitRoom = unit && unitRef ? roomOf(unit, unitRef) : undefined;
+  const unitRef = here.unitRef;
+  const unitRoom = here.unitRoom;
   const unitBox = unit && unitRoom ? floorBounds(unit, unitRoom.floorIndex) : null;
   const showUnit = Boolean(unit && unitRef && unitBox && unit.rooms.filter((r) => r.floorIndex === unitRoom!.floorIndex).length > 1);
   /* The unit map carries room names and printed dimensions and the room map does not, so it needs
@@ -860,7 +882,10 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
           geometryView={geometryView}
           onCaptureLight={onCaptureLight}
           onPanoSize={onPanoSize}
-          portals={doorways.portals}
+          doorways={here.doorways}
+          markers={here.markers}
+          portals={here.portals}
+          turn={here.turn}
           onPortal={onPortal}
           editable={buyerPieces.length > 0}
         />
@@ -981,7 +1006,8 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
                     <UnitMap
                       graph={unit}
                       activeRoomRef={unitRef}
-                      quarters={doorways.quarters}
+                      quarters={here.turn.quarters}
+                      roomYaw={here.turn.map}
                       onPickRoom={(ref) => {
                         const id = roomIdForRef[ref];
                         if (id) switchRoom(id);
@@ -1121,6 +1147,7 @@ export function TourViewer({ tourId, roomId, publicMode = false, onRoomChange, c
                 onChange={setBuyerPieces}
                 onClose={() => setTestOpen(false)}
                 staging={stagingForVerdict}
+                doorways={here.doorways}
                 pose={coarsePose ?? undefined}
                 selectedId={selectedId}
                 onSelect={setSelectedId}

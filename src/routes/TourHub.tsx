@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { selectTour, toast, useAudora, useTourJobs, useTourRooms } from '@/state/store';
+import { useUnitModel } from '@/screens/viewer/unit';
 import { generateTour } from '@/state/jobs';
 import { Button, Callout, EmptyState, Segmented } from '@/components/ui';
 import { Icon } from '@/components/icons';
@@ -34,6 +35,10 @@ export default function TourHub() {
   const tour = useAudora(selectTour(tourId));
   const rooms = useTourRooms(tourId);
   const jobs = useTourJobs(tourId);
+  /* The unit's floor plan, read once for the whole page and handed to every room card: which room
+     on the drawing each of these is, and therefore how much its world is turned. One graph, not one
+     per card, and the same module the viewer and the staging editor read (screens/viewer/unit). */
+  const unit = useUnitModel(tour?.floorPlan, rooms);
   const markJobsSeen = useAudora((s) => s.markJobsSeen);
   const [params, setParams] = useSearchParams();
   const stagingOn = useAudora((s) => stagingEnabled(s.settings));
@@ -168,7 +173,7 @@ export default function TourHub() {
           {tab === 'rooms' ? (
             <div className="grid gap-4 lg:grid-cols-2">
               {rooms.map((room) => (
-                <RoomCard key={room.id} tour={tour} room={room} job={latestJobFor(jobs, room.id)} onView={view} />
+                <RoomCard key={room.id} tour={tour} room={room} job={latestJobFor(jobs, room.id)} unit={unit} onView={view} />
               ))}
             </div>
           ) : null}

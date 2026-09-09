@@ -240,6 +240,10 @@ export function normaliseYaw(yaw: number): number {
  * apart, or a layout that had to give up) still get a door, marked `nominal`, aimed at the other
  * room's centre — the graph's job is to say which room is through which wall, and it must not go
  * quiet just because the drawing is loose.
+ *
+ * "Share a wall" is both conditions, not one: the rectangles have to overlap **along** the wall
+ * *and* meet **across** it. Reading only the overlap called a door real between two rooms that were
+ * side by side in z and 4.8 m apart in x — a doorway drawn solid, in a wall with nothing behind it.
  */
 function doorBetween(a: Rect, b: Rect, toRoomRef: string): UnitDoor {
   const shareX = overlap1(minX(a), maxX(a), minX(b), maxX(b));
@@ -254,7 +258,9 @@ function doorBetween(a: Rect, b: Rect, toRoomRef: string): UnitDoor {
   const length = alongX ? a.w : a.d;
   const start = alongX ? minX(a) : minZ(a);
   const centre = alongX ? (Math.max(minX(a), minX(b)) + Math.min(maxX(a), maxX(b))) / 2 : (Math.max(minZ(a), minZ(b)) + Math.min(maxZ(a), maxZ(b))) / 2;
-  const nominal = !(share > 0);
+  // Flush across the wall, to the tenth of a millimetre the layout is rounded to.
+  const touching = Math.abs(alongX ? gapZ : gapX) <= 1e-4;
+  const nominal = !(share > 0 && touching);
   const width = Math.min(DOOR_WIDTH_M, Math.max(0.3, nominal ? DOOR_WIDTH_M : share));
   const along = nominal ? (alongX ? b.x : b.z) : centre;
   const offset = clamp(along - start, width / 2, length - width / 2);
@@ -342,6 +348,34 @@ function shifts(): number[] {
   return out;
 }
 
+/**
+ * Where along one wall a room may be tried: the fixed grid above, and then the places where it
+ * lands **flush** against a room already on that wall or packed into the parent's own end.
+ *
+ * The grid alone misses by less than one step on exactly the case that matters — a corridor whose
+ * long wall has just enough left for one more doorway — and a miss there is not a room drawn a
+ * little wrong: `placeChild` gives up, the room is put east of the whole storey, and its door then
+ * lands on top of a sibling's (`doorBetween` reads the rectangles, and two rooms that never touched
+ * the corridor share whatever wall faces them). One hole in the wall, two destinations.
+ *
+ * Deterministic: `placed` is in placement order, and the candidates are sorted by how far they move
+ * the room, ties broken by sign.
+ */
+function shiftsAlong(parent: Rect, wall: WallSide, size: { width: number; depth: number }, placed: readonly Rect[]): number[] {
+  const alongX = wall === 'north' || wall === 'south';
+  const half = (alongX ? size.width : size.depth) / 2;
+  const centre = alongX ? parent.x : parent.z;
+  const lo = (r: Rect) => (alongX ? minX(r) : minZ(r));
+  const hi = (r: Rect) => (alongX ? maxX(r) : maxZ(r));
+  const flush: number[] = [hi(parent) - half - centre, lo(parent) + half - centre];
+  for (const p of placed) flush.push(hi(p) + half - centre, lo(p) - half - centre);
+  const out = shifts();
+  for (const s of flush.sort((a, b) => Math.abs(a) - Math.abs(b) || a - b)) {
+    if (Math.abs(s) <= LAYOUT_MAX_SHIFT_M && !out.some((o) => Math.abs(o - s) < 1e-9)) out.push(s);
+  }
+  return out;
+}
+
 /** A child placed flush against one wall of its parent, nudged `shift` metres along that wall. */
 function against(parent: Rect, wall: WallSide, size: { width: number; depth: number }, shift: number): Rect {
   const w = size.width;
@@ -361,18 +395,23 @@ function against(parent: Rect, wall: WallSide, size: { width: number; depth: num
 /**
  * Where a room goes, given the room it opens off.
  *
- * The parent's **long** walls are tried first (a corridor is flanked, not capped), rotated by how
- * many rooms already open off this one so siblings spread out instead of queueing on one wall, and
- * each wall is searched outward from the middle. A spot counts only when the room lands clear of
- * everything already placed *and* shares enough wall with its parent for a door to fit in it — a
- * room touching another at a corner is not a room you can walk into.
+ * The parent's **long** walls are tried first for every child — a corridor is flanked, not capped —
+ * and which of the two a child starts with alternates with its order, so siblings spread to both
+ * sides instead of queueing on one. Each wall is then searched outward from the middle
+ * ({@link shiftsAlong}). A spot counts only when the room lands clear of everything already placed
+ * *and* shares enough wall with its parent for a door to fit in it — a room touching another at a
+ * corner is not a room you can walk into.
+ *
+ * The wall list used to be rotated by the child's order, which sent the third room off a
+ * 7.00 × 1.20 m hallway to a 1.20 m end wall while both 7 m walls still had room, and left the
+ * fifth with nowhere to go at all — so its doorway ended up drawn on top of the third's.
  */
 function placeChild(parent: Rect, size: { width: number; depth: number }, order: number, placed: readonly Rect[]): Rect | null {
   const long: WallSide[] = parent.w >= parent.d ? ['north', 'south', 'east', 'west'] : ['east', 'west', 'north', 'south'];
-  for (let ring = 0; ring < 4; ring++) {
-    const wall = long[(order + ring) % 4];
+  const walls: WallSide[] = order % 2 ? [long[1], long[0], long[3], long[2]] : long;
+  for (const wall of walls) {
     const need = Math.min(DOOR_WIDTH_M, wallLengthOf({ width: parent.w, depth: parent.d }, wall), wallLengthOf(size, wall));
-    for (const shift of shifts()) {
+    for (const shift of shiftsAlong(parent, wall, size, placed)) {
       const rect = against(parent, wall, size, shift);
       if (placed.some((p) => overlaps(rect, p))) continue;
       const share = wall === 'north' || wall === 'south' ? overlap1(minX(parent), maxX(parent), minX(rect), maxX(rect)) : overlap1(minZ(parent), maxZ(parent), minZ(rect), maxZ(rect));

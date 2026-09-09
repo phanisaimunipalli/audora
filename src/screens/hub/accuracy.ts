@@ -18,7 +18,8 @@
 import type { FusionResidual, FusionResult, RoomDimensionLine, RoomMeasurement } from '@shared/fusion';
 import { roomFromFusion } from '@shared/fusion';
 import { pickWorld } from '@/state/publish';
-import type { Provider, Room, RoomWorld, Tier } from '@/state/types';
+import type { PlanDimensions, Provider, Room, RoomWorld, Tier } from '@/state/types';
+import { printedDimensions } from '@/services/floorplan';
 
 /* ---------- grading one dimension ---------- */
 
@@ -345,6 +346,18 @@ export interface RoomLead {
 }
 
 /**
+ * "5.30 × 5.78 m (17'-5\" × 19'-0\")" — the stored metres, and the printed string only where it
+ * still says something. A listing sheet that prints feet with the draughtsman's own metric
+ * restatement in brackets is exactly where `metresFromDimensions` took those metres from, so
+ * appending the whole string verbatim would print the same pair twice; `printedDimensions` is the
+ * one rule that trims the echo and keeps the feet.
+ */
+export function planLine(dims: PlanDimensions): string {
+  const printed = printedDimensions(dims.text, dims.width, dims.depth);
+  return `${dims.width.toFixed(2)} × ${dims.depth.toFixed(2)} m${printed ? ` (${printed})` : ''}`;
+}
+
+/**
  * The three facts a room leads with once staging is deferred: what it measures, what the plan said,
  * and which model measured it and when (docs/ACCURACY.md section 3.7).
  */
@@ -355,7 +368,7 @@ export function roomLead(room: MeasurableRoom & Pick<Room, 'geometry'>): RoomLea
   return {
     dimensions: `${g.width.toFixed(2)} × ${g.depth.toFixed(2)} × ${g.height.toFixed(2)} m`,
     area: `${(g.width * g.depth).toFixed(1)} m²`,
-    plan: room.planDims ? `${room.planDims.width.toFixed(2)} × ${room.planDims.depth.toFixed(2)} m${room.planDims.text ? ` (${room.planDims.text})` : ''}` : undefined,
+    plan: room.planDims ? planLine(room.planDims) : undefined,
     model: world ? (world.provider === 'mock' ? `simulated ${world.tier}` : `${world.model} · ${world.tier}`) : undefined,
     modelDate: world?.createdAt,
     measurement: a.measured ? `measured · ${a.confidenceChip}` : 'not measured',

@@ -27,12 +27,14 @@ import {
   type RoomGeometryJson,
   type RoomMeasurement,
   type RoomRow,
+  type Row,
   type WorldRow,
 } from '../server/pipeline';
 import { handleV1, type V1Context, type V1Request, type V1Response } from '../server/routes';
 import { mockProvider, runWorkerOnce, type WorldProvider } from '../server/worker';
 import { MOCK_ROOM, MOCK_ROOM_METRES_PER_UNIT, mockColliderGlb } from '../server/mockAssets';
 import { orientPlan } from '../shared/fusion';
+import { ceilingUnitsOf, wallFacingCapture, type ExifCamera } from '../shared/exifPrior';
 import type { Actor } from '../server/auth';
 import { DOOR_ANCHOR, FakeDb, FakeStorage, START, clock, pngDataUrl, type Clock } from './support/backend';
 
@@ -361,5 +363,153 @@ describe('the recipe a room would generate', () => {
     expect(patched.status).toBe(200);
     expect((patched.body.measurement as RoomMeasurement).flags).toEqual([]);
     expect(geometryOf(db, room.id).width).toBeCloseTo(TRUE.width, 2);
+  });
+});
+
+/* ---------- 5. the EXIF field of view reaches the fit ---------- */
+
+/**
+ * The prior is only ever fed from `photos.exif`, which `server/photos.ts` reads off the upload and
+ * then strips. The fixture's PNG carries none, so the camera below is written onto the stored row —
+ * which is exactly the shape the worker reads — and its focal length is derived from the mock
+ * room's own collider rather than picked: the lens that frames the wall the photographer faced,
+ * floor to ceiling, is the one photograph the prior's assumption is actually true of.
+ */
+describe('the EXIF field of view, from the photos table to the residual line', () => {
+  const PIXELS = { width: 4032, height: 3024 };
+
+  /** The 35 mm equivalent that frames a mock room's far wall exactly, whole millimetres as a camera writes it. */
+  function framingLens(spec?: Parameters<typeof mockColliderGlb>[0]): number {
+    const bounds = measureColliderBytes(mockColliderGlb(spec));
+    const facing = wallFacingCapture(bounds)!;
+    const tanV = ceilingUnitsOf(bounds) / (2 * facing.distance);
+    const tanH = tanV * (PIXELS.width / PIXELS.height);
+    return Math.round(36 / (2 * tanH));
+  }
+
+  /** Put a camera on the room's stored photo, the way `canonicalizePhoto` would have. */
+  async function withCamera(db: FakeDb, roomId: string, exif: ExifCamera | null) {
+    await db.update('photos', { room_id: roomId }, { exif: (exif as unknown as Row) ?? null, width: PIXELS.width, height: PIXELS.height });
+  }
+
+  /** Generate a unit, but stamp the camera on before the worker gets to measure. */
+  async function generatedWithCamera(exif: ExifCamera | null) {
+    const { db, storage, clk } = backend();
+    const seeded = await seedUnit(db, storage, null);
+    await withCamera(db, seeded.room.id, exif);
+    await generateUnit(db, ORG, seeded.unit.id, 'draft', PLAN, clk.ms);
+    await drain(db, storage, mockProvider(), clk);
+    return { db, storage, clk, ...seeded };
+  }
+
+  it('appears as a residual when the primary photo carries a lens the prior can read', async () => {
+    const camera: ExifCamera = { make: 'Apple', model: 'iPhone 13 Pro', focalLength35: framingLens() };
+    const { db, room } = await generatedWithCamera(camera);
+    const row = measurementOf(db, room.id).residuals.find((r) => r.source === 'exif');
+    expect(row?.label).toBe('EXIF field of view');
+    // A prior, never a measurement: it is marked assumed and does not corroborate the anchor.
+    expect(row?.assumed).toBe(true);
+    expect(measurementOf(db, room.id).independentSources).toBe(1);
+    // It agrees with the room the mock collider really is, so it moves the scale by very little.
+    expect(geometryOf(db, room.id).width).toBeCloseTo(TRUE.width, 1);
+  });
+
+  it('is absent when the photo has no EXIF at all', async () => {
+    const { db, room } = await generatedWithCamera(null);
+    expect(measurementOf(db, room.id).residuals.some((r) => r.source === 'exif')).toBe(false);
+    // and the room is still measured from everything else
+    expect(geometryOf(db, room.id).width).toBeCloseTo(TRUE.width, 2);
+  });
+
+  it('is absent when the camera is unknown and wrote no 35 mm equivalent', async () => {
+    const { db, room } = await generatedWithCamera({ make: 'Acme', model: 'Cameraphone 1', focalLength: 4.2 });
+    expect(measurementOf(db, room.id).residuals.some((r) => r.source === 'exif')).toBe(false);
+  });
+
+  it('survives a plan correction, because the PATCH re-fuses with the same photo', async () => {
+    const camera: ExifCamera = { make: 'Apple', model: 'iPhone 13 Pro', focalLength35: framingLens() };
+    const { db, storage, clk, unit, room } = await generatedWithCamera(camera);
+    const patched = await patchRoom(db, storage, clk, unit.id, room.id, { planDims: PLAN_DIMS });
+    expect(patched.status).toBe(200);
+    expect((patched.body.measurement as RoomMeasurement).residuals.some((r) => r.source === 'exif')).toBe(true);
+  });
+
+  /**
+   * A collider that reconstructed down a corridor: its wall rectangle is a real 3.29 × 9.10 m
+   * measurement, which is not one room (over the 9 m side), so pass two records the extent as
+   * `aabb` — and `writeMeasurement` stores exactly that on the world, which is what the next
+   * `PATCH` re-fuses from.
+   */
+  const THROUGH_THE_DOOR = { ...MOCK_ROOM, width: 4.7, depth: 13 };
+
+  it('survives the room being re-measured from the record the first measurement wrote', () => {
+    const camera: ExifCamera = { make: 'Apple', model: 'iPhone 13 Pro', focalLength35: framingLens(THROUGH_THE_DOOR) };
+    const photo = { exif: camera, ...PIXELS };
+    const bounds = measureColliderBytes(mockColliderGlb(THROUGH_THE_DOOR));
+    expect(bounds.method).toBe('walls');
+
+    const first = measureRoom({ bounds, anchor: ANCHOR, photo, now: START });
+    expect(first.measurement.oneRoom).toBe(false);
+    expect(first.bounds.method).toBe('aabb');
+    expect(first.measurement.residuals.some((r) => r.source === 'exif')).toBe(true);
+
+    /* The second measurement is handed the bounds the first one stored, which is the whole of what
+       a plan correction has to go on. It must fit from the same rectangle: reading `method` back as
+       the fit's input measured the bounding box instead of the room, which moved a real room's
+       published scale by 48 % on a no-op PATCH and took the wall the photograph faces to the far
+       side of the box, so the field-of-view prior was withheld the second time round. */
+    const again = measureRoom({ bounds: first.bounds, anchor: ANCHOR, photo, now: START });
+    expect(again.measurement).toEqual(first.measurement);
+    expect(again.raw).toEqual(first.raw);
+    expect(again.bounds).toEqual(first.bounds);
+    expect(again.geometry).toEqual(first.geometry);
+  });
+
+  /** The mock provider, but the collider it copies ran down the corridor beyond the door. */
+  function throughTheDoorProvider(): WorldProvider {
+    const base = mockProvider();
+    const bytes = mockColliderGlb(THROUGH_THE_DOOR);
+    return {
+      ...base,
+      async fetchAsset(url: string) {
+        const asset = await base.fetchAsset(url);
+        return url.endsWith('collider.glb') ? { ...asset, bytes } : asset;
+      },
+    };
+  }
+
+  it('is still there after a plan correction on a room whose collider is not one room', async () => {
+    const camera: ExifCamera = { make: 'Apple', model: 'iPhone 13 Pro', focalLength35: framingLens(THROUGH_THE_DOOR) };
+    const { db, storage, clk } = backend();
+    const seeded = await seedUnit(db, storage, null);
+    await withCamera(db, seeded.room.id, camera);
+    await generateUnit(db, ORG, seeded.unit.id, 'draft', PLAN, clk.ms);
+    await drain(db, storage, throughTheDoorProvider(), clk);
+
+    const measured = measurementOf(db, seeded.room.id);
+    expect(measured.oneRoom).toBe(false);
+    expect(measured.residuals.map((r) => r.source)).toContain('exif');
+
+    /* The correction that corrects nothing — the same (absent) plan dimensions the room already
+       holds. It must report the room the worker measured, not a second, different one. */
+    const patched = await patchRoom(db, storage, clk, seeded.unit.id, seeded.room.id, { planDims: null });
+    const after = patched.body.measurement as RoomMeasurement;
+    expect(after.scale).toBeCloseTo(measured.scale, 6);
+    expect(after.sigmaRel).toBeCloseTo(measured.sigmaRel, 6);
+    expect(after.residuals.map((r) => r.source)).toEqual(measured.residuals.map((r) => r.source));
+    expect(after.lines.map((l) => l.text)).toEqual(measured.lines.map((l) => l.text));
+  });
+
+  it('shares one group with the ceiling it is closed on, so the assumption is not counted twice', () => {
+    const bounds = measureColliderBytes(mockColliderGlb());
+    const camera: ExifCamera = { make: 'Apple', model: 'iPhone 13 Pro', focalLength35: framingLens() };
+    const withPrior = measureRoom({ bounds, anchor: ANCHOR, photo: { exif: camera, ...PIXELS }, now: START });
+    const without = measureRoom({ bounds, anchor: ANCHOR, now: START });
+    expect(withPrior.measurement.residuals.some((r) => r.source === 'exif')).toBe(true);
+    /* Grouped with the ceiling, the prior cannot tighten σ by pretending to be a second opinion
+       about the same 2.44 m: it splits the ceiling group's weight rather than adding to it. Ungrouped
+       it used to report roughly 5 % less σ than it had earned. */
+    expect(withPrior.measurement.sigmaRel).toBeGreaterThanOrEqual(without.measurement.sigmaRel - 1e-9);
+    expect(withPrior.measurement.independentSources).toBe(without.measurement.independentSources);
   });
 });

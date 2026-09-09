@@ -166,7 +166,7 @@ export function AccuracySummary({ rooms, className }: { rooms: Room[]; className
       </Chip>
       {t.flagged ? (
         <span className="mono text-[11px] text-ink-2">
-          {t.flagged} room{t.flagged === 1 ? '' : 's'} disagree with the plan
+          {t.flagged === 1 ? '1 room disagrees' : `${t.flagged} rooms disagree`} with the plan
         </span>
       ) : null}
     </span>

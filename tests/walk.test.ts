@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PlacedPiece, RoomGeometry } from '../src/engine/types';
-import { blocked, integrate, intentFrom, keyCode, nearestFree, standable, type WalkState } from '../src/three/walkMath';
+import { blocked, integrate, intentFrom, keyCode, nearestFree, spawnPose, standable, type WalkState } from '../src/three/walkMath';
+import { freeSpawn, spawnSolids } from '../src/screens/viewer/spawn';
 
 const room: RoomGeometry = {
   width: 5,
@@ -135,5 +136,28 @@ describe('blocked / standable', () => {
       expect(wall.blocked(free!.x)).toBe(false);
       expect(nearestFree(-2, 0, room, [], wall)).toEqual({ x: -2, z: 0 });
     });
+  });
+});
+
+/* ---------- where walking starts ---------- */
+
+describe('the walk spawn', () => {
+  /** The doorway the shell cut: the plan's, in the middle of the south wall rather than at 1.20 m. */
+  const doorway = { wall: 'south' as const, offset: room.width / 2, width: 0.9 };
+  /** A sofa parked just inside that doorway. */
+  const inTheWay: PlacedPiece = { ...sofa, x: 0, z: 2.2 };
+
+  it('stands in the doorway when the furniture nobody can see is not counted', () => {
+    // Staging hidden: the walker collides with nothing, so the spawn is the doorway exactly.
+    expect(freeSpawn(room, spawnSolids([inTheWay], false), undefined, doorway)).toEqual(spawnPose(room, doorway));
+    // Staging shown: the walker WILL meet the sofa, so the spawn steps around it.
+    const shown = freeSpawn(room, spawnSolids([inTheWay], true), undefined, doorway);
+    expect(shown).not.toEqual(spawnPose(room, doorway));
+    expect(blocked(shown.x, shown.z, room, [inTheWay])).toBe(false);
+  });
+
+  it('gives the hidden layer one stable empty array, so a memo on it does not thrash', () => {
+    expect(spawnSolids([inTheWay], false)).toBe(spawnSolids([sofa, rug], false));
+    expect(spawnSolids([inTheWay], true)).toEqual([inTheWay]);
   });
 });

@@ -3,7 +3,7 @@ import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { SplatMesh as SplatMeshT } from '@sparkjsdev/spark';
 import type { RoomWorld } from '@/state/types';
-import { marbleFrame } from './splat/frame';
+import { marbleFrame, planYaw, type PlanOrientation } from './splat/frame';
 import { loadSpz, type SpzProgress } from './splat/loadSpz';
 import { acquireSpark, type SparkModule } from './splat/sparkContext';
 import { deviceCeiling, planLadder, spzTiers, wantsUpgrade, type SplatAsset, type SplatTier } from './splat/tiers';
@@ -35,6 +35,12 @@ export interface SplatWorldProps {
    * with its floor at y = 0 (see `marbleFrame` in three/splat/frame).
    */
   metresPerUnit?: number;
+  /**
+   * What the floor plan says about which way this room faces (`planYaw`). The same value
+   * `MarbleWorld` gives its group, because the splat places itself in world space rather than
+   * hanging off that group and the two must land on each other to the millimetre.
+   */
+  plan?: PlanOrientation | number | null;
   /** Never load a tier above this one (the viewer caps it on weak devices). */
   maxTier?: SplatTier;
   /** Cross-fade duration between tiers, ms. */
@@ -50,19 +56,22 @@ export interface SplatWorldProps {
  *
  * The SPZ is in Marble's `marble_raw_opencv` frame (x right, y down, z forward), a proper
  * right-handed frame, so it needs no mirror: a 180° turn about x brings it to y-up, and the room's
- * own yaw turns its walls onto ours. See `three/splat/frame.ts` for the whole convention, including
- * why the collider (a reflection of the same capture) needs its mirror.
+ * yaw — the collider rectangle's own plus the plan's, see `planYaw` — turns its walls onto ours.
+ * See `three/splat/frame.ts` for the whole convention, including why the collider (a reflection of
+ * the same capture) needs its mirror.
  */
 export function applyMarbleFrame(
   obj: THREE.Object3D,
   world: Pick<RoomWorld, 'metricScaleFactor' | 'groundPlaneOffset' | 'provider' | 'bounds'>,
   extra?: SplatWorldProps['transform'],
   metresPerUnit?: number,
+  plan?: PlanOrientation | number | null,
 ) {
   const rotX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);
-  const t = marbleFrame(world, metresPerUnit && metresPerUnit > 0 ? metresPerUnit : (world.metricScaleFactor ?? 1));
-  // The room's own turn (`t.yaw`), plus whatever the caller nudges on top. The group carries the
-  // same turn as `rotationY = π + yaw`; here the π is already in `rotX` about the other axis.
+  const t = marbleFrame(world, metresPerUnit && metresPerUnit > 0 ? metresPerUnit : (world.metricScaleFactor ?? 1), 0, plan);
+  // The room's whole turn (`t.yaw`, the plan's say included), plus whatever the caller nudges on
+  // top. The group carries the same turn as `rotationY = π + yaw`; here the π is already in `rotX`
+  // about the other axis.
   const turn = t.yaw + (extra?.yaw ?? 0);
   obj.scale.setScalar(t.scale);
   obj.quaternion.copy(rotX);
@@ -86,7 +95,7 @@ export function applyMarbleFrame(
  * Spark is imported lazily, so a procedural room never pays for it. Nothing here throws: every
  * failure lands on `onStatus('error')` and the viewer falls back to the panorama or the shell.
  */
-export function SplatWorld({ world, visible = true, onStatus, opacity = 1, transform, metresPerUnit, maxTier, fadeMs = 420, onMesh }: SplatWorldProps) {
+export function SplatWorld({ world, visible = true, onStatus, opacity = 1, transform, metresPerUnit, plan, maxTier, fadeMs = 420, onMesh }: SplatWorldProps) {
   const { scene, gl, invalidate } = useThree();
   const statusRef = useRef(onStatus);
   statusRef.current = onStatus;
@@ -109,6 +118,10 @@ export function SplatWorld({ world, visible = true, onStatus, opacity = 1, trans
   const w = bounds?.walls;
   const boundsKey = bounds ? [bounds.minX, bounds.maxX, bounds.minY, bounds.maxY, bounds.minZ, bounds.maxZ, bounds.floorY, bounds.method, w?.minX, w?.maxX, w?.minZ, w?.maxZ, w?.rotation].join(',') : '';
   const mpu = metresPerUnit ?? null;
+  /* The plan's turn is one number by the time it reaches the transform, so the effects below depend
+     on the number rather than on the object it came from: a caller may rebuild `{quarters,
+     yawToNorth}` every render without re-placing half a million splats. */
+  const turn = planYaw(plan);
   const tx = transform?.x ?? 0;
   const tz = transform?.z ?? 0;
   const ty = transform?.y ?? 0;
@@ -121,10 +134,10 @@ export function SplatWorld({ world, visible = true, onStatus, opacity = 1, trans
   /* ---- placement: applied to every live mesh, cheaply, whenever the metric frame moves ---- */
   useEffect(() => {
     const frame = { metricScaleFactor: scale, groundPlaneOffset: ground, provider: world.provider, bounds };
-    for (const m of live.current) applyMarbleFrame(m, frame, { x: tx, z: tz, y: ty, yaw: tyaw }, mpu ?? undefined);
+    for (const m of live.current) applyMarbleFrame(m, frame, { x: tx, z: tz, y: ty, yaw: tyaw }, mpu ?? undefined, turn);
     invalidate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scale, ground, boundsKey, mpu, tx, tz, ty, tyaw, invalidate]);
+  }, [scale, ground, boundsKey, mpu, tx, tz, ty, tyaw, turn, invalidate]);
 
   /* ---- the ladder ---- */
   useEffect(() => {
@@ -202,7 +215,7 @@ export function SplatWorld({ world, visible = true, onStatus, opacity = 1, trans
         mesh.name = 'audora-splat';
         mesh.userData.stillsKeep = true;
         mesh.userData.splatTier = rung.tier;
-        applyMarbleFrame(mesh, frameOf(), { x: tx, z: tz, y: ty, yaw: tyaw }, mpu ?? undefined);
+        applyMarbleFrame(mesh, frameOf(), { x: tx, z: tz, y: ty, yaw: tyaw }, mpu ?? undefined, turn);
         mesh.opacity = current ? 0 : opacityRef.current;
         mesh.visible = visibleRef.current;
         scene.add(mesh);

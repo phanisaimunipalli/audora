@@ -1,4 +1,4 @@
-import type { Footprint, RoomGeometry, Vec2, WallSide } from './types';
+import type { DoorSpec, Footprint, RoomGeometry, Vec2, WallSide } from './types';
 
 const EPS = 1e-6;
 
@@ -176,12 +176,33 @@ export function wallFeaturePosition(
   }
 }
 
-/** The floor area a door needs to swing open: a square of the door width just inside the wall. */
-export function doorSwing(room: RoomGeometry): Footprint {
-  const { door } = room;
+/** Enough of a doorway to swing: a `DoorSpec`, and `DoorOpening` (three/RoomShell) as it comes. */
+export type Doorway = Pick<DoorSpec, 'wall' | 'offset' | 'width'>;
+
+/** The floor area one doorway needs to swing open: a square of its width just inside the wall. */
+export function doorSwingOf(room: RoomGeometry, door: Doorway): Footprint {
   const p = wallFeaturePosition(room, door.wall, door.offset);
   const half = door.width / 2;
   return { x: p.x + p.inward.x * half, z: p.z + p.inward.z * half, w: door.width, d: door.width, rot: 0 };
+}
+
+/** The floor area the room's own door spec needs to swing open. */
+export function doorSwing(room: RoomGeometry): Footprint {
+  return doorSwingOf(room, room.door);
+}
+
+/**
+ * Every doorway that has to stay clear, as floor rectangles.
+ *
+ * `doors` is the room's **drawn** doorways — `doorOpeningsFor`'s answer (three/RoomShell), the same
+ * array the shell cuts and the portal markers stand in. Pass it wherever the caller has a floor
+ * plan: `room.geometry.door` is only where the reconstruction put the photographer, so on a room
+ * the plan has doors for, judging the swing against it clears a stretch of blank wall while a
+ * console sits across the doorway the renter can see. With nothing passed, the room's own spec is
+ * the only doorway anyone knows about, which is where a room with no plan has always been.
+ */
+export function doorSwings(room: RoomGeometry, doors?: readonly Doorway[]): Footprint[] {
+  return (doors?.length ? doors : [room.door]).map((d) => doorSwingOf(room, d));
 }
 
 export function wallLength(room: RoomGeometry, wall: WallSide): number {

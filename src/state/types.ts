@@ -143,8 +143,19 @@ export interface PlanDimensions {
   /** Metres. */
   width: number;
   depth: number;
+  /**
+   * The ceiling height the plan **printed**, metres. Optional, and its absence is the point: a
+   * printed height is a measurement of this room (±3 cm, `CEILING_PRINTED_SIGMA_M`), where the
+   * standard 2.44 m is only our own prior (±12 cm, and flagged as an assumption when it disagrees).
+   * This is the field `scaleConstraintsFor` on the server and `demoMeasurement` in the seed both
+   * read to decide which of the two a room's ceiling is fused with; it mirrors the server's
+   * `rooms.plan_dims.height`.
+   */
+  height?: number;
   /** Exactly what the plan printed. */
   text?: string;
+  /** Exactly what the plan printed for the ceiling, when it printed one. */
+  ceilingText?: string;
   /** The plan's own name for the room, and the floor it put it on. */
   planRoomName?: string;
   floor?: string;

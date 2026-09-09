@@ -279,7 +279,9 @@ describe('startGeneration', () => {
     expect(sent.images[1].azimuth).toBe(270);
     expect(sent.imageDataUrl).toBe(r.photo!.dataUrl);
 
-    expect(started).toEqual({ operationId: 'op_1', worldId: 'w_1', recipeHash: expected.recipeHash, seed: expected.seed, prompt: expected.prompt });
+    // `model` rides back with the provenance so the world records the model that was requested,
+    // not the tier default (`worldFromMarble`); nothing was named here, so it is the draft default.
+    expect(started).toEqual({ operationId: 'op_1', worldId: 'w_1', recipeHash: expected.recipeHash, seed: expected.seed, prompt: expected.prompt, model: DEFAULT_MARBLE_MODEL.draft });
 
     // ...and the server turns exactly that body into a Marble request with the seed and no recaptioning.
     const mapped = marbleGenerateRequest(sent, { draft: 'marble-1.0-draft', full: 'marble-1.1' });

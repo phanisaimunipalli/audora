@@ -108,7 +108,9 @@ export function StepFloorPlan({ plan, roomCount, planRoomCount, onFile, onDemo, 
                     every accuracy claim downstream is built on printed dimensions. Saying so here is
                     the difference between a leasing team who taps a door in each room and one who finds out
                     at the end that no room has a plan constraint. `public/demo/floorplan-townhouse.webp`
-                    is exactly this case: 3 floors, 19 rooms, 0 dimensions. */}
+                    is exactly this case: 3 floors, 19 rooms, 0 dimensions. The demo button loads
+                    `floorplan-oak-unit3.png` instead, which prints all six, so the demo path shows
+                    what a plan is *for*. */}
                 {rooms.length && !dimensionedRooms(parsed).length ? (
                   <Callout tone="warn" title="This plan printed no dimensions we could read">
                     Its room names and floors are still useful, but nothing here will constrain a room’s size — no “plan says / model measures” line, and no ±5 cm plan

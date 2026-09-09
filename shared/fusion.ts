@@ -103,8 +103,19 @@ export interface ScaleConstraints {
   ceiling?: { heightM: number; printed?: boolean; sigmaM?: number };
   /** Marble's `metric_scale_factor`, full tier only. */
   marble?: { metricScaleFactor: number; sigmaRel?: number };
-  /** A field-of-view prior from EXIF, already expressed as metres per raw unit. */
-  exif?: { metresPerUnit: number; sigmaRel?: number };
+  /**
+   * A field-of-view prior from EXIF, already expressed as metres per raw unit.
+   *
+   * `group` is how the caller says what the prior was *closed on*. A field of view is scale-free —
+   * doubling every distance in a room leaves every photograph of it unchanged — so a prior built
+   * from one has to borrow a metric length from somewhere, and when that length is the same ceiling
+   * height that feeds {@link ScaleConstraints.ceiling} the two constraints are one assumption
+   * entered twice against two different raw quantities. Saying `group: 'ceiling'` puts them in one
+   * group, which halves the weight each carries and stops the fit reporting a σ it has not earned.
+   * Left out, the prior stands on its own ({@link ConstraintGroup} `'exif'`), which is right for a
+   * prior closed on something the ceiling constraint does not already assert.
+   */
+  exif?: { metresPerUnit: number; sigmaRel?: number; group?: ConstraintGroup };
 }
 
 /** One source, against the fused answer. `expected` is what it said; `measured` is what the fit says. */
@@ -242,7 +253,8 @@ function constraintsOf(c: ScaleConstraints): Constraint[] {
     const sigmaRel = positive(e.sigmaRel) ? (e.sigmaRel as number) : EXIF_SIGMA_REL;
     out.push({
       source: 'exif',
-      group: 'exif',
+      // The caller's own reading of what the prior borrowed its metre from; see `ScaleConstraints.exif`.
+      group: e.group ?? 'exif',
       label: 'EXIF field of view',
       unit: 'm/unit',
       expected: e.metresPerUnit,

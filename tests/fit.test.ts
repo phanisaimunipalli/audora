@@ -59,6 +59,34 @@ describe('fit report', () => {
     const chair = makePiece(catalogItem('armchair')!, -2.1 + 0.8, 2.55 - 0.45, 0);
     expect(fitReport([chair], room).blocksDoor).toContain(chair.id);
   });
+
+  /* The doorway the shell cuts is the plan's, not `room.door` — that is only where the
+     reconstruction put the photographer. Judging the swing against the spec cleared a stretch of
+     blank wall and called a room whose only exit was blocked "clear" (`doorOpeningsFor`,
+     three/RoomShell, by way of screens/viewer/unit). */
+  describe('against the doorways the shell actually cut', () => {
+    /** The same south wall, but the plan puts the door in the middle rather than at 0.80 m. */
+    const drawn = [{ wall: 'south' as const, offset: room.width / 2, width: 0.9 }];
+    /** A TV console flat across that doorway, and clear of the room's own door spec at 0.80 m. */
+    const console = makePiece(catalogItem('tv')!, 0.5, room.depth / 2 - 0.25, 0);
+
+    it('flags the piece across the drawn doorway', () => {
+      expect(fitReport([console], room, drawn).blocksDoor).toContain(console.id);
+      expect(pieceStatus(console, [], room, drawn)).toBe('door');
+      expect(buyerVerdict(console, [], room, drawn).reasons.join(' ')).toContain('blocks the door');
+    });
+
+    it('leaves the room’s own door spec, which no longer has a doorway in it, alone', () => {
+      const atSpec = makePiece(catalogItem('armchair')!, -2.1 + 0.8, 2.55 - 0.45, 0);
+      expect(fitReport([atSpec], room, drawn).blocksDoor).toEqual([]);
+      expect(pieceStatus(atSpec, [], room, drawn)).toBe('ok');
+    });
+
+    it('falls back to the door spec when the caller has no plan', () => {
+      expect(fitReport([console], room).blocksDoor).toEqual([]);
+      expect(fitReport([console], room, []).blocksDoor).toEqual([]);
+    });
+  });
 });
 
 describe('auto stage', () => {

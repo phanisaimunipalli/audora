@@ -58,8 +58,16 @@ import {
   type Measurements,
 } from '@/screens/create/types';
 
-/** The plan the demo button loads: a real three-storey floor plan with no printed dimensions. */
-const DEMO_PLAN_URL = '/demo/floorplan-townhouse.webp';
+/**
+ * The plan the demo button loads: the demo unit's own sheet — 1247 Oak Street, Unit 3, six rooms,
+ * every one of them with its dimensions printed in feet and inches with the draughtsman's metric
+ * restatement in brackets. That is the point of it: the demo path through this step has to end with
+ * rooms that actually carry a ±5 cm plan constraint, or it demonstrates the product without its
+ * strongest source of truth. (`public/demo/floorplan-townhouse.webp` is still in the tree — it is
+ * the dimensionless three-storey sheet the eval corpus keeps as a real-world case.)
+ */
+const DEMO_PLAN_URL = '/demo/floorplan-oak-unit3.png';
+const DEMO_PLAN_FILE = 'floorplan-oak-unit3.png';
 
 /** The plan is read from the original file and stored small: the unit keeps a copy to show. */
 const PLAN_STORE_PX = 900;
@@ -276,7 +284,7 @@ export default function NewTour() {
   const loadDemoPlan = useCallback(async () => {
     try {
       const blob = await (await fetch(DEMO_PLAN_URL)).blob();
-      await readPlan(new File([blob], 'floorplan-townhouse.webp', { type: blob.type || 'image/webp' }), 'floorplan-townhouse.webp');
+      await readPlan(new File([blob], DEMO_PLAN_FILE, { type: blob.type || 'image/png' }), DEMO_PLAN_FILE);
     } catch (e: any) {
       toast({ kind: 'error', title: 'Could not load the demo plan', body: e?.message });
     }

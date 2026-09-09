@@ -5,8 +5,9 @@
  *
  * Conventions:
  * - It must compile under tsconfig.node.json, tsconfig.server.json (NodeNext) and the app config
- *   that type-checks tests/, so its one import is a sibling in server/ with the .js extension, and
- *   it is only for the provider's own limits (which must not be written down twice).
+ *   that type-checks tests/, so every import is relative with the .js extension, and imports exist
+ *   only for the things that must not be written down twice: the provider's own limits and the
+ *   model policy the browser recipe hashed (`shared/modelPolicy.ts`).
  * - Nothing here is random and nothing reads a clock: the same body always maps to the same
  *   request (docs/BACKEND.md section 2). The seed the browser derived from its recipe is passed
  *   through untouched, and `disable_recaption` goes on the world prompt so the compiled text is the
@@ -16,6 +17,7 @@
 
 import { MARBLE_MAX_IMAGES, MARBLE_PLAIN_IMAGES, SEED_MAX } from './recipe.js';
 import { reconstructsImages } from '../shared/marbleLimits.js';
+import { knownModels, MARBLE_PLUS_SUFFIX, resolveModel, type ModelIds, type ModelTier } from '../shared/modelPolicy.js';
 
 /**
  * Marble takes 4 images in a multi-image prompt, or 8 in reconstruction mode, and its seed is a
@@ -57,31 +59,36 @@ export interface MarbleGenerateRequest {
 
 export type MarbleGenerateResult = { request: MarbleGenerateRequest } | { status: number; error: string };
 
-export interface MarbleModelIds {
-  draft: string;
-  full: string;
-}
+/** The model ids this server resolves each tier to. The shape `models()` in server/api.ts returns. */
+export type MarbleModelIds = ModelIds;
 
 /**
  * Full quality has a larger sibling for rooms one `marble-1.1` loses the far end of — an open plan,
- * or more than 30 m² of floor (docs/ACCURACY.md 3.5, `modelForRoom` in src/screens/create/intake.ts).
- * The suffix is the whole rule, so a deployment that renames its models keeps it.
+ * or more than 30 m² of floor (docs/ACCURACY.md 3.5). The rule, the suffix and the allowlist live in
+ * `shared/modelPolicy.ts`, which the browser intake reads too, so the model the launch step shows a
+ * leasing team is the model this route accepts. Re-exported here for the callers that already
+ * import it from this module.
  */
-export const MARBLE_PLUS_SUFFIX = '-plus';
+export { MARBLE_PLUS_SUFFIX, knownModels };
+
+/** A body's `tier` as the policy sees it: anything that is not `full` is a draft, as it always was. */
+const tierOf = (tier: unknown): ModelTier => (tier === 'full' ? 'full' : 'draft');
 
 /**
- * The model this request may run.
+ * The model this request may run, or the 400 that says why not.
  *
  * The caller names one because the *recipe* names one: the model id is hashed into the recipe, so a
- * server that quietly ran something else would record a hash for a world it did not ask for. It is
- * still an allowlist and not a passthrough — this endpoint spends money — so only the tier's own
- * model and its `-plus` sibling are accepted, and anything else falls back to the tier's default
- * rather than being sent to the provider.
+ * server that quietly ran something else would record a hash for a world it did not ask for, and the
+ * next identical request would miss the cache and spend the credits again. So an unknown id is
+ * **refused** rather than replaced — the leasing team gets a sentence, not a world they did not ask
+ * for. Naming nothing is still fine and still means the tier's own model.
+ *
+ * It remains an allowlist and not a passthrough — this endpoint spends money — so the only ids that
+ * pass are the ones `modelForModelRoom` can choose for that tier (`knownModels`).
  */
-export function modelFor(tier: unknown, requested: unknown, models: MarbleModelIds): string {
-  const base = tier === 'full' ? models.full : models.draft;
-  if (typeof requested !== 'string' || !requested) return base;
-  return requested === base || requested === `${base}${MARBLE_PLUS_SUFFIX}` ? requested : base;
+export function modelFor(tier: unknown, requested: unknown, models: MarbleModelIds): { model: string } | { status: number; error: string } {
+  const resolved = resolveModel(tierOf(tier), requested, models);
+  return 'error' in resolved ? { status: 400, error: resolved.error } : resolved;
 }
 
 /** Split a base64 image data URL into the bytes and the extension Marble wants (`jpg`, `png`, ...). */
@@ -131,6 +138,10 @@ export function marbleGenerateRequest(body: any, models: MarbleModelIds): Marble
     Array.isArray(body?.images) && body.images.length ? body.images.filter((a: any) => typeof a?.dataUrl === 'string') : [{ dataUrl: body?.imageDataUrl }];
   if (!angles.length || typeof angles[0].dataUrl !== 'string') return { status: 400, error: 'No image supplied.' };
 
+  // Before anything is decoded: a model this server cannot run is a request that must not be sent.
+  const model = modelFor(body?.tier, body?.model, models);
+  if ('error' in model) return model;
+
   let seed: number | undefined;
   try {
     seed = parseSeed(body?.seed);
@@ -170,7 +181,7 @@ export function marbleGenerateRequest(body: any, models: MarbleModelIds): Marble
   return {
     request: {
       display_name: String(body?.displayName || 'Audora room').slice(0, 64),
-      model: modelFor(body?.tier, body?.model, models),
+      model: model.model,
       tags: mergeTags(body?.tags),
       permission: { public: false, allow_id_access: true },
       ...(seed === undefined ? {} : { seed }),

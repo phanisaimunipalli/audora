@@ -20,7 +20,9 @@ import {
 import { listingCopy, type AiMeta } from '@/services/ai';
 import { TIER_INFO } from '@/services/mockWorld';
 import { watermark } from '@/three/stills';
-import { effectiveHeading, sunState } from '@/engine/siteSun';
+import { sunState } from '@/engine/siteSun';
+import { sunHeading, useRoomTurn } from './viewer/unit';
+import { modelForModelRoom, modelRoomOf } from './create/intake';
 import { clock, timeAgo, usd } from '@/lib/format';
 import { AnchorChip } from '@/components/AnchorChip';
 import { Button, Callout, Card, Chip, IconButton, Input, Progress, SourceLabel, Spinner, Toggle, cx } from '@/components/ui';
@@ -95,12 +97,17 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
      sun at the hour the leasing team parked the time-of-day control on. A unit with no site simply
      has no real sun and the room keeps the studio key it always had. */
   const site = tour?.site;
+  /* The bearing comes from the one rule every screen that shows a sun uses (`sunHeading` in
+     screens/viewer/unit): this room's own north wall, re-expressed against whatever wall is north
+     after its world has been turned. A still lit from a wall the renter's viewer does not light
+     from is a listing photograph of a room nobody will walk. */
+  const stillTurn = useRoomTurn(tour?.floorPlan, rooms, renderingRoom);
   const stillSun = useMemo(
     () =>
       site && renderingRoom
-        ? sunState(new Date(site.previewTime ?? Date.now()), site.lat, site.lon, effectiveHeading(site.heading, renderingRoom.northWallHeading))
+        ? sunState(new Date(site.previewTime ?? Date.now()), site.lat, site.lon, sunHeading(site.heading, renderingRoom, stillTurn))
         : null,
-    [site, renderingRoom],
+    [site, renderingRoom, stillTurn],
   );
   const onStills = useCallback(
     async (raw: Still[]) => {
@@ -173,6 +180,14 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
   const now = useNow(running.length > 0);
 
   const targets = useMemo(() => upgradeTargets(rooms, jobs, provider), [rooms, jobs, provider]);
+  /* Which model ids a full-quality pass would actually spend on. A room over 30 m² of printed floor,
+     or an open plan, is routed to the larger `-plus` sibling (`shared/modelPolicy`), so a unit with
+     one names both; naming only the tier model would promise a reconstruction this unit is not
+     getting. Distinct and in the order the rule returns them, so the line is stable. */
+  const fullModels = useMemo(
+    () => [...new Set((targets.length ? targets : rooms).map((r) => modelForModelRoom(modelRoomOf(r), 'full').model))].join(' / ') || FULL_MODEL,
+    [targets, rooms],
+  );
   const simulated = provider === 'mock';
   const liveLeft = liveMax != null ? Math.max(0, liveMax - (liveCount ?? 0)) : undefined;
   const guardAllows = liveLeft == null || liveLeft >= targets.length;
@@ -271,7 +286,7 @@ export function PublishPanel({ tourId, className }: PublishPanelProps) {
                 <span className={cx('text-sm', simulated ? 'text-ink-3' : 'text-ink')}>
                   Also generate full quality{' '}
                   <span className="mono text-xs text-ink-3">
-                    · {fmtCreditsNumber(TIER_INFO.full.credits)} credits ({usd(TIER_INFO.full.usd)}) per room · {FULL_MODEL} · ~10 min
+                    · {fmtCreditsNumber(TIER_INFO.full.credits)} credits ({usd(TIER_INFO.full.usd)}) per room · {fullModels} · ~10 min
                   </span>
                 </span>
               }

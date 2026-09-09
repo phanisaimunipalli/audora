@@ -1,4 +1,4 @@
-import type { PlacedPiece, RoomGeometry } from '@/engine/types';
+import type { DoorSpec, PlacedPiece, RoomGeometry } from '@/engine/types';
 import { pointInFootprint } from '@/engine/geometry';
 import { spawnPose } from '@/three/walkMath';
 import type { Pose } from '@/three/viewerStore';
@@ -17,9 +17,30 @@ function blocked(x: number, z: number, room: RoomGeometry, solids: PlacedPiece[]
  * A standing spot that is not inside furniture. Starts from `base` (or just inside the door) and, when
  * that is blocked, walks forward and sideways until it finds clear floor. The walker collides with
  * solids, so spawning inside one would leave the renter stuck.
+ *
+ * `door` is the doorway the shell actually cut (`doorOpeningsFor`, three/RoomShell) — the room's own
+ * door spec is only where the reconstruction put the photographer, and once a floor plan says where
+ * this room's doors are, spawning at the spec puts the renter in front of a wall. Ignored when
+ * `base` is given, which is every real capture: there the renter starts where the camera stood.
  */
-export function freeSpawn(room: RoomGeometry, pieces: PlacedPiece[], base?: Pose): Pose {
-  const p = base ?? spawnPose(room);
+/** No furniture at all, as one stable array, so a caller memoising on it does not thrash. */
+const NO_PIECES: PlacedPiece[] = [];
+
+/**
+ * The staged pieces a spawn has to stay out of: the ones the walker will actually meet.
+ *
+ * The viewer collides with staged furniture only while the staging layer is drawn
+ * (`showStaging`), so a spawn computed against the whole list steps the renter aside for a sofa
+ * that is neither rendered nor solid — up to 1.72 m from the doorway on the demo unit — and then
+ * lets them walk straight through where it "was", which is the opposite of the reason
+ * {@link freeSpawn} avoids solids at all. One rule, so the two cannot disagree.
+ */
+export function spawnSolids(pieces: PlacedPiece[], showStaging: boolean): PlacedPiece[] {
+  return showStaging ? pieces : NO_PIECES;
+}
+
+export function freeSpawn(room: RoomGeometry, pieces: PlacedPiece[], base?: Pose, door?: Pick<DoorSpec, 'wall' | 'offset'>): Pose {
+  const p = base ?? spawnPose(room, door ?? room.door);
   const solids = pieces.filter((s) => !s.flat);
   if (!blocked(p.x, p.z, room, solids)) return p;
   const fx = -Math.sin(p.yaw);

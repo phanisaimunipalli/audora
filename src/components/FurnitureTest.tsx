@@ -3,7 +3,7 @@ import type { BuyerVerdict, CatalogItem, PlacedPiece, ProceduralKind } from '@/e
 import type { MyStuffItem, Room } from '@/state/types';
 import { makePiece } from '@/engine/autostage';
 import { buyerVerdict } from '@/engine/fit';
-import { clampToRoom, snapRotation } from '@/engine/geometry';
+import { clampToRoom, snapRotation, type Doorway } from '@/engine/geometry';
 import { parseFurniture, type AiMeta } from '@/services/ai';
 import { useAudora, useMyStuff } from '@/state/store';
 import type { Pose, ViewMode } from '@/three/viewerStore';
@@ -24,6 +24,12 @@ export interface FurnitureTestProps {
   onClose?: () => void;
   /** Leasing team pieces to judge against. Defaults to the room's staging; pass [] when the renter hides it. */
   staging?: PlacedPiece[];
+  /**
+   * The room's drawn doorways (`doorOpeningsFor` by way of `screens/viewer/unit`) — "it blocks the
+   * door from opening" is judged against these. Omitted, the room's own door spec is used, which is
+   * where the reconstruction put the photographer rather than where the plan puts a door.
+   */
+  doorways?: readonly Doorway[];
   /** Where the renter stands right now; new pieces land 1.2 m ahead. */
   pose?: Pose;
   selectedId?: string | null;
@@ -72,7 +78,7 @@ interface Spec {
  * "Test my own furniture". Type a piece ("sectional, 220 by 95") or pick one from My Stuff; it lands
  * in blue in front of the renter and the verdict updates live as the piece moves.
  */
-export function FurnitureTest({ room, buyerPieces, onChange, onClose, staging, pose, selectedId, onSelect, analytics = true, mode, onModeChange, className }: FurnitureTestProps) {
+export function FurnitureTest({ room, buyerPieces, onChange, onClose, staging, doorways, pose, selectedId, onSelect, analytics = true, mode, onModeChange, className }: FurnitureTestProps) {
   /* The unit's own staged pieces, whoever placed them: what a renter's piece is judged against. */
   const staged = staging ?? room.staging;
   const myStuff = useMyStuff();
@@ -94,9 +100,9 @@ export function FurnitureTest({ room, buyerPieces, onChange, onClose, staging, p
 
   const verdicts = useMemo(() => {
     const m = new Map<string, BuyerVerdict>();
-    for (const p of buyerPieces) m.set(p.id, buyerVerdict(p, staged, room.geometry));
+    for (const p of buyerPieces) m.set(p.id, buyerVerdict(p, staged, room.geometry, doorways));
     return m;
-  }, [buyerPieces, staged, room.geometry]);
+  }, [buyerPieces, staged, room.geometry, doorways]);
 
   // Track the outcome once at drop time, and again when a moved piece's verdict settles on a new answer.
   const lastOutcome = useRef<Record<string, boolean>>({});
@@ -140,7 +146,7 @@ export function FurnitureTest({ room, buyerPieces, onChange, onClose, staging, p
     const next = [...buyerPieces, piece];
     onChange(next);
     onSelect?.(piece.id);
-    const v = buyerVerdict(piece, staged, room.geometry);
+    const v = buyerVerdict(piece, staged, room.geometry, doorways);
     lastOutcome.current[piece.id] = v.fits;
     if (analytics) {
       trackEvent(room.tourId, 'test', { roomId: room.id, item: spec.name });

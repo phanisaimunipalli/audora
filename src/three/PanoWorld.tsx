@@ -50,6 +50,13 @@ export interface PanoWorldProps {
  * three.js maps an equirect texel `u` onto a sphere at `azimuth = 360u − 90°`; mirroring x flips
  * that to `90° − 360u`, so a further **+90° yaw** lands it on the `180° − 360u` the mirrored
  * collider needs. Hence: mirror in x, yaw +π/2.
+ *
+ * Both numbers are *relative to the Marble group*, and nothing here knows which way the room faces.
+ * The room's whole turn — the collider rectangle's own plus the plan's quarter turn and north arrow
+ * (`planYaw`, services/marble) — is the group's `rotationY = π + yaw`, applied outside this sphere's
+ * own mirror and yaw, so yawing a room onto plan north turns the photograph with the splat and the
+ * mesh and leaves this file alone. The `yaw` prop below stays what it always was: a per-room
+ * correction on top of `PANO_YAW`, not the room's orientation.
  */
 export const PANO_MIRROR: [number, number, number] = [-1, 1, 1];
 export const PANO_YAW = Math.PI / 2;

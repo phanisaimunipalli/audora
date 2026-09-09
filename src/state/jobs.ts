@@ -118,9 +118,12 @@ async function marbleModels(tier: Tier): Promise<{ marbleDraft?: string; marbleF
  * The model this room is reconstructed with: the tier's own, or `marble-1.1-plus` for an open plan
  * or a room the plan draws bigger than 30 m² (docs/ACCURACY.md 3.5).
  *
- * The choice goes into the recipe *and* onto the request, so the model the launch step showed the
- * leasing team is the model that runs and the model the recipe hash names. The server still allowlists it
- * (`modelFor`, server/marbleRequest.ts) — naming one here cannot make it run something arbitrary.
+ * The rule is `shared/modelPolicy.ts`, so this is the same function the launch step showed the
+ * leasing team and the same one `server/pipeline.ts` applies to the stored rows. The choice goes into
+ * the recipe *and* onto the request, so the model named on screen is the model that runs and the
+ * model the recipe hash names. The server still allowlists it (`modelFor`, server/marbleRequest.ts):
+ * naming one here cannot make it run something arbitrary, and an id it does not know is a 400 rather
+ * than a quiet substitution that would leave the recipe hash describing a request nobody made.
  */
 async function marbleModelId(room: Room, tier: Tier): Promise<string> {
   return modelForModelRoom(modelRoomOf(room), tier, await marbleModels(tier)).model;
@@ -137,11 +140,11 @@ async function startJob(job: Job) {
       // The recipe names the model the server will actually run and the tour's site; the hash,
       // seed and prompt it was sent with ride on the job until the world lands (finaliseMarbleJob).
       const { tours } = useAudora.getState();
-      const { operationId, worldId, recipeHash, seed, prompt } = await startGeneration(room, job.tier, {
+      const { operationId, worldId, recipeHash, seed, prompt, model } = await startGeneration(room, job.tier, {
         modelId: await marbleModelId(room, job.tier),
         site: tours[job.tourId]?.site,
       });
-      updateJob(job.id, { status: 'running', operationId, worldId, recipeHash, seed, prompt, progress: 2, step: stepFor(2), lastPollAt: 0 });
+      updateJob(job.id, { status: 'running', operationId, worldId, recipeHash, seed, prompt, model, progress: 2, step: stepFor(2), lastPollAt: 0 });
     } catch (e: any) {
       const message: string = e?.message || 'Could not start generation';
       updateJob(job.id, { status: 'failed', error: message, finishedAt: Date.now() });
@@ -264,8 +267,10 @@ async function finaliseMarbleJob(job: Job, op: MarbleOperation, elapsed: number)
     return;
   }
   const w = world;
-  // Provenance travels from the job (set when the generation started) onto the world it produced.
-  const provenance = { recipeHash: job.recipeHash, seed: job.seed, prompt: job.prompt };
+  // Provenance travels from the job (set when the generation started) onto the world it produced —
+  // the model included, so the tier chip and the measured panel name the model that was requested
+  // even when Marble's world record comes back without one.
+  const provenance = { recipeHash: job.recipeHash, seed: job.seed, prompt: job.prompt, model: job.model };
   finishJob(job, () => worldFromMarble(room, job.tier, w, op.cost?.total_credits ?? undefined, Math.round(elapsed), bounds, provenance));
 }
 

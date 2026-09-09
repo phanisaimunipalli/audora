@@ -20,9 +20,9 @@
 import type { RoomType } from '@/engine/types';
 import { MARBLE_RECONSTRUCT_MIN_IMAGES, reconstructsImages } from '@shared/marbleLimits';
 import type { PhotoAnalysis, PlanDimensions, Tier } from '@/state/types';
-import type { FlatPlanRoom } from '@/services/floorplan';
+import { printedDimensions, type FlatPlanRoom } from '@/services/floorplan';
 import { TIER_INFO } from '@/services/mockWorld';
-import { DRAFT_MODEL, FULL_MODEL } from '@/state/publish';
+import { FULL_PLUS_MODEL, isOpenPlanRoom, modelForModelRoom, plusReasonOf, type ModelChoice, type ModelRoom, type PlusReason, type TierModels } from '@shared/modelPolicy';
 import { draftGeometry, draftPhotos, planDimensionsOf, type DraftPhoto, type DraftRoom } from './types';
 
 /* ---------- 3.4a: two to four angles per room ---------- */
@@ -273,19 +273,25 @@ export function reconstructionSummary(rooms: DraftRoom[]): ReconstructionSummary
   return { multiAngle, reconstructed, plainMultiImage, text };
 }
 
-/* ---------- 3.5: tier policy ---------- */
+/* ---------- 3.5: tier policy ----------
+ * The rule itself is `shared/modelPolicy.ts`, because the model id is hashed into the recipe and
+ * the server has to reach the same answer from the stored rows (`planRecipes`) and refuse anything
+ * else (`modelFor`). What stays here is the wizard's side of it: the `DraftRoom` adapters and the
+ * cost table. The names below keep their old home so every importer is unchanged. */
 
-/** The model a large or open-plan room needs: more capacity, same tier, same price band. */
-export const FULL_PLUS_MODEL = 'marble-1.1-plus';
-
-/** Past this much floor a single `marble-1.1` reconstruction starts losing the far end of the room. */
-export const PLUS_AREA_M2 = 30;
-
-/** A room type that is one open volume rather than a box with a door. */
-export const OPEN_PLAN_TYPES: RoomType[] = ['studio'];
-
-/** Names a draughtsman gives to one room that is really two or three. */
-const OPEN_PLAN_NAME = /open[\s-]?plan|open[\s-]?concept|great\s?room|living[\s/-]*(?:and\s+)?(?:dining|kitchen)|kitchen[\s/-]*(?:and\s+)?(?:dining|living)|dining[\s/-]*(?:and\s+)?living|kitchen\s*diner|l-?shaped/i;
+export {
+  FULL_PLUS_MODEL,
+  MARBLE_PLUS_SUFFIX,
+  OPEN_PLAN_TYPES,
+  PLUS_AREA_M2,
+  isOpenPlanRoom,
+  modelForModelRoom,
+  plusReasonOf,
+  type ModelChoice,
+  type ModelRoom,
+  type PlusReason,
+  type TierModels,
+} from '@shared/modelPolicy';
 
 /** Floor area in m², from the plan when it printed dimensions and from the room's own numbers otherwise. */
 export function roomArea(room: DraftRoom): number {
@@ -303,44 +309,6 @@ export function planArea(room: DraftRoom): number | undefined {
 
 export function isOpenPlan(room: DraftRoom): boolean {
   return isOpenPlanRoom({ name: room.name, type: room.type, planRoomName: room.planRoom?.name });
-}
-
-export type PlusReason = 'area' | 'open-plan';
-
-/**
- * The only facts the tier rule reads.
- *
- * Stated structurally because the rule has two callers with different room shapes: the wizard's
- * `DraftRoom` (which carries a whole parsed `planRoom`) and the persisted `Room` the job runner
- * enqueues (which carries `planDims`). One rule, two adapters, so the model the launch step *shows*
- * is provably the model the generation *asks for*.
- */
-export interface ModelRoom {
-  name: string;
-  type: RoomType;
-  /** The plan's own name for this room, when it was matched to one. */
-  planRoomName?: string;
-  /** The plan's printed dimensions in metres, when it printed any. */
-  planWidthM?: number;
-  planDepthM?: number;
-}
-
-function isOpenPlanRoom(room: ModelRoom): boolean {
-  if (OPEN_PLAN_TYPES.includes(room.type)) return true;
-  return OPEN_PLAN_NAME.test(room.name) || OPEN_PLAN_NAME.test(room.planRoomName ?? '');
-}
-
-/**
- * Why this room needs `marble-1.1-plus`, or undefined when plain full quality is enough.
- *
- * The area test reads the **plan's** dimensions, not the room's own: a room's own numbers come from
- * the reconstruction we have not run yet, so using them would let a bad guess pick the model. With
- * no plan dimensions the type and the name still decide.
- */
-export function plusReasonOf(room: ModelRoom): PlusReason | undefined {
-  if (isOpenPlanRoom(room)) return 'open-plan';
-  const area = room.planWidthM != null && room.planDepthM != null ? room.planWidthM * room.planDepthM : undefined;
-  return area != null && area > PLUS_AREA_M2 ? 'area' : undefined;
 }
 
 export function plusReason(room: DraftRoom): PlusReason | undefined {
@@ -361,48 +329,12 @@ export function modelRoomOf(room: { name: string; type: RoomType; planDims?: { w
   return { name: room.name, type: room.type, planRoomName: room.planDims?.planRoomName, planWidthM: room.planDims?.width, planDepthM: room.planDims?.depth };
 }
 
-export interface ModelChoice {
-  model: string;
-  /** Set only when the choice is `marble-1.1-plus`. */
-  reason?: PlusReason;
-  /** The sentence next to the room in the launch list. */
-  text: string;
-}
-
-/** Model ids the server reported for each tier (`/api/status`), when it has told us. */
-export interface TierModels {
-  marbleDraft?: string;
-  marbleFull?: string;
-}
-
 /**
- * The model id a room should be reconstructed with.
- *
- * Draft is one model for every room: it is the instant preview and it carries no metric scale, so
- * there is nothing for a bigger model to be better at. Full quality is where the room's size starts
- * to matter, and where `marble-1.1-plus` earns its place.
+ * The model id a room should be reconstructed with — the wizard's `DraftRoom` through the shared
+ * rule (`modelForModelRoom` in shared/modelPolicy.ts, re-exported above).
  */
 export function modelForRoom(room: DraftRoom, tier: Tier, models?: TierModels): ModelChoice {
   return modelForModelRoom(modelRoomOfDraft(room), tier, models);
-}
-
-/** The same choice from the structural shape — what a caller holding a persisted `Room` calls. */
-export function modelForModelRoom(room: ModelRoom, tier: Tier, models?: TierModels): ModelChoice {
-  if (tier === 'draft') {
-    const model = models?.marbleDraft || DRAFT_MODEL;
-    return { model, text: 'Instant preview · no metric scale' };
-  }
-  const reason = plusReasonOf(room);
-  if (!reason) return { model: models?.marbleFull || FULL_MODEL, text: 'Full quality · returns metric scale' };
-  const area = room.planWidthM != null && room.planDepthM != null ? room.planWidthM * room.planDepthM : undefined;
-  return {
-    model: FULL_PLUS_MODEL,
-    reason,
-    text:
-      reason === 'open-plan'
-        ? 'Open plan, so it goes to the larger model'
-        : `${area!.toFixed(1)} m² of floor is over ${PLUS_AREA_M2} m², so it goes to the larger model`,
-  };
 }
 
 export interface TierPlanRow {
@@ -501,6 +433,13 @@ export interface PlanPhotoRow {
 const dims = (w: number, d: number) => `${w.toFixed(2)} × ${d.toFixed(2)} m`;
 
 /**
+ * What the drawing printed, where it still adds something to the metres already on the row.
+ * A sheet that prints `17'-5" × 19'-0" (5.30 × 5.78 m)` is where those metres came from, so quoting
+ * it whole would say the same pair twice; `printedDimensions` (services/floorplan) trims the echo.
+ */
+const printedNote = (d: { text?: string; width: number; depth: number }) => printedDimensions(d.text, d.width, d.depth);
+
+/**
  * One row per room: what the plan says, what the photo shows, and whether the pairing has been
  * confirmed. The row is the whole confirmation UI's state; the component only draws it.
  */
@@ -520,7 +459,7 @@ export function planPhotoRows(rooms: DraftRoom[]): PlanPhotoRow[] {
       planDims,
       state,
       planLine: planDims
-        ? `Plan says ${dims(planDims.width, planDims.depth)}${planDims.text ? ` (printed ${planDims.text})` : ''}`
+        ? `Plan says ${dims(planDims.width, planDims.depth)}${printedNote(planDims) ? ` (printed ${printedNote(planDims)})` : ''}`
         : ref
           ? 'The plan printed no dimensions for this room'
           : 'Not on the floor plan',

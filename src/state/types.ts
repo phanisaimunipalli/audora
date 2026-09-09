@@ -194,8 +194,10 @@ export interface Room {
    * Written by the worker after `copy_assets` (docs/ACCURACY.md 3.2), served per room by the public
    * tour, and read by the hub's AccuracyCard. The type is the server's own `rooms.measurement`
    * shape, so what is stored, served and shown is one object and not three that agree by hand.
-   * Absent until a room has been measured, and absent forever on a simulated one. It is a *report*,
-   * never an input: `geometry` stays the room's own numbers.
+   * Absent on a room the worker has not reached. It is **not** a real-worlds-only field: the demo
+   * seed writes one for its own simulated rooms from the same `shared/fusion` functions the worker
+   * calls, so the hub has real "plan says / model measures" lines on a first run with no network.
+   * It is a *report*, never an input: `geometry` stays the room's own numbers.
    */
   measurement?: RoomMeasurement;
   raw: RawGeometry;
@@ -354,12 +356,15 @@ export interface Job {
    */
   upgrade?: boolean;
   /**
-   * What the generation was actually asked for (`startGeneration`): recipe hash, seed and compiled
-   * prompt. Carried on the job so a reload between start and finish still lands them on the world.
+   * What the generation was actually asked for (`startGeneration`): the model id, recipe hash, seed
+   * and compiled prompt. Carried on the job so a reload between start and finish still lands them on
+   * the world. The model is here for the same reason the hash is — it is part of the recipe, so the
+   * world has to be able to say which one it asked for even if the provider's record omits it.
    */
   recipeHash?: string;
   seed?: number;
   prompt?: string;
+  model?: string;
   /** Set when the completion has been shown to the user (badge / notification). */
   seen: boolean;
 }

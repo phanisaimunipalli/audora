@@ -135,6 +135,37 @@ export function metresFromDimensions(text: string, units: PlanUnits = 'unknown')
   return pair(clean.replace(/\([^)]*\)/g, ' '), units);
 }
 
+/** Two lengths agree if they round to the same centimetre — the precision a plan is printed to. */
+const sameLength = (a: number, b: number) => Math.abs(a - b) < 0.005;
+
+/**
+ * What the plan printed, *minus* anything the metres beside it already say.
+ *
+ * A draughtsman's mixed-unit sheet prints `17'-5" × 19'-0" (5.30 × 5.78 m)`, and those bracketed
+ * metres are exactly the numbers `metresFromDimensions` prefers and stores — so a UI that shows
+ * "5.30 × 5.78 m" and then the printed string in brackets says the same pair three times. This
+ * drops a restatement that agrees with the stored metres and returns `undefined` when nothing the
+ * reader has not already been told is left, so the feet and inches survive and the echo does not.
+ *
+ * Pure, and it never *corrects* the printed string: a restatement that disagrees with the stored
+ * metres is kept, because that disagreement is the thing a human is checking the conversion for.
+ */
+export function printedDimensions(text: string | undefined, width: number, depth: number): string | undefined {
+  if (!text) return undefined;
+  const stripped = text
+    .replace(/\(([^)]*)\)/g, (whole, inner: string) => {
+      const p = metresFromDimensions(inner, 'metres');
+      return p && sameLength(p.width, width) && sameLength(p.depth, depth) ? ' ' : whole;
+    })
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!stripped) return undefined;
+  // What is left may itself be the metres (a purely metric sheet), in which case it is an echo too.
+  const rest = metresFromDimensions(stripped, 'metres');
+  if (rest && sameLength(rest.width, width) && sameLength(rest.depth, depth) && !/['"]/.test(stripped)) return undefined;
+  return stripped;
+}
+
 const TIMES = /\s*(?:[×x✕*]|by)\s*/i;
 
 /** Nothing anyone lives in is narrower than this, in metres. Used to catch a misread unit. */

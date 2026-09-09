@@ -3,7 +3,7 @@ import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { RoomWorld } from '@/state/types';
-import { marbleFrame } from './splat/frame';
+import { marbleFrame, planYaw, type PlanOrientation } from './splat/frame';
 import type { SplatTier } from './splat/tiers';
 import { Occluder } from './lighting/Occluder';
 import { PANO_RADIUS, PanoWorld, type PanoProgress, type PanoStatus } from './PanoWorld';
@@ -49,6 +49,12 @@ export interface MarbleWorldProps {
   metresPerUnit: number;
   /** `Room.floorOffset` — metres the whole reconstruction is nudged up so its floor meets ours. */
   floorOffset?: number;
+  /**
+   * What the floor plan says about which way this room faces: `matchPortals().quarters` and
+   * `UnitRoom.yawToNorth`. Folded into the group's one turn (`planYaw`), so the panorama, the splat
+   * and the collider are yawed onto plan north together. Leave it out for a room with no plan.
+   */
+  plan?: PlanOrientation | number | null;
   /** Draw the panorama sphere (photo view, and behind the splat in walk view). */
   showPano?: boolean;
   /** Draw the Gaussian splat when the world has one. */
@@ -119,18 +125,28 @@ export function trimStretchedTriangles(geometry: THREE.BufferGeometry, edgeFract
   return geometry;
 }
 
-/** Where this world sits in the metric room frame. Same maths the group below uses. */
-export function useMarbleFrame(world: Pick<RoomWorld, 'metricScaleFactor' | 'groundPlaneOffset' | 'bounds'>, metresPerUnit: number, floorOffset = 0) {
+/**
+ * Where this world sits in the metric room frame. Same maths the group below uses.
+ *
+ * `plan` is what the floor plan says about which way this room faces (`planYaw` in services/marble):
+ * the quarter turn portal matching recovered and the sheet's north arrow. It is one number by the
+ * time it reaches the transform, so it is memoised as one number — a caller may hand over a fresh
+ * `{quarters, yawToNorth}` object every render without re-placing the capture.
+ */
+export function useMarbleFrame(world: Pick<RoomWorld, 'metricScaleFactor' | 'groundPlaneOffset' | 'bounds'>, metresPerUnit: number, floorOffset = 0, plan?: PlanOrientation | number | null) {
   const msf = world.metricScaleFactor ?? null;
   const gpo = world.groundPlaneOffset ?? null;
   const b = world.bounds;
   const w = b?.walls;
   // The wall rectangle turns and centres the room, so it belongs in the key with the box.
   const key = b ? `${b.minX},${b.maxX},${b.minY},${b.maxY},${b.minZ},${b.maxZ},${b.floorY},${b.method},${w?.minX},${w?.maxX},${w?.minZ},${w?.maxZ},${w?.rotation}` : '';
+  const turn = planYaw(plan);
   return useMemo(
-    () => marbleFrame({ metricScaleFactor: msf, groundPlaneOffset: gpo, bounds: b }, metresPerUnit, floorOffset),
+    // `turn` is already the whole of the plan's say, so it goes in as the pre-folded yaw rather than
+    // as the pair it came from — the transform adds it to the rectangle's own.
+    () => marbleFrame({ metricScaleFactor: msf, groundPlaneOffset: gpo, bounds: b }, metresPerUnit, floorOffset, turn),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [msf, gpo, key, metresPerUnit, floorOffset],
+    [msf, gpo, key, metresPerUnit, floorOffset, turn],
   );
 }
 
@@ -250,7 +266,8 @@ function ColliderPick({ target, enabled }: { target: THREE.Object3D | null; enab
  * floorOffset)`: the panorama sphere, the collider wireframe and (when the world has a `.spz`) the
  * Gaussian splat. The group's `position` is exactly where the capture point lands in Audora's metric
  * frame — floor y = 0, room centre at the origin — which is where the photo view puts its camera and
- * where walk mode spawns the renter, facing yaw 0, so the first frame is the photograph.
+ * where walk mode spawns the renter, facing `frame.yaw`, so the first frame is the photograph
+ * whichever way the plan has turned the room.
  *
  * Scale comes from Marble's own `metric_scale_factor` when the world carries metric semantics
  * (full quality) and from the room's anchor otherwise (draft); the floor comes from the collider's
@@ -270,6 +287,7 @@ export function MarbleWorld({
   world,
   metresPerUnit,
   floorOffset = 0,
+  plan,
   showPano = true,
   showSplat = false,
   showGeometry = false,
@@ -284,7 +302,7 @@ export function MarbleWorld({
   onCollider,
   onPanoTexture,
 }: MarbleWorldProps) {
-  const t = useMarbleFrame(world, metresPerUnit, floorOffset);
+  const t = useMarbleFrame(world, metresPerUnit, floorOffset, plan);
   const report = useRef(onStatus);
   report.current = onStatus;
   const originCb = useRef(onOrigin);
@@ -371,6 +389,7 @@ export function MarbleWorld({
           world={world}
           visible={wantSplat}
           metresPerUnit={metresPerUnit}
+          plan={plan}
           opacity={splatOpacity}
           transform={{ y: floorOffset }}
           maxTier={maxSplatTier}

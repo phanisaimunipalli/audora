@@ -12,7 +12,8 @@ import { Link } from 'react-router-dom';
 import type { RoomType } from '@/engine/types';
 import { STYLE_LABELS } from '@/engine/autostage';
 import { fitReport } from '@/engine/fit';
-import { compassLabel, dominantWindowWall, effectiveHeading, facingToHeading, headingToFacing } from '@/engine/siteSun';
+import { compassLabel, dominantWindowWall, facingToHeading, headingToFacing } from '@/engine/siteSun';
+import { roomTurnFor, sunHeading, type UnitModel } from '@/screens/viewer/unit';
 import { bestWorld, toast, useAudora } from '@/state/store';
 import { activeProvider, regenerateRoom } from '@/state/jobs';
 import { needsFull } from '@/state/publish';
@@ -29,9 +30,13 @@ import { ROOM_TYPES, ROOM_TYPE_LABELS } from '@/screens/create/types';
 import { FloorPlanSvg } from './FloorPlanSvg';
 import { AccuracyCard } from './AccuracyCard';
 import { isActiveJob, modelName, providerName } from './jobMeta';
+import { modelForModelRoom, modelRoomOf } from '@/screens/create/intake';
 import { ShadowedFullNote, TierChip } from './TierChip';
 
-export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; job?: Job; onView: (roomId: string) => void }) {
+/** A unit with no floor plan: no graph, no links, and therefore no turn on any of its rooms. */
+const NO_UNIT: UnitModel = { graph: null, planRefs: {}, roomIdForRef: {} };
+
+export function RoomCard({ tour, room, job, unit, onView }: { tour: Tour; room: Room; job?: Job; unit?: UnitModel; onView: (roomId: string) => void }) {
   const updateRoom = useAudora((s) => s.updateRoom);
   const removeRoom = useAudora((s) => s.removeRoom);
   const setStaging = useAudora((s) => s.setStaging);
@@ -49,7 +54,12 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
   /* A flat's rooms do not all look the same way. The building's heading is the default; this room
      can say otherwise, and then the sun in *this* room follows it. */
   const site = tour.site;
-  const heading = effectiveHeading(site?.heading, room.northWallHeading);
+  /* The same bearing the viewer, the editor and the listing stills compute (`sunHeading` in
+     screens/viewer/unit): this room's own north wall, moved by whatever turn its world carries. The
+     hub builds the unit graph once for the whole page and passes it in; with none — a unit with no
+     floor plan — the turn is zero and this is the room's own heading, unchanged. */
+  const turn = roomTurnFor(unit ?? NO_UNIT, room);
+  const heading = sunHeading(site?.heading, room, turn);
   const overridden = room.northWallHeading != null;
   /* The leasing team thinks in windows, the engine in the room's north wall; this room says which wall its
      windows are on, so the two can be the same control. */
@@ -62,7 +72,12 @@ export function RoomCard({ tour, room, job, onView }: { tour: Tour; room: Room; 
   const provider = providers.marble && !preferMock ? 'marble' : activeProvider();
   const canUpgrade = needsFull(room, provider);
   const canLive = provider === 'marble' && !!room.photo;
-  const costLabel = (tier: Tier) => (canLive ? `~${TIER_INFO[tier].credits} credits · ${fmtUsd(TIER_INFO[tier].usd)} · ${modelName('marble', tier, providers)}` : `simulated · free · ${modelName('mock', tier)}`);
+  /* The model **this room** would be sent to, not the tier's default: a room over 30 m² of printed
+     floor, or an open plan, is routed to the larger `-plus` sibling (`shared/modelPolicy`), and that
+     is what `state/jobs.ts` actually puts on the request. Naming the tier model here would price and
+     promise one reconstruction while queueing another. */
+  const modelFor = (tier: Tier) => modelForModelRoom(modelRoomOf(room), tier, { marbleDraft: providers?.models?.marbleDraft, marbleFull: providers?.models?.marbleFull });
+  const costLabel = (tier: Tier) => (canLive ? `~${TIER_INFO[tier].credits} credits · ${fmtUsd(TIER_INFO[tier].usd)} · ${modelFor(tier).model}` : `simulated · free · ${modelName('mock', tier)}`);
   const regenBody = (tier: Tier) => (canLive ? `${providerName('marble')} · ${costLabel(tier)}` : `${providerName('mock')} · free · ${modelName('mock', tier)}`);
 
   const autoStage = async () => {

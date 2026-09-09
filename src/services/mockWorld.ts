@@ -19,14 +19,22 @@ const RANGES: Record<RoomType, { w: [number, number]; d: [number, number] }> = {
  * A deterministic, unscaled room derived from a seed (normally the photo bytes).
  * Units are arbitrary: the door is exactly 1 unit tall, so a door anchor yields 2.03 m/unit.
  * Marble returns geometry "up to scale" too; this keeps the mock honest about that.
+ *
+ * `metres` overrides the size the ranges above would have drawn, for a room whose real dimensions
+ * are already known and are outside them — the demo unit's 7.00 × 1.20 m corridor is not a shape
+ * {@link RANGES} can produce for any seed. The random draws still happen in the same order, so
+ * every other number a seed gives (the door's width and offset, the windows) is unchanged.
  */
-export function mockRawGeometry(seed: string, type: RoomType): RawGeometry {
+export function mockRawGeometry(seed: string, type: RoomType, metres?: { width?: number; depth?: number; height?: number }): RawGeometry {
   const rng = mulberry32(fnv1a(seed));
   const r = RANGES[type] ?? RANGES.other;
   const doorM = 2.03;
-  const widthM = r.w[0] + rng() * (r.w[1] - r.w[0]);
-  const depthM = r.d[0] + rng() * (r.d[1] - r.d[0]);
-  const heightM = 2.4 + rng() * 0.5;
+  const drawnWidth = r.w[0] + rng() * (r.w[1] - r.w[0]);
+  const drawnDepth = r.d[0] + rng() * (r.d[1] - r.d[0]);
+  const drawnHeight = 2.4 + rng() * 0.5;
+  const widthM = metres?.width && metres.width > 0 ? metres.width : drawnWidth;
+  const depthM = metres?.depth && metres.depth > 0 ? metres.depth : drawnDepth;
+  const heightM = metres?.height && metres.height > 0 ? metres.height : drawnHeight;
   const doorWidthM = 0.82 + rng() * 0.12;
   const u = (m: number) => m / doorM;
   const doorOffsetM = 0.6 + rng() * Math.max(0.2, widthM - 1.2);

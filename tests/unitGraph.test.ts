@@ -147,6 +147,70 @@ describe('buildUnitGraph', () => {
     expect(g.notes.join(' ')).toMatch(/no north arrow/);
   });
 
+  /**
+   * The demo unit's own storey: five rooms off a 7.00 × 1.20 m corridor. `placeChild` used to
+   * rotate the wall it tried by the child's order, so the third room went to a 1.20 m *end* while
+   * both 7 m walls still had room, and the fifth had nowhere to go at all — it was put east of the
+   * whole storey and `doorBetween` then gave it the same wall and offset as the third's. Two
+   * destinations, one hole in the wall, and which room the renter got decided by hit-test order.
+   */
+  it('opens five rooms off a long corridor, each through its own doorway', () => {
+    const g = buildUnitGraph({
+      northArrow: { present: true, direction: 'up' },
+      floors: [
+        {
+          label: 'Third floor',
+          rooms: [
+            { name: 'Living room', type: 'living', width: 5.3, depth: 5.78 },
+            { name: 'Dining room', type: 'dining', width: 3.3, depth: 4.1 },
+            { name: 'Hallway', type: 'hallway', width: 7, depth: 1.2 },
+            { name: 'Primary bedroom', type: 'bedroom', width: 3.3, depth: 3.8 },
+            { name: 'Second bedroom', type: 'bedroom', width: 2.8, depth: 3 },
+            { name: 'Corner room', type: 'bedroom', width: 3, depth: 4.06 },
+          ],
+        },
+      ],
+    });
+    const hall = g.rooms.find((r) => r.name === 'Hallway')!;
+    expect(hall.doors).toHaveLength(5);
+    // Every door is on one of the corridor's own long walls, and no two are the same hole.
+    for (const d of hall.doors) {
+      expect(d.wall === 'north' || d.wall === 'south', `${d.wall}@${d.offset}`).toBe(true);
+      // A room that never touched the corridor would be `nominal`: none of these is.
+      expect(d.nominal, `${d.wall}@${d.offset}`).toBeUndefined();
+    }
+    const places = hall.doors.map((d) => `${d.wall}@${d.offset}`);
+    expect(new Set(places).size).toBe(5);
+    for (let i = 0; i < hall.doors.length; i += 1) {
+      for (let j = i + 1; j < hall.doors.length; j += 1) {
+        const a = hall.doors[i];
+        const b = hall.doors[j];
+        if (a.wall !== b.wall) continue;
+        expect(Math.abs(a.offset - b.offset), `${places[i]} and ${places[j]}`).toBeGreaterThan((a.width + b.width) / 2);
+      }
+    }
+    // And no room overlaps another on the sheet.
+    for (const a of g.rooms) for (const b of g.rooms) if (a !== b) expect(overlapArea(rect(g, a.name), rect(g, b.name))).toBeLessThan(1e-3);
+  });
+
+  it('marks a door nominal when the two rooms do not actually touch', () => {
+    // Positions given by the plan, 5 m apart: there is a door between them in the sense that one
+    // room is through that wall, but no wall is shared, and the graph must say so.
+    const g = buildUnitGraph({
+      adjacency: [{ a: '0:0', b: '0:1' }],
+      floors: [
+        {
+          label: 'Ground floor',
+          rooms: [
+            { name: 'Living room', type: 'living', width: 4, depth: 4, position: { x: 0, z: 0 } },
+            { name: 'Bedroom', type: 'bedroom', width: 3, depth: 3, position: { x: 9, z: 0 } },
+          ],
+        },
+      ],
+    });
+    for (const room of g.rooms) expect(room.doors[0].nominal).toBe(true);
+  });
+
   it('draws a room the plan gave no dimensions at a typical size for its type, and says so', () => {
     const g = buildUnitGraph({ floors: [{ label: 'Ground floor', rooms: [{ name: 'Couloir', type: 'hallway' }, { name: 'Chambre', type: 'bedroom' }] }] });
     expect(g.rooms[0].planDims).toBeNull();

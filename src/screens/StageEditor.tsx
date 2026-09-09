@@ -19,12 +19,12 @@ import { captureYaw } from '@/three/splat/frame';
 import { CaptureLight, externalSunScale, type LightBudget, type PanoramaLight } from '@/three/CaptureLight';
 import { describeSun, windowPositions, type SunDescription } from '@/three/lighting/describe';
 import { SunLight } from '@/three/SunLight';
-import { effectiveHeading, sunState } from '@/engine/siteSun';
+import { sunState } from '@/engine/siteSun';
 import { TimeOfDay } from './viewer/TimeOfDay';
 import { LayersPanel } from './viewer/LayersPanel';
 import { ExplodedLayer } from './viewer/ExplodedLayer';
 import { usePortraitLayers, type PortraitLayers } from './viewer/layers';
-import { WalkControls } from '@/three/WalkControls';
+import { WalkControls, spawnPose } from '@/three/WalkControls';
 import { buildWalkMask, type WalkMask } from '@/three/walkMask';
 import { StagingLayer } from '@/three/furniture/StagingLayer';
 import { PeerCursors } from '@/three/furniture/PeerCursors';
@@ -43,6 +43,7 @@ import { Joystick } from './editor/Joystick';
 import { useUndoStack } from './editor/useUndoStack';
 import { useMediaQuery, useTouchDevice } from './editor/useMediaQuery';
 import { floorOffsetOf, hasPano, isReal, layerReady, loadPill, type MarbleStatusMap } from './viewer/marble';
+import { sunHeading, useRoomPlan, useUnitModel } from './viewer/unit';
 
 /** An empty stand-in so the Marble frame hook can be called for rooms with no reconstruction. */
 const NO_WORLD = { metricScaleFactor: null, groundPlaneOffset: null, bounds: undefined } as const;
@@ -110,6 +111,11 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
   const roomId = room.id;
   const tourId = tour.id;
   const geometry = room.geometry;
+  /* The unit's floor plan, read exactly the way the renter's viewer reads it (screens/viewer/unit):
+     the same doorways in this room's walls and the same turn on its world. Without a plan every
+     answer is empty and the editor is where it has always been. */
+  const unit = useUnitModel(tour.floorPlan, rooms);
+  const here = useRoomPlan(unit, room);
   const navigate = useNavigate();
   const setStaging = useAudora((s) => s.setStaging);
   const mode = useViewer((s) => s.mode);
@@ -356,10 +362,15 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
 
   /* ---------- derived ---------- */
 
-  const report = useMemo(() => fitReport(present, geometry), [present, geometry]);
+  /* The fit report judges the doorways the shell actually cut (`here.doorways`, from
+     screens/viewer/unit), not `geometry.door` — that is only where the reconstruction put the
+     photographer, so on a room the plan has doors for, the old rule cleared a stretch of blank wall
+     and called a room whose only exit was blocked by a 1.8 m console "clear". */
+  const doorways = here.doorways;
+  const report = useMemo(() => fitReport(present, geometry, doorways), [present, geometry, doorways]);
   const names = useMemo(() => Object.fromEntries(present.map((p) => [p.id, p.name])), [present]);
   const selPiece = useMemo(() => (selectedId ? present.find((p) => p.id === selectedId) : undefined), [present, selectedId]);
-  const selStatus = useMemo(() => (selPiece ? pieceStatus(selPiece, present, geometry) : 'ok'), [selPiece, present, geometry]);
+  const selStatus = useMemo(() => (selPiece ? pieceStatus(selPiece, present, geometry, doorways) : 'ok'), [selPiece, present, geometry, doorways]);
 
   const updatePiece = useCallback((next: PlacedPiece) => commit(stack.get().map((p) => (p.id === next.id ? next : p))), [commit, stack.get]);
   const deletePiece = useCallback(
@@ -391,7 +402,10 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
      hour. The instant is parked on the tour, so opening the renter's viewer picks up where the
      staging left off. */
   const site = tour.site;
-  const heading = effectiveHeading(site?.heading, room.northWallHeading);
+  /* The same bearing the renter's viewer computes, from the same rule: this room's own north wall,
+     re-expressed against whatever wall is north after its world has been turned. Staging under a sun
+     on a different wall from the one the renter will see is the bug this shares one function with. */
+  const heading = sunHeading(site?.heading, room, here.turn);
   const setPreviewTime = useAudora((s) => s.setPreviewTime);
   const [previewTime, setLocalPreviewTime] = useState<number>(() => site?.previewTime ?? Date.now());
   const hasSite = Boolean(site);
@@ -440,7 +454,7 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
      measured room — which is the only way to see what the furniture is being composited onto. */
   const showPhotoLayer = layers.photo;
   const wantSplat = mode === 'walk' && showSplat && showPhotoLayer && Boolean(real?.spzUrl);
-  const marbleFrame = useMarbleFrame(real ?? NO_WORLD, room.anchor.metresPerUnit, floorOffsetOf(room));
+  const marbleFrame = useMarbleFrame(real ?? NO_WORLD, room.anchor.metresPerUnit, floorOffsetOf(room), here.turn.world);
   const pill = loadPill(marbleStatus);
   // The measured room stays up until the photograph has actually arrived.
   const photoOnly = photo && showPhotoLayer && layerReady(marbleStatus, 'pano');
@@ -461,8 +475,13 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
   const captureFacing = captureYaw(marbleFrame);
   const walkHome = useMemo(() => ({ x: captureX, z: captureZ }), [captureX, captureZ]);
   /* The leasing team walks the room from where the photographer stood, facing the way they faced — the
-     same first frame the renter gets, so staging is judged against the renter's view. */
-  const walkSpawn = useMemo<Pose | undefined>(() => (real ? { x: captureX, z: captureZ, yaw: captureFacing } : undefined), [real, captureX, captureZ, captureFacing]);
+     same first frame the renter gets, so staging is judged against the renter's view. With no
+     capture, from just inside the doorway the shell actually cut, which is the same spot the
+     renter's viewer starts them at (`freeSpawn` in screens/viewer/spawn). */
+  const walkSpawn = useMemo<Pose | undefined>(
+    () => (real ? { x: captureX, z: captureZ, yaw: captureFacing } : here.doorways.length ? spawnPose(geometry, here.doorways[0]) : undefined),
+    [real, captureX, captureZ, captureFacing, geometry, here.doorways],
+  );
   useEffect(() => {
     if (!collider) {
       setWalkMask(null);
@@ -573,6 +592,12 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
           {shell ? (
             <RoomShell
               room={geometry}
+              /* The doorways the renter's viewer cuts, from the same module (`screens/viewer/unit`).
+                 The leasing team has to be staging the room the renter will walk, down to which
+                 wall the door is in — a shell that cuts `room.geometry.door` while the viewer's
+                 cuts the plan's is two different rooms with one name. */
+              doorways={here.doorways}
+              yaw={here.turn.shell}
               cullNearWalls={mode === 'orbit'}
               showGrid={mode === 'orbit'}
               showCeiling={mode === 'walk'}
@@ -595,6 +620,7 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
               showGeometry={showGeometry && Boolean(real.colliderUrl)}
               geometryView={geometryView}
               showOccluder={layers.occluder && composite && Boolean(real.colliderUrl)}
+              plan={here.turn.world}
               onStatus={onMarbleStatus}
               onCollider={setCollider}
               onPanoTexture={setPanoTex}
@@ -606,6 +632,7 @@ function Editor({ tour, room, rooms }: { tour: Tour; room: Room; rooms: Room[] }
             <ExplodedLayer active={exploded}>
               <StagingLayer
                 room={geometry}
+                doorways={doorways}
                 pieces={present}
                 contactShadows={composite && layers.shadows}
                 editable={editable && !exploded}

@@ -1,12 +1,40 @@
-import { useEffect, useMemo, useRef } from 'react';
+/**
+ * The measured room, drawn: textured floor, matte walls with real openings, baseboards, a corridor
+ * beyond each doorway, daylight through the windows, and soft shadows.
+ *
+ * Conventions:
+ * - **Metres, Audora's room frame.** Room centre at the origin, floor y = 0, north wall at −z. Each
+ *   wall is one group whose local +x runs along the wall and whose local +z points into the room,
+ *   so nothing below does frame arithmetic ({@link wallFrame}).
+ * - **A room has one set of doorways, and this file computes it.** {@link doorOpeningsFor} is the
+ *   rule — the matched portal, else the collider's own opening, else the room's door spec — and it
+ *   is what both the wall the shell cuts and the lit marker `three/Portals` stands in the hole read.
+ *   A doorway the shell cuts but the marker does not stand in (or the other way round) is the bug
+ *   this single function exists to make impossible.
+ * - **Nothing here reads a clock or a random source.** The same room always gets the same doorways
+ *   in the same order, because a door that moves between two frames is not a measurement.
+ */
+import { useEffect, useMemo, useRef, type ReactElement } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import type { RoomGeometry, WallSide, WindowSpec } from '@/engine/types';
+import type { DoorSpec, RoomGeometry, WallSide, WindowSpec } from '@/engine/types';
 import { wallFeaturePosition, wallLength } from '@/engine/geometry';
+import { PORTAL_TOLERANCE_M, yawOf, type ColliderOpening, type Portal } from '@shared/unitGraph';
 import { coveGradient, floorTextures, lightPool, skyGradient, wallBump, withRepeat, type FloorStyle } from './textures';
 
 export interface RoomShellProps {
   room: RoomGeometry;
+  /**
+   * The room's doorways, from {@link doorOpeningsFor} — the same array `three/Portals` is given, so
+   * the hole in the wall and the marker standing in it are one opening. Omitted, the shell falls
+   * back to the room's own door spec, which is what a room with no unit graph and no measured
+   * opening has anyway.
+   *
+   * Pass *every* doorway the room has, not only the ones the renter can walk through: a doorway
+   * into a room nobody photographed is still a hole in this room's wall, and the marker list is the
+   * subset of this one that leads somewhere (see `TourViewer`).
+   */
+  doorways?: readonly DoorOpening[];
   /** Hide walls between the camera and the room (dollhouse view). */
   cullNearWalls?: boolean;
   /** Draw the ceiling (default on). With `cullNearWalls` it hides itself whenever the camera is above the room. */
@@ -39,11 +67,197 @@ export interface RoomShellProps {
   sunWalls?: WallSide[];
   /** Shadow map resolution for the sun; 'low' is kinder to phones. */
   shadowQuality?: 'low' | 'high';
+  /**
+   * Radians the whole shell is turned about y, so the measured room stands on the same walls as the
+   * capture drawn over it.
+   *
+   * The Marble group carries the room's whole turn (`planYaw` in services/marble: the collider
+   * rectangle's own rotation, the quarter turn portal matching recovered, and the plan's north
+   * arrow). A quarter turn of that is absorbed by the room's own geometry — folding `door.wall`,
+   * the window walls and, on an odd quarter, width against depth, leaves the shell axis-aligned and
+   * every wall correctly named — so what is left for the shell is the part that is **not** a
+   * quarter turn: the north arrow. Pass that, and the shell's walls stay parallel to the
+   * photograph's; pass nothing and the shell is exactly where it has always been.
+   *
+   * Everything else about the room stays in the room's own frame: `room` is still the axis-aligned
+   * rectangle, and the pose, the staging and the minimap are still expressed against it. So a
+   * caller that turns the shell **must turn what stands in it by the same angle**, in the same
+   * parent group — the `Portals` markers built from `doorOpeningsFor` (a lit pane that is not in the
+   * hole it names is the bug those two share one rule to avoid), the staging layer, and whatever
+   * bounds the walker, or the renter will walk through a wall they can see. Left at 0 there is
+   * nothing to coordinate: the shell is exactly where it has always been.
+   */
+  yaw?: number;
 }
 
 /** Wall thickness in metres. */
 export const WALL_T = 0.12;
 const T = WALL_T;
+
+/* ------------------------------------------------------------------ doorways */
+
+/** A standard interior door: the same 2.03 m the door anchor measures against. */
+export const DOORWAY_HEIGHT_M = 2.03;
+/** A doorway's drawn height: a standard door, kept under the room's own ceiling and never a slot. */
+export const doorwayHeight = (roomHeight: number, preferred = DOORWAY_HEIGHT_M): number => Math.max(1.4, Math.min(preferred, roomHeight - 0.1));
+/** No doorway is drawn narrower than this. A hole a renter cannot walk through is not a doorway. */
+export const MIN_DOORWAY_M = 0.6;
+/**
+ * How far a measured opening may sit from where the room's own door spec puts the door and still be
+ * that door. The same tolerance `matchPortals` uses to say an opening *is* a plan door, so the two
+ * rules below cannot disagree about what counts as a match.
+ */
+export const DOORWAY_MATCH_M = PORTAL_TOLERANCE_M;
+
+/** Where a doorway came from, most evidence first. */
+export type DoorOpeningSource =
+  /** A doorway the unit graph matched for this room (`matchPortals`); `portal.source` says whether the plan door landed on a measured opening. */
+  | 'portal'
+  /** No plan, but the collider measured an opening standing where the room's own door spec puts the door. */
+  | 'collider'
+  /** Nothing measured it: the room's door spec, which is where `rawFromBounds` put the photographer. */
+  | 'engine';
+
+/**
+ * One doorway in one wall of the metric room — the hole the shell cuts, and the place the lit
+ * marker stands. Metres and radians, in the room's own frame.
+ */
+export interface DoorOpening {
+  /** Stable across frames and across worlds landing under an open viewer, so nothing remounts. */
+  id: string;
+  wall: WallSide;
+  /** Metres from the wall's start (west end for north/south walls, north end for east/west) to the centre. */
+  offset: number;
+  width: number;
+  height: number;
+  /** Metres, on the floor, in the wall plane: `wallFeaturePosition(room, wall, offset)`. */
+  x: number;
+  z: number;
+  /** Radians, looking out through the doorway — the same convention as `Portal.yaw` and `Pose.yaw`. */
+  yaw: number;
+  source: DoorOpeningSource;
+  /** The unit graph's doorway this is, when it is one: who it leads to, and how sure the plan is. */
+  portal?: Portal;
+  /** Why the drawn doorway is not exactly what was measured. Absent when nothing had to be moved. */
+  note?: string;
+}
+
+/** The room, as the doorway rule reads it: its metric frame plus whatever measured it. */
+export interface DoorwayRoom {
+  /** Metres — `Room.geometry`. */
+  geometry: RoomGeometry;
+  /** What the collider found in the wall band, in the provider's raw units (`world.bounds.walls.openings`). */
+  openings?: readonly ColliderOpening[];
+  /** Metres per raw unit for those openings (`Room.anchor.metresPerUnit`); 1 when they are already metres. */
+  metresPerUnit?: number;
+}
+
+/** The unit graph's side of the same room: the doorways `matchPortals` found for it. */
+export interface DoorwayGraphRoom {
+  portals?: readonly Portal[];
+}
+
+const round4 = (v: number) => {
+  const r = Math.round(v * 1e4) / 1e4;
+  return r === 0 ? 0 : r;
+};
+const clampTo = (v: number, lo: number, hi: number) => (lo > hi ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, v)));
+const metres = (v: number) => `${v.toFixed(2)} m`;
+
+interface OpeningInput {
+  id: string;
+  wall: WallSide;
+  offset: number;
+  width: number;
+  height: number;
+  source: DoorOpeningSource;
+  portal?: Portal;
+}
+
+/**
+ * One doorway, put on the wall it names: narrowed to the wall it is in, moved back onto it if it
+ * ran off the end, and capped under the ceiling. Every clamp says so in `note`, because a doorway
+ * drawn somewhere other than where it was measured is exactly the thing a renter must be told.
+ */
+function openingOn(geometry: RoomGeometry, input: OpeningInput): DoorOpening {
+  const L = wallLength(geometry, input.wall);
+  const notes: string[] = [];
+  const wantedWidth = Math.max(0, input.width);
+  const width = Math.min(L, Math.max(Math.min(MIN_DOORWAY_M, L), wantedWidth));
+  if (width < wantedWidth - 1e-6) notes.push(`This doorway measures ${metres(wantedWidth)} on a ${metres(L)} wall, so it is drawn ${metres(width)} wide.`);
+  const offset = clampTo(input.offset, width / 2, L - width / 2);
+  if (Math.abs(offset - input.offset) > 1e-6) notes.push(`It sat past the end of the ${metres(L)} wall, so it is drawn ${metres(offset)} from that wall's start.`);
+  const height = doorwayHeight(geometry.height, input.height);
+  const p = wallFeaturePosition(geometry, input.wall, offset);
+  return {
+    id: input.id,
+    wall: input.wall,
+    offset: round4(offset),
+    width: round4(width),
+    height: round4(height),
+    x: round4(p.x),
+    z: round4(p.z),
+    yaw: yawOf([-p.inward.x, -p.inward.z]),
+    source: input.source,
+    ...(input.portal ? { portal: input.portal } : {}),
+    ...(notes.length ? { note: notes.join(' ') } : {}),
+  };
+}
+
+/**
+ * The opening the collider measured where the room's own door spec puts the door, or null.
+ *
+ * `rawFromBounds` puts the door on the wall the photographer stood at, at the offset they project
+ * onto it — a statement about where the photographer was, not a measurement of the hole. When the
+ * collider's wall band found an opening on that same wall within {@link DOORWAY_MATCH_M}, that
+ * opening *is* the doorway, measured, and it is where the renter has to walk.
+ */
+function measuredDoorway(room: DoorwayRoom): DoorOpening | null {
+  const door = room.geometry.door;
+  const scale = typeof room.metresPerUnit === 'number' && room.metresPerUnit > 0 ? room.metresPerUnit : 1;
+  let best: ColliderOpening | null = null;
+  let bestErr = Infinity;
+  for (const o of room.openings ?? []) {
+    if (o.wall !== door.wall) continue;
+    const err = Math.abs(o.offset * scale - door.offset);
+    // First wins a tie: the order the collider reported them in is deterministic, so this is too.
+    if (err <= DOORWAY_MATCH_M && err < bestErr) {
+      best = o;
+      bestErr = err;
+    }
+  }
+  if (!best) return null;
+  return openingOn(room.geometry, { id: 'door', wall: best.wall, offset: best.offset * scale, width: best.width * scale, height: door.height, source: 'collider' });
+}
+
+/**
+ * **The one rule for where a room's doorways are** (docs/ACCURACY.md 3.3).
+ *
+ * In order of evidence:
+ * 1. the doorways the unit graph matched for this room — a plan door standing on the opening the
+ *    collider measured, or, where the collider measured none, the plan door on its own;
+ * 2. failing that, the opening the collider measured where the room's own door spec puts the door;
+ * 3. failing that, the door spec itself, which is where the reconstruction put the photographer.
+ *
+ * Rule 1 is a *set*: a room with two doors on the plan gets two doorways, and the shell cuts both.
+ * Rules 2 and 3 describe the one door a reconstruction knows about on its own. Simulated rooms take
+ * the same three rules — a mock world measures no openings, so it lands on 1 or 3 and never on 2.
+ *
+ * Pure and deterministic: same room, same doorways, in the same order.
+ */
+export function doorOpeningsFor(room: DoorwayRoom, graphRoom?: DoorwayGraphRoom | null): DoorOpening[] {
+  const geometry = room.geometry;
+  const portals = graphRoom?.portals ?? [];
+  if (portals.length) {
+    return portals.map((p) => openingOn(geometry, { id: p.id, wall: p.wall, offset: p.offset, width: p.width, height: DOORWAY_HEIGHT_M, source: 'portal', portal: p }));
+  }
+  const measured = measuredDoorway(room);
+  if (measured) return [measured];
+  const d: DoorSpec = geometry.door;
+  return [openingOn(geometry, { id: 'door', wall: d.wall, offset: d.offset, width: d.width, height: d.height, source: 'engine' })];
+}
+
+/* ------------------------------------------------------------------ walls */
 
 interface Segment {
   along: number; // centre along the wall
@@ -52,16 +266,50 @@ interface Segment {
   top: number;
 }
 
-/** Solid wall pieces once the door and windows are cut out. Exported for the minimap and tests. */
-export function wallSegments(room: RoomGeometry, wall: WallSide): Segment[] {
+interface Span {
+  start: number;
+  end: number;
+}
+
+/** What a feature covers along its wall, in metres from the wall's start, cut off at both ends. */
+const spanOn = (length: number, offset: number, width: number): Span => ({ start: Math.max(0, offset - width / 2), end: Math.min(length, offset + width / 2) });
+
+/** How much of the wall two openings share. A doorway and a window are never the same hole twice. */
+const sharesWall = (a: Span, b: Span) => Math.min(a.end, b.end) - Math.max(a.start, b.start) > 0.02;
+
+/** This wall's doorways, from the room's own rule when the caller did not bring an answer. */
+export function doorsOn(room: RoomGeometry, wall: WallSide, doorways?: readonly DoorOpening[]): DoorOpening[] {
+  return (doorways ?? doorOpeningsFor({ geometry: room })).filter((d) => d.wall === wall);
+}
+
+/**
+ * The windows really drawn on a wall: the ones no doorway is already standing in.
+ *
+ * The collider reports one opening per hole and cannot tell a doorway from a window, so the same
+ * hole can arrive both as a doorway and in `rawFromBounds`'s window list. The doorway wins — it is
+ * the one a renter walks through — and the window is dropped rather than framed inside the door.
+ */
+export function windowsOn(room: RoomGeometry, wall: WallSide, doorways: readonly DoorOpening[]): WindowSpec[] {
+  const L = wallLength(room, wall);
+  const doors = doorways.filter((d) => d.wall === wall).map((d) => spanOn(L, d.offset, d.width));
+  return room.windows.filter((w) => w.wall === wall && !doors.some((d) => sharesWall(spanOn(L, w.offset, w.width), d)));
+}
+
+/**
+ * Solid wall pieces once the doorways and windows are cut out. Exported for the minimap and tests.
+ *
+ * `doorways` is {@link doorOpeningsFor}'s answer for the whole room; only the ones on this wall are
+ * cut. A window that overlaps a doorway is dropped rather than cut a second time: the collider
+ * reports one opening, and both the doorway rule and `rawFromBounds`'s window list can name it, so
+ * the doorway wins and the shell does not brick up the bottom half of its own door.
+ */
+export function wallSegments(room: RoomGeometry, wall: WallSide, doorways?: readonly DoorOpening[]): Segment[] {
   const L = wallLength(room, wall);
   const H = room.height;
-  const feats = [
-    ...(room.door.wall === wall ? [{ offset: room.door.offset, width: room.door.width, bottom: 0, top: room.door.height }] : []),
-    ...room.windows.filter((w) => w.wall === wall).map((w) => ({ offset: w.offset, width: w.width, bottom: w.sill, top: w.sill + w.height })),
-  ]
-    .map((f) => ({ ...f, start: Math.max(0, f.offset - f.width / 2), end: Math.min(L, f.offset + f.width / 2) }))
-    .sort((a, b) => a.start - b.start);
+  const cuts = doorsOn(room, wall, doorways);
+  const doors = cuts.map((d) => ({ ...spanOn(L, d.offset, d.width), bottom: 0, top: d.height }));
+  const windows = windowsOn(room, wall, cuts).map((w) => ({ ...spanOn(L, w.offset, w.width), bottom: w.sill, top: w.sill + w.height }));
+  const feats = [...doors, ...windows].sort((a, b) => a.start - b.start);
   const segs: Segment[] = [];
   let cursor = 0;
   for (const f of feats) {
@@ -181,14 +429,31 @@ function Window({ w, alongSign, room, opacity, windowLight, glow, registry }: { 
   );
 }
 
-function Wall({ room, wall, color, opacity, hallway, windowLight, glow, visibleRef, registry }: { room: RoomGeometry; wall: WallSide; color: string; opacity: number; hallway: boolean; windowLight: boolean; glow: boolean; visibleRef: (g: THREE.Group | null) => void; registry: Registry }) {
-  const segs = useMemo(() => wallSegments(room, wall), [room, wall]);
-  const bump = useMemo(() => wallBump(), []);
-  const cove = useMemo(() => coveGradient(), []);
-  const hallFloor = useMemo(() => {
-    const set = floorTextures('walnut');
-    return withRepeat(set.map, 1, 1.4);
-  }, []);
+/**
+ * One doorway in a wall: jambs, head and threshold, and beyond them either a dim corridor or the
+ * dark of the next room. Drawn in the wall's own local frame (+x along the wall, +z into the room),
+ * at exactly the offset, width and height {@link doorOpeningsFor} decided — which is the same place
+ * `three/Portals` stands its lit marker.
+ */
+function Doorway({
+  door,
+  alongSign,
+  room,
+  opacity,
+  hallway,
+  hallFloor,
+  trim,
+  registry,
+}: {
+  door: DoorOpening;
+  alongSign: 1 | -1;
+  room: RoomGeometry;
+  opacity: number;
+  hallway: boolean;
+  hallFloor: THREE.CanvasTexture;
+  trim: ReactElement;
+  registry: Registry;
+}) {
   const hallCeilingRef = useRef<THREE.Mesh>(null);
   useEffect(() => {
     const m = hallCeilingRef.current;
@@ -199,20 +464,99 @@ function Wall({ room, wall, color, opacity, hallway, windowLight, glow, visibleR
       if (i >= 0) registry.hallCeiling.splice(i, 1);
     };
   }, [registry, hallway, room]);
+  const H = room.height;
+  /** The corridor beyond this doorway: as wide as the doorway plus a shoulder either side. */
+  const hw = door.width + 1.5;
+  const hd = 3.0;
+  return (
+    <group position={[alongSign * door.offset, 0, 0]}>
+      {/* jambs, head and threshold */}
+      <mesh position={[-(door.width / 2 + 0.03), door.height / 2, 0]} castShadow>
+        <boxGeometry args={[0.06, door.height, T + 0.05]} />
+        {trim}
+      </mesh>
+      <mesh position={[door.width / 2 + 0.03, door.height / 2, 0]} castShadow>
+        <boxGeometry args={[0.06, door.height, T + 0.05]} />
+        {trim}
+      </mesh>
+      <mesh position={[0, door.height + 0.03, 0]} castShadow>
+        <boxGeometry args={[door.width + 0.12, 0.06, T + 0.05]} />
+        {trim}
+      </mesh>
+      <mesh position={[0, 0.006, 0]}>
+        <boxGeometry args={[door.width, 0.012, T + 0.04]} />
+        <meshStandardMaterial color="#c9b391" roughness={0.6} />
+      </mesh>
+      {hallway ? (
+        <group>
+          {/* corridor beyond the door: floor, walls, ceiling, a dim lamp */}
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -T / 2 - hd / 2]} receiveShadow>
+            <planeGeometry args={[hw, hd]} />
+            <meshStandardMaterial map={hallFloor} color="#8a7460" roughness={0.8} />
+          </mesh>
+          <mesh rotation={[0, Math.PI / 2, 0]} position={[-hw / 2, H / 2, -T / 2 - hd / 2]}>
+            <planeGeometry args={[hd, H]} />
+            <meshStandardMaterial color="#e4e2de" roughness={0.95} />
+          </mesh>
+          <mesh rotation={[0, -Math.PI / 2, 0]} position={[hw / 2, H / 2, -T / 2 - hd / 2]}>
+            <planeGeometry args={[hd, H]} />
+            <meshStandardMaterial color="#e4e2de" roughness={0.95} />
+          </mesh>
+          <mesh position={[0, H / 2, -T / 2 - hd]}>
+            <planeGeometry args={[hw, H]} />
+            <meshStandardMaterial color="#dcd9d4" roughness={0.95} />
+          </mesh>
+          {/* a second doorway down the hall, for depth */}
+          <mesh position={[hw * 0.18, 1.0, -T / 2 - hd + 0.01]} userData={{ measureIgnore: true }}>
+            <planeGeometry args={[0.82, 2.0]} />
+            <meshBasicMaterial color="#17130f" />
+          </mesh>
+          <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, H, -T / 2 - hd / 2]} ref={hallCeilingRef}>
+            <planeGeometry args={[hw, hd]} />
+            <meshStandardMaterial color="#efeeea" roughness={1} />
+          </mesh>
+          <pointLight position={[0, H - 0.25, -T / 2 - hd * 0.5]} intensity={5} distance={6} decay={2} color="#ffd8ac" />
+          {/* the door leaf, swung open into the hall */}
+          <group position={[-door.width / 2, 0, -T / 2]} rotation={[0, 1.72, 0]}>
+            <mesh position={[door.width / 2, door.height / 2, -0.02]} castShadow>
+              <boxGeometry args={[door.width, door.height - 0.01, 0.04]} />
+              <meshStandardMaterial color="#f6f5f2" roughness={0.45} />
+            </mesh>
+            <mesh position={[door.width - 0.07, 1.0, -0.055]}>
+              <sphereGeometry args={[0.022, 12, 12]} />
+              <meshStandardMaterial color="#b9a07a" roughness={0.3} metalness={0.8} />
+            </mesh>
+          </group>
+        </group>
+      ) : (
+        <mesh position={[0, door.height / 2, -T]}>
+          <planeGeometry args={[door.width, door.height]} />
+          <meshBasicMaterial color="#141210" side={THREE.DoubleSide} transparent opacity={0.9 * opacity} />
+        </mesh>
+      )}
+    </group>
+  );
+}
+
+function Wall({ room, wall, doors, color, opacity, hallway, windowLight, glow, visibleRef, registry }: { room: RoomGeometry; wall: WallSide; doors: readonly DoorOpening[]; color: string; opacity: number; hallway: boolean; windowLight: boolean; glow: boolean; visibleRef: (g: THREE.Group | null) => void; registry: Registry }) {
+  const segs = useMemo(() => wallSegments(room, wall, doors), [room, wall, doors]);
+  const bump = useMemo(() => wallBump(), []);
+  const cove = useMemo(() => coveGradient(), []);
+  const hallFloor = useMemo(() => {
+    const set = floorTextures('walnut');
+    return withRepeat(set.map, 1, 1.4);
+  }, []);
   const base = wallFeaturePosition(room, wall, 0);
   const { rotY, alongSign } = wallFrame(wall);
   const L = wallLength(room, wall);
   const H = room.height;
   const mid = wallFeaturePosition(room, wall, L / 2);
   const offOut = { x: -base.inward.x * (T / 2), z: -base.inward.z * (T / 2) };
-  const windows = room.windows.filter((w) => w.wall === wall);
-  const door = room.door.wall === wall ? room.door : null;
+  const windows = windowsOn(room, wall, doors);
   const paint = (
     <meshStandardMaterial color={color} roughness={0.96} metalness={0} bumpMap={bump} bumpScale={0.35} transparent={opacity < 1} opacity={opacity} />
   );
   const trim = <meshStandardMaterial color={TRIM} roughness={0.5} transparent={opacity < 1} opacity={opacity} />;
-  const hw = door ? door.width + 1.5 : 0;
-  const hd = 3.0;
   return (
     <group ref={visibleRef} position={[base.x + offOut.x, 0, base.z + offOut.z]} rotation={[0, rotY, 0]} userData={{ audoraWall: { wall, inward: base.inward, x: mid.x, z: mid.z } }}>
       {segs.map((s, i) => (
@@ -243,74 +587,9 @@ function Wall({ room, wall, color, opacity, hallway, windowLight, glow, visibleR
       {windows.map((w, i) => (
         <Window key={`w${i}`} w={w} alongSign={alongSign} room={room} opacity={opacity} windowLight={windowLight} glow={glow} registry={registry} />
       ))}
-      {door ? (
-        <group position={[alongSign * door.offset, 0, 0]}>
-          {/* jambs, head and threshold */}
-          <mesh position={[-(door.width / 2 + 0.03), door.height / 2, 0]} castShadow>
-            <boxGeometry args={[0.06, door.height, T + 0.05]} />
-            {trim}
-          </mesh>
-          <mesh position={[door.width / 2 + 0.03, door.height / 2, 0]} castShadow>
-            <boxGeometry args={[0.06, door.height, T + 0.05]} />
-            {trim}
-          </mesh>
-          <mesh position={[0, door.height + 0.03, 0]} castShadow>
-            <boxGeometry args={[door.width + 0.12, 0.06, T + 0.05]} />
-            {trim}
-          </mesh>
-          <mesh position={[0, 0.006, 0]}>
-            <boxGeometry args={[door.width, 0.012, T + 0.04]} />
-            <meshStandardMaterial color="#c9b391" roughness={0.6} />
-          </mesh>
-          {hallway ? (
-            <group>
-              {/* corridor beyond the door: floor, walls, ceiling, a dim lamp */}
-              <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -T / 2 - hd / 2]} receiveShadow>
-                <planeGeometry args={[hw, hd]} />
-                <meshStandardMaterial map={hallFloor} color="#8a7460" roughness={0.8} />
-              </mesh>
-              <mesh rotation={[0, Math.PI / 2, 0]} position={[-hw / 2, H / 2, -T / 2 - hd / 2]}>
-                <planeGeometry args={[hd, H]} />
-                <meshStandardMaterial color="#e4e2de" roughness={0.95} />
-              </mesh>
-              <mesh rotation={[0, -Math.PI / 2, 0]} position={[hw / 2, H / 2, -T / 2 - hd / 2]}>
-                <planeGeometry args={[hd, H]} />
-                <meshStandardMaterial color="#e4e2de" roughness={0.95} />
-              </mesh>
-              <mesh position={[0, H / 2, -T / 2 - hd]}>
-                <planeGeometry args={[hw, H]} />
-                <meshStandardMaterial color="#dcd9d4" roughness={0.95} />
-              </mesh>
-              {/* a second doorway down the hall, for depth */}
-              <mesh position={[hw * 0.18, 1.0, -T / 2 - hd + 0.01]} userData={{ measureIgnore: true }}>
-                <planeGeometry args={[0.82, 2.0]} />
-                <meshBasicMaterial color="#17130f" />
-              </mesh>
-              <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, H, -T / 2 - hd / 2]} ref={hallCeilingRef}>
-                <planeGeometry args={[hw, hd]} />
-                <meshStandardMaterial color="#efeeea" roughness={1} />
-              </mesh>
-              <pointLight position={[0, H - 0.25, -T / 2 - hd * 0.5]} intensity={5} distance={6} decay={2} color="#ffd8ac" />
-              {/* the door leaf, swung open into the hall */}
-              <group position={[-door.width / 2, 0, -T / 2]} rotation={[0, 1.72, 0]}>
-                <mesh position={[door.width / 2, door.height / 2, -0.02]} castShadow>
-                  <boxGeometry args={[door.width, door.height - 0.01, 0.04]} />
-                  <meshStandardMaterial color="#f6f5f2" roughness={0.45} />
-                </mesh>
-                <mesh position={[door.width - 0.07, 1.0, -0.055]}>
-                  <sphereGeometry args={[0.022, 12, 12]} />
-                  <meshStandardMaterial color="#b9a07a" roughness={0.3} metalness={0.8} />
-                </mesh>
-              </group>
-            </group>
-          ) : (
-            <mesh position={[0, door.height / 2, -T]}>
-              <planeGeometry args={[door.width, door.height]} />
-              <meshBasicMaterial color="#141210" side={THREE.DoubleSide} transparent opacity={0.9 * opacity} />
-            </mesh>
-          )}
-        </group>
-      ) : null}
+      {doors.map((d) => (
+        <Doorway key={d.id} door={d} alongSign={alongSign} room={room} opacity={opacity} hallway={hallway} hallFloor={hallFloor} trim={trim} registry={registry} />
+      ))}
     </group>
   );
 }
@@ -339,6 +618,7 @@ function LightPool({ room, w }: { room: RoomGeometry; w: WindowSpec }) {
  */
 export function RoomShell({
   room,
+  doorways,
   cullNearWalls = false,
   showCeiling = true,
   showGrid = false,
@@ -352,9 +632,20 @@ export function RoomShell({
   externalSun = false,
   sunWalls,
   shadowQuality = 'high',
+  yaw = 0,
 }: RoomShellProps) {
   /** Every window glows unless the caller says which walls the sun is on. */
   const litWall = (w: WallSide) => !sunWalls || sunWalls.includes(w);
+  /* One rule, one answer, four walls. The caller passes the same array it gives `three/Portals`;
+     with none, the room's own door spec is the answer (`doorOpeningsFor`). */
+  const openings = useMemo(() => doorways ?? doorOpeningsFor({ geometry: room }), [doorways, room]);
+  const doorsByWall = useMemo(() => {
+    const out: Record<WallSide, DoorOpening[]> = { north: [], south: [], east: [], west: [] };
+    for (const d of openings) out[d.wall].push(d);
+    return out;
+  }, [openings]);
+  /* A window a doorway is standing in is not drawn, so it must not pool light on the floor either. */
+  const drawnWindows = useMemo(() => WALLS.flatMap((w) => windowsOn(room, w, openings)), [room, openings]);
   const walls = useRef<Record<WallSide, THREE.Group | null>>({ north: null, south: null, east: null, west: null });
   const ceiling = useRef<THREE.Mesh | null>(null);
   const registry = useMemo<Registry>(() => ({ sky: [], hallCeiling: [] }), []);
@@ -370,6 +661,13 @@ export function RoomShell({
 
   useFrame(({ camera }) => {
     const wallsVisible: Record<WallSide, boolean> = { north: true, south: true, east: true, west: true };
+    /* Every wall below is positioned in the shell's own frame, so the camera has to be read there
+       too: `Ry(yaw)` takes the shell into the scene, and `Ry(−yaw)` brings the camera back. With no
+       turn this is the camera's own x and z, exactly as before. */
+    const cy = yaw ? Math.cos(-yaw) : 1;
+    const sy = yaw ? Math.sin(-yaw) : 0;
+    const camX = camera.position.x * cy + camera.position.z * sy;
+    const camZ = camera.position.z * cy - camera.position.x * sy;
     for (const w of WALLS) {
       const g = walls.current[w];
       if (!g) continue;
@@ -378,7 +676,7 @@ export function RoomShell({
         continue;
       }
       const p = wallFeaturePosition(room, w, wallLength(room, w) / 2);
-      tmp.set(camera.position.x - p.x, 0, camera.position.z - p.z);
+      tmp.set(camX - p.x, 0, camZ - p.z);
       const dot = tmp.x * p.inward.x + tmp.z * p.inward.z;
       // camera is outside this wall (beyond it) → hide so it does not block the view
       g.visible = dot > -0.2;
@@ -408,7 +706,7 @@ export function RoomShell({
   const shadowSize = shadowQuality === 'high' ? 2048 : 1024;
 
   return (
-    <group>
+    <group rotation={[0, yaw, 0]}>
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow userData={{ audoraFloor: true }}>
         <planeGeometry args={[room.width, room.depth]} />
         <meshStandardMaterial
@@ -433,9 +731,9 @@ export function RoomShell({
         </mesh>
       ) : null}
       {WALLS.map((w) => (
-        <Wall key={w} room={room} wall={w} color={wallColor} opacity={opacity} hallway={hallway} windowLight={windowLight} glow={litWall(w)} registry={registry} visibleRef={(g) => (walls.current[w] = g)} />
+        <Wall key={w} room={room} wall={w} doors={doorsByWall[w]} color={wallColor} opacity={opacity} hallway={hallway} windowLight={windowLight} glow={litWall(w)} registry={registry} visibleRef={(g) => (walls.current[w] = g)} />
       ))}
-      {windowLight ? room.windows.filter((w) => litWall(w.wall)).map((w, i) => <LightPool key={`pool${i}`} room={room} w={w} />) : null}
+      {windowLight ? drawnWindows.filter((w) => litWall(w.wall)).map((w, i) => <LightPool key={`pool${i}`} room={room} w={w} />) : null}
       {lights ? (
         <>
           <hemisphereLight args={['#fff2e2', '#3d3128', 0.55]} />

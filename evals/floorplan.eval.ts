@@ -370,10 +370,17 @@ describe('floor-plan evaluation', () => {
     const lines: string[] = [];
     const totalRooms = manifest.plans.reduce((a, p) => a + truthOf(p).length, 0);
     const totalDims = manifest.plans.reduce((a, p) => a + truthOf(p).filter((r) => r.width != null).length, 0);
+    /* Counted, never written down: the corpus grows (the demo unit's own sheet was the twelfth), and
+       a sentence that hard-codes "eight are synthetic" goes stale on the next fixture without
+       anything failing. A plan is synthetic when it was generated from a room table, which is
+       exactly what `kind` records. */
+    const synthetic = manifest.plans.filter((p) => p.kind === 'synthetic').length;
+    const real = manifest.plans.length - synthetic;
+    const count = (n: number) => ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'][n] ?? String(n);
     lines.push(`# Floor-plan evaluation — ${startedAt}`);
     lines.push('');
     lines.push(
-      `${manifest.plans.length} plans, ${totalRooms} labelled rooms, ${totalDims} of them with printed dimensions (evals/plans/manifest.json). Eight are synthetic listing-style sheets generated from a room table, so their ground truth is exact; the other three are real — the app's own demo townhouse plan and two public-domain 1911 Guimard apartment plans from Wikimedia Commons, labelled by what a human can read.`,
+      `${manifest.plans.length} plans, ${totalRooms} labelled rooms, ${totalDims} of them with printed dimensions (evals/plans/manifest.json). ${count(synthetic).replace(/^./, (c) => c.toUpperCase())} are synthetic listing-style sheets generated from a room table, so their ground truth is exact — one of them is the sheet the demo unit itself ships with; the other ${count(real)} are real: the app's own demo townhouse plan and two public-domain 1911 Guimard apartment plans from Wikimedia Commons, labelled by what a human can read.`,
     );
     lines.push('');
     lines.push(

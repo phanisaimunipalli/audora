@@ -3,7 +3,9 @@ import type { RawGeometry } from '@/engine/types';
 import { applyScale, plausibility } from '@/engine/anchor';
 import { canonicalJson, roundTo, seedFromHash } from '@shared/canonical';
 import { reconstructsImages } from '@shared/marbleLimits';
+import { DEFAULT_DRAFT_MODEL, DEFAULT_FULL_MODEL } from '@shared/modelPolicy';
 import { isOneRoom, measureColliderGlb, rawFromBounds, roomRect } from '@shared/collider';
+import { normaliseYaw } from '@shared/unitGraph';
 import { mockRawGeometry } from './mockWorld';
 import { compileRoomPrompt, MAX_ROOM_PHOTOS } from './marblePrompt';
 
@@ -78,6 +80,74 @@ export async function fetchColliderGeometry(url: string): Promise<WorldBounds> {
 /** @deprecated Use {@link fetchColliderGeometry}: same result, plus the wall rectangle. */
 export const fetchColliderBounds = fetchColliderGeometry;
 
+/* ---------- the plan's own turn ----------
+ * A capture knows which way its own walls run (the collider rectangle, `RoomRect.yaw`) and nothing
+ * else. Which of those four walls is the room's NORTH, and where north actually is, are facts only
+ * the floor plan has: `matchPortals().quarters` is the quarter turn between the plan's frame and
+ * the capture's, and `UnitRoom.yawToNorth` is what is left over to put the plan's own up-the-page
+ * onto true north (`−northArrowDeg`). Both are folded into the ONE turn the Marble group carries,
+ * so the panorama, the splat, the collider and the measured shell can never disagree about it.
+ */
+
+/** What a floor plan says about how one room's world is turned. Both fields are optional: no plan, no turn. */
+export interface PlanOrientation {
+  /** `matchPortals().quarters` — quarter turns from the plan's frame to the capture's. */
+  quarters?: number | null;
+  /** `UnitRoom.yawToNorth` — radians that put the plan's north on true north. */
+  yawToNorth?: number | null;
+}
+
+/** One quarter turn, radians. */
+export const QUARTER_TURN = Math.PI / 2;
+
+/**
+ * The turn that takes a room's capture frame onto plan north, radians.
+ *
+ * Two terms, and the sign of each is the whole point:
+ * - **The quarter turn.** `toUnitPose` maps a pose in the capture's frame onto the sheet by turning
+ *   it `+q` quarter turns the way the page reads (x right, z down). Turning the *content* the same
+ *   way is `Ry(−q·π/2)`, because `Ry(a)` turns a direction's yaw by `+a` and Audora's yaw grows
+ *   towards the west. Hence `−quarters · π/2`.
+ * - **The north arrow.** `yawToNorth` is already stated as a turn of the room's world (`unitGraph`:
+ *   "radians to turn this room's world by so that its own north wall faces the plan's north"), so it
+ *   is added as it stands.
+ *
+ * Zero without a plan, which is what keeps every room Audora has today exactly where it is. A number
+ * is a turn already worked out — idempotent, so a caller that has folded the two terms once (a memo
+ * on a React component, say) can pass the result straight back in.
+ */
+export function planYaw(plan?: PlanOrientation | number | null): number {
+  if (plan == null) return 0;
+  if (typeof plan === 'number') {
+    if (!Number.isFinite(plan) || plan === 0) return 0;
+    // Already folded, and inside the range `normaliseYaw` returns: hand it straight back, because
+    // normalising a normalised angle is not bit-exact and this value places half a million splats.
+    return plan >= -Math.PI && plan < Math.PI ? plan : normaliseYaw(plan);
+  }
+  const quarters = typeof plan.quarters === 'number' && Number.isFinite(plan.quarters) ? Math.round(plan.quarters) : 0;
+  const north = typeof plan.yawToNorth === 'number' && Number.isFinite(plan.yawToNorth) ? plan.yawToNorth : 0;
+  const turn = north - quarters * QUARTER_TURN;
+  return turn === 0 ? 0 : normaliseYaw(turn);
+}
+
+/**
+ * A true-north bearing, re-expressed against a room's north wall after the room's world has been
+ * turned by `yaw`.
+ *
+ * `Room.northWallHeading` (and `TourSite.heading`) mean "the true-north bearing you face looking out
+ * through the room's NORTH wall" — `engine/sun` turns the sun's azimuth into the room's frame with
+ * it. Turning the room's world by `yaw` puts a different piece of the room on that wall, so the
+ * heading has to move with it or the sun lands on the wrong wall: a bearing runs clockwise and
+ * Audora's yaw runs anticlockwise, so the wall now at the room's north used to be at `−yaw`, and its
+ * bearing was `heading + yaw`. Yaw a room fully onto plan north (`planYaw` above, with the room's
+ * geometry folded by the quarter turn) and this returns 0 — which is the honest reading of "this
+ * room's north wall faces north".
+ */
+export function headingAfterYaw(headingDeg: number, yaw: number): number {
+  const deg = headingDeg + (yaw * 180) / Math.PI;
+  return ((deg % 360) + 360) % 360;
+}
+
 export interface SplatTransform {
   /** Uniform scale from the provider's raw units to metres. */
   scale: number;
@@ -86,11 +156,16 @@ export interface SplatTransform {
   /** The Marble group's turn about y: `π + yaw`. */
   rotationY: number;
   /**
-   * The room's own turn (see {@link RoomRect}), radians. Also the direction the capture looked in
-   * Audora's frame, so walk mode spawns at `position` facing `yaw` and the first frame is the
-   * photograph. 0 when the collider gave no wall rectangle.
+   * The room's total turn, radians: the collider rectangle's own ({@link rectYaw}) plus the plan's
+   * ({@link planYaw}). Also the direction the capture looked in Audora's frame, so walk mode spawns
+   * at `position` facing `yaw` and the first frame is still the photograph however the room is
+   * turned. 0 when the collider gave no wall rectangle and there is no plan.
    */
   yaw: number;
+  /** The collider rectangle's own turn (see {@link RoomRect}) — what `yaw` was before a plan had a say. */
+  rectYaw: number;
+  /** The plan's contribution to `yaw` (see {@link planYaw}). 0 for a room with no plan. */
+  planYaw: number;
   /** True when the world carried Marble's own metric semantics (full quality), false when the anchor supplied the scale. */
   metric: boolean;
 }
@@ -101,15 +176,25 @@ export interface SplatTransform {
  * hangs off ONE group carrying this transform:
  *
  * ```tsx
- * const t = splatTransform(world, room.anchor.metresPerUnit, room.floorOffset);
+ * const t = splatTransform(world, room.anchor.metresPerUnit, room.floorOffset, plan);
  * <group position={t.position} rotation={[0, t.rotationY, 0]} scale={t.scale}>…</group>
  * ```
  *
- * `rotationY` is `π + rect.yaw`. The 180° is what makes the capture look the way Audora's rooms do
+ * `rotationY` is `π + yaw`. The 180° is what makes the capture look the way Audora's rooms do
  * (Marble's room extends toward +z from the camera; ours extends toward −z from the south door);
- * the rest is the room's own turn, because Marble's frame is the camera's and the photographer may
- * have faced a corner (see {@link RoomRect}). `position` is exactly where the capture point lands,
- * so the photo view puts its camera there — facing `yaw`, which is where the camera looked.
+ * the rest is the room's turn, and it is the ONE place a room is turned:
+ *
+ * ```
+ * yaw = rect.yaw            the collider rectangle's own rotation — the photographer faced a corner
+ *     + yawToNorth          the plan's north arrow
+ *     − quarters · π/2      the quarter turn portal matching recovered
+ * ```
+ *
+ * The first term is all a capture can know by itself (see {@link RoomRect}); the other two are
+ * {@link planYaw}, and they are 0 for a room with no floor plan, which is why such a room is placed
+ * exactly as it always was. `position` is exactly where the capture point lands, so the photo view
+ * puts its camera there — facing `yaw`, which is where the camera looked, whichever way the room
+ * has been turned.
  *
  * The two ways a world knows its own size, handled the same way whether or not `bounds` are known:
  * - **Full quality** carries `metric_scale_factor` (raw units → metres) and `ground_plane_offset`
@@ -143,14 +228,14 @@ export interface SplatTransform {
  * unchanged, and so is the view from the capture point, which is why photo view looks identical
  * before and after: the camera turns with the room.
  */
-export function splatTransform(world: WorldPlacement, metresPerUnit: number, floorOffset = 0): SplatTransform {
+export function splatTransform(world: WorldPlacement, metresPerUnit: number, floorOffset = 0, plan?: PlanOrientation | number | null): SplatTransform {
   const msf = world.metricScaleFactor;
   const metric = msf != null && msf > 0;
   const s = metric ? (msf as number) : metresPerUnit > 0 ? metresPerUnit : 1;
   const b = world.bounds;
   // Height of the capture point above Audora's floor. Marble's own ground plane when the world
   // carries metric semantics (measured against its splat: 1.2 cm), else the collider's floor plane,
-  // else the drop from the camera to the lowest point of the mesh.
+  // else the drop from the camera to the lowest point of the mesh. A turn about y never moves it.
   const captureY =
     metric && world.groundPlaneOffset != null
       ? world.groundPlaneOffset
@@ -162,10 +247,22 @@ export function splatTransform(world: WorldPlacement, metresPerUnit: number, flo
   // The same rectangle the room is measured with, in the same axes (see `roomRect`). The capture
   // point sits at its origin, so putting the room centre on ours is one subtraction.
   const rect = roomRect(b);
-  const x = rect ? -((rect.minX + rect.maxX) / 2) * s : 0;
-  const z = rect ? -((rect.minZ + rect.maxZ) / 2) * s : 0;
-  const yaw = rect?.yaw ?? 0;
-  return { scale: s, position: [x, captureY + floorOffset, z], rotationY: Math.PI + yaw, yaw, metric };
+  const rectYaw = rect?.yaw ?? 0;
+  const turn = planYaw(plan);
+  const yaw = turn === 0 ? rectYaw : normaliseYaw(rectYaw + turn);
+  /* The group turns about its own `position` — the capture point — so the room centre swings with
+     it. Turning the offset by the same `Ry(turn)` is what keeps the room centred on the origin
+     whichever way the plan says the room faces; with no plan `turn` is exactly 0 and this is the
+     subtraction it always was, to the last bit. */
+  const cx = rect ? (rect.minX + rect.maxX) / 2 : 0;
+  const cz = rect ? (rect.minZ + rect.maxZ) / 2 : 0;
+  const cos = Math.cos(turn);
+  const sin = Math.sin(turn);
+  // Guarded on `rect` rather than folded into `cx`/`cz`: a world with no bounds has no offset at
+  // all, and `-(0) * s` is −0, which is not the 0 a stored transform should carry.
+  const x = rect ? -(cx * cos + cz * sin) * s : 0;
+  const z = rect ? -(cz * cos - cx * sin) * s : 0;
+  return { scale: s, position: [x, captureY + floorOffset, z], rotationY: Math.PI + yaw, yaw, rectYaw, planYaw: turn, metric };
 }
 
 /** What `splatTransform` needs of a world; every `RoomWorld` satisfies it. */
@@ -327,8 +424,13 @@ export function generationImages(room: Pick<Room, 'photo' | 'photos'>): { dataUr
 /** Bump to invalidate every browser recipe on purpose (mirrors PIPELINE_VERSION on the server). */
 export const PIPELINE_VERSION = '1';
 
-/** The model id a tier maps to when the server has not told us otherwise (matches server/api.ts defaults). */
-export const DEFAULT_MARBLE_MODEL: Record<Tier, string> = { draft: 'marble-1.0-draft', full: 'marble-1.1' };
+/**
+ * The model id a tier maps to when the server has not told us otherwise. The ids themselves are
+ * `shared/modelPolicy.ts`, which is also where `server/api.ts` reads its own defaults and where the
+ * rule that sends a large or open-plan room to `marble-1.1-plus` lives — one copy, because the id
+ * is hashed into the recipe.
+ */
+export const DEFAULT_MARBLE_MODEL: Record<Tier, string> = { draft: DEFAULT_DRAFT_MODEL, full: DEFAULT_FULL_MODEL };
 
 export interface BrowserRecipe {
   anchor: { method: string; referenceMetres: number } | null;
@@ -438,6 +540,12 @@ export interface StartedGeneration {
   recipeHash: string;
   seed: number;
   prompt: string;
+  /**
+   * The model the request named — the one the recipe hashed. Returned so the caller can carry it to
+   * the world it produces: Marble echoes the model on the world record, but a record that comes back
+   * without one must not be labelled with a tier default the room may never have used.
+   */
+  model: string;
 }
 
 /**
@@ -447,7 +555,7 @@ export interface StartedGeneration {
 export async function startGeneration(room: Room, tier: Tier, opts: StartGenerationOptions = {}): Promise<StartedGeneration> {
   const images = generationImages(room);
   if (!images.length) throw new Error('This room has no photo to reconstruct from.');
-  const { recipeHash, seed, prompt } = await recipeForRoom(room, tier, opts);
+  const { recipe, recipeHash, seed, prompt } = await recipeForRoom(room, tier, opts);
   const op = await api<MarbleOperation>('/api/marble/generate', {
     method: 'POST',
     body: JSON.stringify({
@@ -456,8 +564,10 @@ export async function startGeneration(room: Room, tier: Tier, opts: StartGenerat
       imageDataUrl: images[0].dataUrl,
       tier,
       /* The model the recipe names, so the world that comes back is the one that was hashed. The
-         server allowlists it against the tier's own model and its `-plus` sibling (`modelFor` in
-         server/marbleRequest.ts) — naming a model here cannot make it run anything else. */
+         server allowlists it against the ids it runs for this tier (`knownModels` in
+         shared/modelPolicy.ts): naming a model here cannot make it run anything else, and one it
+         does not know is refused with a 400 rather than swapped for the default — a substituted
+         model would leave the recorded recipe hash describing a request that was never sent. */
       ...(opts.modelId ? { model: opts.modelId } : {}),
       displayName: `Audora · ${room.name}`,
       textPrompt: prompt,
@@ -467,7 +577,7 @@ export async function startGeneration(room: Room, tier: Tier, opts: StartGenerat
       tags: [`recipe:${recipeHash.slice(0, 12)}`],
     }),
   });
-  return { operationId: op.operation_id, worldId: op.metadata?.world_id, recipeHash, seed, prompt };
+  return { operationId: op.operation_id, worldId: op.metadata?.world_id, recipeHash, seed, prompt, model: recipe.model };
 }
 
 export async function pollOperation(operationId: string): Promise<MarbleOperation> {
@@ -545,7 +655,7 @@ export function pickSpz(urls?: Record<string, string>): string | undefined {
 }
 
 /** What a generation was asked for with (from `startGeneration`), recorded on the world it made. */
-export type WorldProvenance = Partial<Pick<RoomWorld, 'recipeHash' | 'seed' | 'prompt'>>;
+export type WorldProvenance = Partial<Pick<RoomWorld, 'recipeHash' | 'seed' | 'prompt' | 'model'>>;
 
 /**
  * Convert a finished Marble world into Audora's RoomWorld. Pass collider bounds to derive raw room
@@ -561,7 +671,12 @@ export function worldFromMarble(room: Room, tier: Tier, w: MarbleWorld, credits?
     provider: 'marble',
     tier,
     worldId: w.world_id,
-    model: w.model || (tier === 'draft' ? 'marble-1.0-draft' : 'marble-1.1'),
+    /* What actually ran, in order of authority: the provider's own answer, then the model the
+       request named (the one hashed into the recipe — a large or open-plan room goes to
+       `marble-1.1-plus`, and the measured panel and the tier chips must say so), then the tier's
+       default. The default alone used to be the fallback, which quietly relabelled every plus room
+       as `marble-1.1` whenever Marble returned a record without a model. */
+    model: w.model || provenance?.model || DEFAULT_MARBLE_MODEL[tier],
     createdAt: Date.now(),
     raw: extent.raw,
     spzUrl: pickSpz(a.splats?.spz_urls),

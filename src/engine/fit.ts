@@ -1,5 +1,5 @@
 import type { BuyerVerdict, FitReport, Footprint, PlacedPiece, RoomGeometry, TightSpot, WallSide } from './types';
-import { area, doorSwing, insideRoom, overlaps, separation, wallGaps, wallLabel, round } from './geometry';
+import { area, doorSwings, insideRoom, overlaps, separation, wallGaps, wallLabel, round, type Doorway } from './geometry';
 import { MIN_WALKWAY_M } from './anchor';
 
 /** Gaps smaller than this are read as "pushed against", not as a walkway. */
@@ -45,19 +45,26 @@ export function companions(a: PlacedPiece, b: PlacedPiece): boolean {
   return Boolean(COMPANIONS[a.kind]?.includes(b.kind) || COMPANIONS[b.kind]?.includes(a.kind));
 }
 
-export function fitReport(pieces: PlacedPiece[], room: RoomGeometry): FitReport {
+/**
+ * `doors` — the room's drawn doorways, from `doorOpeningsFor` (three/RoomShell) by way of
+ * `screens/viewer/unit` — is what the door-swing rules are judged against. Every surface that
+ * reports on a room should pass the same array the shell cuts and the portal markers stand in;
+ * omitted, the rules fall back to `room.door`, which is where a room with no floor plan has always
+ * been. It is optional and last so no existing caller changes shape.
+ */
+export function fitReport(pieces: PlacedPiece[], room: RoomGeometry, doors?: readonly Doorway[]): FitReport {
   const floorArea = room.width * room.depth;
   const solids = pieces.filter(solid);
   const overlapsFound: [string, string][] = [];
   const outOfBounds: string[] = [];
   const blocksDoor: string[] = [];
-  const swing = doorSwing(room);
+  const swings = doorSwings(room, doors);
 
   for (const p of pieces) {
     if (!insideRoom(p, room)) outOfBounds.push(p.id);
   }
   for (const p of solids) {
-    if (overlaps(p, swing)) blocksDoor.push(p.id);
+    if (swings.some((swing) => overlaps(p, swing))) blocksDoor.push(p.id);
   }
   for (let i = 0; i < solids.length; i++) {
     for (let j = i + 1; j < solids.length; j++) {
@@ -117,20 +124,20 @@ export function fitReport(pieces: PlacedPiece[], room: RoomGeometry): FitReport 
 }
 
 /** Is this one piece acceptable given the other pieces? Used for continuous red/green feedback while dragging. */
-export function pieceStatus(piece: PlacedPiece, others: PlacedPiece[], room: RoomGeometry): 'ok' | 'overlap' | 'outside' | 'door' {
+export function pieceStatus(piece: PlacedPiece, others: PlacedPiece[], room: RoomGeometry, doors?: readonly Doorway[]): 'ok' | 'overlap' | 'outside' | 'door' {
   if (!insideRoom(piece, room)) return 'outside';
   if (!piece.flat) {
     for (const o of others) {
       if (o.id === piece.id || o.flat) continue;
       if (overlaps(piece, o)) return 'overlap';
     }
-    if (overlaps(piece, doorSwing(room))) return 'door';
+    if (doorSwings(room, doors).some((swing) => overlaps(piece, swing))) return 'door';
   }
   return 'ok';
 }
 
 /** Verdict for a renter's own piece dropped into the leasing team's staged room. */
-export function buyerVerdict(piece: PlacedPiece, staging: PlacedPiece[], room: RoomGeometry): BuyerVerdict {
+export function buyerVerdict(piece: PlacedPiece, staging: PlacedPiece[], room: RoomGeometry, doors?: readonly Doorway[]): BuyerVerdict {
   const reasons: string[] = [];
   const name = piece.name;
   if (!insideRoom(piece, room)) {
@@ -142,7 +149,7 @@ export function buyerVerdict(piece: PlacedPiece, staging: PlacedPiece[], room: R
   // Rugs lie flat and never collide; everything else must clear the staging.
   const collisions = piece.flat ? [] : staging.filter((s) => !s.flat && s.owner !== 'buyer' && overlaps(piece, s));
   if (collisions.length) reasons.push(`It overlaps ${listNames(collisions.map((c) => c.name))}.`);
-  if (!piece.flat && overlaps(piece, doorSwing(room))) reasons.push('It blocks the door from opening.');
+  if (!piece.flat && doorSwings(room, doors).some((swing) => overlaps(piece, swing))) reasons.push('It blocks the door from opening.');
 
   if (reasons.length) {
     return {

@@ -82,7 +82,16 @@ export function MeasuredPanel({ room, world, cameraHeight, pano, status, onClose
             value={world?.recipeHash ? `${world.seed != null ? `seed ${world.seed} · ` : ''}${world.recipeHash.slice(0, 12)}` : undefined}
             title={world?.recipeHash ? `Marble seed and the first 12 hex digits of the recipe hash (sha256 ${world.recipeHash}). The same photos, prompt, tier and model always ask for the same world.` : 'No recipe was recorded for this world.'}
           />
-          <MetricRow label="Metric scale" value={world?.metricScaleFactor ? `${world.metricScaleFactor.toFixed(4)}` : undefined} title="Metres per raw unit, when the model reports one." />
+          {/* A simulated world carries a placeholder metric scale derived from the room's id: a
+              different number in every browser, excluded from the fit on purpose (state/seed), and
+              the only number on this panel that nothing else is computed from. Printing it to four
+              decimals with no ± — directly above "every number on it is derived from the anchor" —
+              is the one thing this panel exists not to do. A simulation reports no metric scale. */}
+          <MetricRow
+            label="Metric scale"
+            value={real && world?.metricScaleFactor ? `${world.metricScaleFactor.toFixed(4)}` : undefined}
+            title={real ? 'Metres per raw unit, when the model reports one.' : 'A simulated reconstruction reports no metric scale. Every number here comes from the anchor.'}
+          />
           <MetricRow label="Ground plane" value={world?.groundPlaneOffset != null ? `${world.groundPlaneOffset.toFixed(3)} m` : undefined} />
           <MetricRow label="Panorama" value={panoLabel} />
           <MetricRow label="Splat LODs" value={splatLods(world)} />

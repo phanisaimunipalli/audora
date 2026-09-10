@@ -35,6 +35,31 @@ describe('spz tiers', () => {
     const world = { worldId: 'later', spzUrl: 'https://cdn/x/a_500k.spz', spzUrls: { '100k': 'https://cdn/x/a_100k.spz', full_res: 'https://cdn/x/a.spz' } };
     expect(spzTiers(world as never).map((a) => a.tier)).toEqual(['100k', '500k', 'full_res']);
   });
+
+  /**
+   * The ladder of a world *we* copied. `spzName` (server/worker.ts) and `spzAssetName`
+   * (server/localGenerate.ts) fold Marble's `full_res` key to `full` and store the object as
+   * `spz-full.spz`; that rung is the same 23 MB file and has to reach the renter who earned it.
+   */
+  it('climbs the ladder of a world we copied ourselves, whose top rung is keyed `full`', () => {
+    const base = 'https://db.audora.dev/storage/v1/object/public/worlds/w1';
+    const world = { worldId: 'copied', spzUrl: `${base}/spz-500k.spz`, spzUrls: { '100k': `${base}/spz-100k.spz`, '500k': `${base}/spz-500k.spz`, full: `${base}/spz-full.spz` } };
+    const ladder = spzTiers(world as never);
+    expect(ladder.map((a) => a.tier)).toEqual(['100k', '500k', 'full_res']);
+    // The renter still opens on the smallest file and climbs to 500k...
+    expect(planLadder(ladder, 'full_res').map((a) => a.tier)).toEqual(['100k', '500k']);
+    // ...and a desktop that earned the upgrade is offered the big one, where a phone is not.
+    expect(wantsUpgrade(ladder, '500k', 1500, 'full_res')?.url).toBe(`${base}/spz-full.spz`);
+    expect(wantsUpgrade(ladder, '500k', 1500, '500k')).toBeNull();
+  });
+
+  it('reads `spz-full.spz` as full res, and never "full" inside another word', () => {
+    expect(tierOfUrl('https://cdn/x/spz-full.spz')).toBe('full_res');
+    expect(tierOfUrl('https://cdn/x/abc_sand_full.spz')).toBe('full_res');
+    expect(tierOfUrl('https://cdn/x/spz-full.spz?token=abc')).toBe('full_res');
+    expect(tierOfUrl('https://cdn/x/spz-fullscreen.spz')).toBe('unknown');
+    expect(tierOfUrl('https://cdn/x/9be4full.spz')).toBe('unknown');
+  });
 });
 
 describe('what a device may load', () => {

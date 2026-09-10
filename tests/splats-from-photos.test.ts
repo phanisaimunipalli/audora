@@ -606,24 +606,17 @@ describe('link 3 — the viewer’s splat pipeline picks the files up', () => {
   });
 
   /**
-   * KNOWN DEFECT, pinned with `it.fails` so the suite stays honest without turning red.
+   * The rung our own pipeline pays for, and the one a fast desktop should be offered.
    *
-   * `spzName()` (server/worker.ts:553-558) and `spzAssetName()` (server/localGenerate.ts:566-569)
-   * both fold Marble's `full_res` key to **`full`**, and name the object `spz-full.spz`. The viewer
-   * knows no such tier: `SplatTier` (src/three/splat/tiers.ts:15) lists `full_res` only, and
-   * `tierOfUrl` (src/three/splat/tiers.ts:43-51) matches `_full_res` but not `spz-full.spz`, so the
-   * rung classifies as `unknown` — and `withinCeiling` (line 136) drops every `unknown` rung.
-   *
-   * The consequence: for any world our own pipeline copied (the backend AND `npx audora generate`,
-   * whose output the viewer really does load through `src/services/localUnit.ts`), the full-
-   * resolution splat is downloaded, stored, served — and unreachable. A desktop that has earned the
-   * upgrade is offered nothing. A world read straight off Marble's CDN, whose key is still
-   * `full_res`, upgrades correctly, which is why no existing test catches it.
-   *
-   * The fix is one line on either side (add `full` to `SplatTier`/`TIER_ORDER`, or stop renaming
-   * the key) — a source change, so it is not made here.
+   * `spzName()` (server/worker.ts) and `spzAssetName()` (server/localGenerate.ts) both fold Marble's
+   * `full_res` key to **`full`**, so the stored object can be called `spz-full.spz`. The viewer used
+   * to know no such tier — the rung classified as `unknown`, and `withinCeiling` drops `unknown`, so
+   * the full-resolution splat was downloaded, stored, served and unreachable for every world we
+   * copied ourselves (the backend AND `npx audora generate`). `tierOfKey` in src/three/splat/tiers.ts
+   * now maps `full` onto `full_res`, which is what this test holds down; a world read straight off
+   * Marble's CDN, whose key is still `full_res`, went on working throughout.
    */
-  it.fails('offers the full-resolution rung of a world we copied ourselves (see the comment: it does not)', async () => {
+  it('offers the full-resolution rung of a world we copied ourselves', async () => {
     const { db, storage, unit, clk } = await backendUnit([{ bytes: FILES.primary, role: 'primary' }]);
     await generateUnit(db, ORG, unit.id, 'draft', PLAN, clk.ms);
     await drain(db, storage, mockProvider(), clk);
@@ -633,7 +626,10 @@ describe('link 3 — the viewer’s splat pipeline picks the files up', () => {
 
     // The stored `full` rung is a real object the renter paid to have copied...
     expect(Object.keys(served.spzUrls ?? {})).toContain('full');
-    // ...but the viewer classifies it `unknown` and will never load it: this is the failing line.
+    // ...and the viewer classifies it as the top rung and offers it to a desktop that earned it.
+    expect(ladder.find((a) => a.url === served.spzUrls!.full)?.tier).toBe('full_res');
     expect(wantsUpgrade(ladder, '500k', 1500, 'full_res')?.url).toBe(served.spzUrls!.full);
+    // A phone is still capped: the 23 MB file is never offered below the full_res ceiling.
+    expect(wantsUpgrade(ladder, '500k', 1500, '500k')).toBeNull();
   });
 });

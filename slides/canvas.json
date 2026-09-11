@@ -1,9 +1,0 @@
-{
-  "artboards": [
-    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1920, "h": 1080, "title": "Audora · launch summary", "print": "fixed" },
-    { "file": "Problem.dc.html", "x": 2040, "y": 0, "w": 1920, "h": 1080, "title": "The problem", "print": "fixed" },
-    { "file": "Opportunity.dc.html", "x": 4080, "y": 0, "w": 1920, "h": 1080, "title": "The opportunity", "print": "fixed" },
-    { "file": "Judging.dc.html", "x": 6120, "y": 0, "w": 1920, "h": 1080, "title": "What matters to the judges", "print": "fixed" }
-  ],
-  "launch": { "view": "canvas" }
-}

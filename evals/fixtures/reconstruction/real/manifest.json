@@ -1,4 +1,0 @@
-{
-  "note": "Real units for the reconstruction eval. Empty on purpose: nobody has added a collider with its plan yet. See README.md beside this file — drop a .glb in this folder, add an entry here, and `npm run eval` scores it against the plan's printed dimensions. Colliders are not committed (they are 5-30 MB each); the manifest is.",
-  "units": []
-}

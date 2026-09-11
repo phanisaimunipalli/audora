@@ -2,25 +2,6 @@ node_modules
 dist
 .env
 .env.local
-*.local
 .DS_Store
-evals/results/*.json
-
-# Generated collider fixtures for the reconstruction eval: deterministic, ~850 kB, and rebuilt
-# automatically whenever the spec or FIXTURE_VERSION changes. Real colliders dropped into
-# evals/fixtures/reconstruction/real/ are 5-30 MB each and must never be committed either.
-evals/fixtures/reconstruction/**/*.glb
-
-# local fine-tune serving
-.venv-ft
-*.safetensors
-evals/results/ft-*/adapter/tokenizer.json
-
-.audora/
-!evals/results/finetune-*.json
-!evals/results/stager-distill.summary.json
-.pr-body.md
-.claude/settings.local.json
+.vercel
 .data
-dist-server
-*.tsbuildinfo

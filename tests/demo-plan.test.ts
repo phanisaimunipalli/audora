@@ -11,7 +11,11 @@
  *     also what makes `dimensionsFrom: 'text'` a true statement rather than a label.
  *  2. **The printed dimensions are the rooms' own sizes**, to the ±5 cm a drawing is worth. A plan
  *     that disagreed with the model by more than its own uncertainty would make every residual in
- *     the demo meaningless.
+ *     the demo meaningless. The same holds for the **ceilings**, and there it is exact: the sheet's
+ *     printed height for each simulated room is that room's own height as `mockRawGeometry` draws
+ *     it, recomputed here from the same deterministic seed. A ceiling nobody printed falls back to
+ *     the standard 2.44 m, which none of these rooms is — so a plan that skipped it put a red
+ *     "Ceiling stated 2.44 m · model measures 2.76 m" on rooms whose models were right.
  *  3. **The migration is additive.** A browser that already holds the demo gets the plan, the room
  *     dimensions and the measurements, and nothing else on the tour or its rooms moves.
  *
@@ -23,13 +27,16 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('tests do not use the network'))));
 
 import { useAudora } from '@/state/store';
-import { DEMO_PLAN_FILE, DEMO_PLAN_IMAGE, DEMO_SHARE_ID, demoFloorPlan, migrateDemoPlan, seedDemo } from '@/state/seed';
+import { DEMO_PLAN_FILE, DEMO_PLAN_IMAGE, DEMO_SHARE_ID, demoFloorPlan, ensureRealRoom, migrateDemoPlan, seedDemo } from '@/state/seed';
 import { pickWorld } from '@/state/publish';
 import { roomAccuracy, tourAccuracy } from '@/screens/hub/accuracy';
 import { roomPlan, unitModel } from '@/screens/viewer/unit';
 import { freeSpawn, spawnSolids } from '@/screens/viewer/spawn';
 import { arrivalPose } from '@shared/unitGraph';
-import { FLOORPLAN_UNCERTAINTY_M, metresFromDimensions } from '@/services/floorplan';
+import { FLOORPLAN_UNCERTAINTY_M, metresFromDimensions, metresFromLength } from '@/services/floorplan';
+import { mockRawGeometry } from '@/services/mockWorld';
+import { DOOR_HEIGHT_M } from '@/engine/anchor';
+import { CEILING_OK_M } from '@/screens/hub/accuracy';
 import type { Room, Tour, TourFloorPlan } from '@/state/types';
 
 const PLAN_ROOMS = 6;
@@ -82,6 +89,29 @@ describe('the demo unit carries its own floor plan', () => {
     }
   });
 
+  it('prints a ceiling for every room, and stores the metres it prints', () => {
+    const p = plan();
+    for (const r of p.floors[0].rooms) {
+      expect(r.ceilingText, `${r.name} prints no ceiling`).toBeTruthy();
+      // Same rule as the dimensions: the draughtsman's bracketed metric restatement is what we store.
+      expect(metresFromLength(r.ceilingText as string, p.units), `${r.name}: ${r.ceilingText}`).toBe(r.height);
+      expect(r.height, r.name).toBeGreaterThan(2);
+    }
+  });
+
+  it('prints the ceiling each simulated room actually has, not the standard 2.44 m', () => {
+    const p = plan();
+    const simulated = rooms().filter((r) => pickWorld(r.draft, r.full)?.provider === 'mock');
+    expect(simulated.length).toBe(5);
+    for (const room of simulated) {
+      const printed = p.floors[0].rooms.find((r) => r.name === room.name)?.height as number;
+      // The mock draws every simulated room from `demo:<name>`, deterministically, in raw units of
+      // one door. This is the same draw the seed made, so the sheet cannot drift from the rooms.
+      const drawn = mockRawGeometry(`demo:${room.name}`, room.type).height * DOOR_HEIGHT_M;
+      expect(Math.abs(printed - drawn), `${room.name}: sheet ${printed} m, model ${drawn.toFixed(4)} m`).toBeLessThan(0.005);
+    }
+  });
+
   it('prints dimensions that match the rooms’ own geometry to within the plan’s ±5 cm', () => {
     const byName = new Map(rooms().map((r) => [r.name, r]));
     let compared = 0;
@@ -106,10 +136,14 @@ describe('the demo unit carries its own floor plan', () => {
         expect(room.planDims).toBeUndefined();
         continue;
       }
+      const printed = plan().floors[0].rooms.find((r) => r.name === room.name);
       expect(room.planDims, room.name).toBeTruthy();
       expect(room.planDims?.planRoomName).toBe(room.name);
       expect(room.planDims?.floor).toBe('Third floor');
-      expect(room.planDims?.text).toBe(plan().floors[0].rooms.find((r) => r.name === room.name)?.dimensionsText);
+      expect(room.planDims?.text).toBe(printed?.dimensionsText);
+      // The printed ceiling is what makes fusion use ±3 cm instead of the ±12 cm of an assumption.
+      expect(room.planDims?.height, room.name).toBe(printed?.height);
+      expect(room.planDims?.ceilingText, room.name).toBe(printed?.ceilingText);
     }
   });
 });
@@ -123,8 +157,10 @@ describe('the hub’s accuracy line', () => {
       const a = roomAccuracy(room);
       expect(a.measured, `${room.name} is not measured`).toBe(true);
       expect(a.scale).toBeGreaterThan(0);
-      // Two independent things measured it: the drawing and the room's own anchor.
-      expect(a.independentSources).toBe(2);
+      // Three independent things measured it: the drawing's plan, its printed ceiling, and the
+      // room's own anchor. The ceiling counts because the sheet states it — an assumed 2.44 m is a
+      // prior and corroborates nothing.
+      expect(a.independentSources).toBe(3);
       const dims = a.lines.filter((l) => l.dimension !== 'height');
       expect(dims).toHaveLength(2);
       for (const line of dims) {
@@ -136,6 +172,25 @@ describe('the hub’s accuracy line', () => {
     }
   });
 
+  it('measures every simulated room’s ceiling against the printed height, and agrees with it', () => {
+    const simulated = rooms().filter((r) => pickWorld(r.draft, r.full)?.provider === 'mock');
+    expect(simulated.length).toBe(5);
+    for (const room of simulated) {
+      const a = roomAccuracy(room);
+      const height = a.lines.find((l) => l.dimension === 'height');
+      // The line names the printed height, so it is being measured against the drawing and not
+      // against our own default.
+      expect(height?.expected, `${room.name} has no stated ceiling`).toBe(room.planDims?.height);
+      expect(height?.text, room.name).toContain('Ceiling stated');
+      // docs/ACCURACY.md §1: ceiling error under 10 cm. These are inside a centimetre.
+      expect(Math.abs(height?.delta as number), `${room.name}: ${height?.text}`).toBeLessThanOrEqual(CEILING_OK_M);
+      expect(height?.level, `${room.name}: ${height?.text}`).toBe('ok');
+      // Nothing in the fit disagrees, and the room is well enough constrained to be published.
+      expect(a.flags, `${room.name}`).toEqual([]);
+      expect(a.confidence, `${room.name}`).toBeGreaterThan(0.5);
+    }
+  });
+
   it('summarises the unit against the plan rather than saying "not measured yet"', () => {
     const t = tourAccuracy(rooms());
     expect(t.rooms).toBe(7);
@@ -143,7 +198,14 @@ describe('the hub’s accuracy line', () => {
     expect(t.measured).toBe(6);
     expect(t.overLimit).toBe(0);
     expect(t.withinTarget).toBe(6);
-    expect(t.medianErrorPct).toBeLessThan(5);
+    expect(t.medianErrorPct).toBeLessThan(1);
+    expect(t.flagged).toBe(0);
+    /* No room's ceiling is out, so the headline does not mention ceilings at all — the clause is
+       written only when there is a number above zero to report (`tourAccuracy`). It used to say
+       "4 ceilings over 10 cm", on four rooms whose reconstruction was right and whose stated
+       height was our own 2.44 m assumption. */
+    expect(t.ceilingOff).toBe(0);
+    expect(t.text).not.toContain('ceiling');
     expect(t.text).toContain('against the plan');
     expect(t.text).not.toContain('not measured yet');
   });
@@ -217,6 +279,35 @@ describe('the demo unit is walkable room to room', () => {
         }
       }
     }
+  });
+});
+
+/* ---------- the corridor stays the corridor the sheet draws ---------- */
+
+describe('a Hallway that is not the passage the plan prints', () => {
+  it('is re-simulated in place and re-measured, and stops disagreeing with the plan', () => {
+    const id = tour().id;
+    const hall = rooms().find((r) => r.name === CORRIDOR) as Room;
+    /* A corridor as a browser that seeded one before the size override would hold it: whatever
+       `mockRawGeometry`'s own hallway range draws, which is a hall (1.3–2.0 m by 3.0–5.0 m) and not
+       a 7.00 × 1.20 m passage. Nothing later fills that in, because every later pass only writes
+       what is missing — so the renter walked out of the living room into a red panel. */
+    const wrong = mockRawGeometry(`demo:${CORRIDOR}`, 'hallway');
+    useAudora.getState().setRaw(hall.id, wrong);
+    useAudora.getState().attachWorld(hall.id, { ...(hall.draft as NonNullable<Room['draft']>), raw: wrong });
+    expect(useAudora.getState().rooms[hall.id].geometry.width).toBeLessThan(3);
+
+    ensureRealRoom(id);
+
+    const fixed = useAudora.getState().rooms[hall.id];
+    // The same room, not a second Hallway hung off the tour.
+    expect(rooms().filter((r) => r.name === CORRIDOR)).toHaveLength(1);
+    expect(Math.abs(fixed.geometry.width - 7)).toBeLessThanOrEqual(FLOORPLAN_UNCERTAINTY_M);
+    expect(Math.abs(fixed.geometry.depth - 1.2)).toBeLessThanOrEqual(FLOORPLAN_UNCERTAINTY_M);
+    const a = roomAccuracy(fixed);
+    expect(a.measured).toBe(true);
+    for (const line of a.lines) expect(line.level, `${line.dimension}: ${line.text}`).toBe('ok');
+    expect(a.flags).toEqual([]);
   });
 });
 

@@ -3,9 +3,13 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "bin": {
+    "audora": "dist-server/server/cli.js"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build && tsc -p tsconfig.server.json",
+    "postbuild": "node scripts/link-bin.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc -b",

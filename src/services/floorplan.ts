@@ -41,6 +41,15 @@ export interface PlanRoom {
   dimensionsText?: string;
   /** How the metres were arrived at: our own reading of the printed text, or the model's conversion. */
   dimensionsFrom?: 'text' | 'model';
+  /**
+   * The ceiling height the drawing printed for this room, metres. Present **only** when it printed
+   * one — a height nobody drew is the standard 2.44 m, and that is an assumption, not a reading.
+   * The difference is worth a field of its own because it is the difference between a ±3 cm
+   * constraint and a ±12 cm prior in `shared/fusion.ts`.
+   */
+  height?: number;
+  /** Exactly what the plan printed for the ceiling, e.g. `CEILING 8'-4" (2.55 m)`. */
+  ceilingText?: string;
   windows?: number;
   doors?: number;
 }
@@ -133,6 +142,29 @@ export function metresFromDimensions(text: string, units: PlanUnits = 'unknown')
     if (inner) return inner;
   }
   return pair(clean.replace(/\([^)]*\)/g, ' '), units);
+}
+
+/**
+ * One printed length off a sheet → metres. The single-length twin of {@link metresFromDimensions},
+ * with the same rule and for the same reason: a mixed-unit plan prints `CEILING 8'-4" (2.55 m)` and
+ * the bracketed metres are the draughtsman's own conversion, so they win over our arithmetic on the
+ * feet. Any wording around the number is ignored — plans label a ceiling half a dozen ways.
+ *
+ * Used for the one dimension a photograph cannot recover and a drawing often states: the ceiling.
+ */
+export function metresFromLength(text: string, units: PlanUnits = 'unknown'): number | undefined {
+  if (!text) return undefined;
+  const clean = text.replace(/[’‘]/g, "'").replace(/[”“]/g, '"').replace(/[\u00a0\u2007\u202f]/g, ' ').trim();
+  const bracket = /\(([^)]*)\)/.exec(clean);
+  if (bracket) {
+    const inner = lengthToMetres(bracket[1].trim(), 'metres');
+    if (inner != null && inner > 0) return inner;
+  }
+  // No restatement: take the last run that reads as a length, so a label in front of it is harmless.
+  const rest = clean.replace(/\([^)]*\)/g, ' ');
+  const token = /([\d.,]+\s*(?:'|ft\.?|feet)?\s*(?:-|–)?\s*(?:[\d.,]+\s*(?:"|''|in\.?|inches))?|[\d.,]+\s*(?:mm|cm|m|metres?|meters?)?)\s*$/i.exec(rest);
+  const value = token ? lengthToMetres(token[1].trim(), units) : undefined;
+  return value != null && value > 0 ? value : undefined;
 }
 
 /** Two lengths agree if they round to the same centimetre — the precision a plan is printed to. */

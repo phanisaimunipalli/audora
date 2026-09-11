@@ -21,6 +21,26 @@
  * `metresFromDimensions` and requires the stored metres to come back. Change a dimension here and
  * you must change it there, or that test fails.
  *
+ * ## The ceilings
+ *
+ * Every room prints its ceiling height, which is what a letting sheet does and what decides whether
+ * `shared/fusion.ts` treats the height as a **measurement** (±3 cm, `CEILING_PRINTED_SIGMA_M`) or as
+ * our own standing assumption (the standard 2.44 m, ±12 cm). Until it did, the demo's rooms — none
+ * of which is 2.44 m high — were each fused against a ceiling nobody had printed, so the hub led
+ * with "4 ceilings over 10 cm" and the viewer showed a red line on a room whose model was right.
+ *
+ * The printed heights are not invented and they are not rounded to something tidy: they are the
+ * heights the demo's simulated reconstructions actually have. Each simulated room is drawn by
+ * `mockRawGeometry` (src/services/mockWorld.ts) from the seed `demo:<room name>`, deterministically,
+ * and its height in metres is `raw.height × 2.03` (the mock's raw unit is one door, 2.03 m). Those
+ * numbers, to the centimetre a drawing is printed to, are the `ceiling` field below.
+ * `tests/demo-plan.test.ts` recomputes them from `mockRawGeometry` and fails if either copy drifts.
+ *
+ * The corner room is the exception, and it is honest about it: it is a real Marble capture with no
+ * ground truth for its ceiling, so the sheet prints the storey's standard 2.44 m — which is the
+ * height that room is already anchored on, so the seed leaves it out of the fit rather than counting
+ * one assumption twice (`demoMeasurement` in src/state/seed.ts).
+ *
  *   node scripts/make-demo-plan.mjs
  *
  * Writes public/demo/floorplan-oak-unit3.png and a copy at evals/plans/floorplan-oak-unit3.png (the
@@ -58,14 +78,18 @@ const DOOR_W = 0.86;
  * living room's bay is the projecting corner), a corridor down the middle, and three rooms off the
  * back of it. Every room but the dining room opens off the hallway, which is what makes the graph
  * `inferAdjacency` builds (`shared/unitGraph.ts`) the one a renter would actually walk.
+ *
+ * `ceiling` is the room's own floor-to-ceiling height in metres — see "The ceilings" above. They
+ * differ room to room (2.44 m in the corner room to 2.76 m in the dining room), which is ordinary in
+ * a period flat carved out of larger rooms, and is what the reconstructions measure.
  */
 const ROOMS = [
-  { name: 'Living room', type: 'living', x: 0.0, y: 0.0, w: 5.3, h: 5.78 },
-  { name: 'Dining room', type: 'dining', x: 5.5, y: 1.68, w: 3.3, h: 4.1 },
-  { name: 'Hallway', type: 'hallway', x: 0.6, y: 5.98, w: 7.0, h: 1.2 },
-  { name: 'Primary bedroom', type: 'bedroom', x: 0.0, y: 7.38, w: 3.3, h: 3.8 },
-  { name: 'Second bedroom', type: 'bedroom', x: 3.5, y: 7.38, w: 2.8, h: 3.0 },
-  { name: 'Corner room', type: 'bedroom', x: 6.5, y: 7.38, w: 3.0, h: 4.06 },
+  { name: 'Living room', type: 'living', x: 0.0, y: 0.0, w: 5.3, h: 5.78, ceiling: 2.55 },
+  { name: 'Dining room', type: 'dining', x: 5.5, y: 1.68, w: 3.3, h: 4.1, ceiling: 2.76 },
+  { name: 'Hallway', type: 'hallway', x: 0.6, y: 5.98, w: 7.0, h: 1.2, ceiling: 2.6 },
+  { name: 'Primary bedroom', type: 'bedroom', x: 0.0, y: 7.38, w: 3.3, h: 3.8, ceiling: 2.57 },
+  { name: 'Second bedroom', type: 'bedroom', x: 3.5, y: 7.38, w: 2.8, h: 3.0, ceiling: 2.48 },
+  { name: 'Corner room', type: 'bedroom', x: 6.5, y: 7.38, w: 3.0, h: 4.06, ceiling: 2.44 },
 ];
 
 /**
@@ -120,6 +144,8 @@ const metresText = (r) => `${r.w.toFixed(2)} × ${r.h.toFixed(2)} m`;
 const feetText = (r) => `${feetInches(r.w)} × ${feetInches(r.h)}`;
 /** Exactly what is printed beside the room, on one line, which is what the store records verbatim. */
 const dimensionsText = (r) => `${feetText(r)} (${metresText(r)})`;
+/** The ceiling line, printed the same way and stored verbatim as `ceilingText`. */
+const ceilingText = (r) => `CEILING ${feetInches(r.ceiling)} (${r.ceiling.toFixed(2)} m)`;
 
 /* ---------- the building envelope ----------
  *
@@ -221,9 +247,11 @@ function rooms() {
     const cy = y + h / 2;
     return [
       `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${FLOOR}" stroke="${INK}" stroke-width="3.5"/>`,
-      text(cx, cy - 8, r.name.toUpperCase(), { size: 20, weight: 600, track: 1.1 }),
-      text(cx, cy + 17, feetText(r), { size: 17 }),
-      text(cx, cy + 38, `(${metresText(r)})`, { size: 15, fill: '#3c3c3c' }),
+      text(cx, cy - 20, r.name.toUpperCase(), { size: 20, weight: 600, track: 1.1 }),
+      text(cx, cy + 5, feetText(r), { size: 17 }),
+      text(cx, cy + 26, `(${metresText(r)})`, { size: 15, fill: '#3c3c3c' }),
+      // The ceiling, so the sheet states the one dimension a photograph cannot.
+      text(cx, cy + 47, ceilingText(r), { size: 13, fill: '#4a4a4a', track: 0.4 }),
     ].join('\n');
   }).join('\n');
 }
@@ -339,7 +367,7 @@ function svg() {
   return `<svg width="${SHEET_W}" height="${SHEET_H}" viewBox="0 0 ${SHEET_W} ${SHEET_H}" xmlns="http://www.w3.org/2000/svg">
   <rect width="${SHEET_W}" height="${SHEET_H}" fill="${PAPER}"/>
   ${text(PAD, PAD + 22, TITLE, { size: 25, weight: 700, anchor: 'start', track: 0.3 })}
-  ${text(PAD, PAD + 46, 'Two bedrooms and a corner room · approx. 1,180 sq ft · dimensions to the nearest inch, metric in brackets', { size: 13, anchor: 'start', fill: '#4a4a4a' })}
+  ${text(PAD, PAD + 46, 'Two bedrooms and a corner room · approx. 1,180 sq ft · dimensions to the nearest inch, metric in brackets · ceiling height stated per room', { size: 13, anchor: 'start', fill: '#4a4a4a' })}
   ${text(PAD, PAD + 76, FLOOR_LABEL.toUpperCase(), { size: 15, weight: 700, anchor: 'start', track: 2 })}
   <line x1="${PAD}" y1="${PAD + 86}" x2="${SHEET_W - PAD - 70}" y2="${PAD + 86}" stroke="${INK}" stroke-width="1"/>
   ${outerWall()}
@@ -396,7 +424,7 @@ console.log(
         northArrow: true,
         dimensioned: true,
         floors: [{ label: FLOOR_LABEL, rooms: ROOMS.map((r) => ({ name: r.name, type: r.type, width: r.w, depth: r.h })) }],
-        note: `${ROOMS.length} rooms, feet and inches with the metric restatement in brackets; the demo unit src/state/seed.ts carries as its parsed plan`,
+        note: `${ROOMS.length} rooms, feet and inches with the metric restatement in brackets, plus a stated ceiling height per room; the demo unit src/state/seed.ts carries as its parsed plan`,
       },
       null,
       2,
@@ -404,4 +432,7 @@ console.log(
 );
 
 /* What src/state/seed.ts must hold, so a change here is easy to carry across. */
-console.log('\nDEMO_PLAN_ROOMS:\n' + ROOMS.map((r) => `  ${r.name}: ${r.w.toFixed(2)} × ${r.h.toFixed(2)} m  "${dimensionsText(r)}"`).join('\n'));
+console.log(
+  '\nDEMO_PLAN_ROOMS:\n' +
+    ROOMS.map((r) => `  ${r.name}: ${r.w.toFixed(2)} × ${r.h.toFixed(2)} m  "${dimensionsText(r)}"  ceiling ${r.ceiling.toFixed(2)} m  "${ceilingText(r)}"`).join('\n'),
+);

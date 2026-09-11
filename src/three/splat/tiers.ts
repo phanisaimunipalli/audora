@@ -39,14 +39,33 @@ export interface SplatAsset {
 
 export const tierRank = (t: SplatTier): number => TIER_ORDER.indexOf(t);
 
-/** The tier a Marble filename declares: `…_sand_100k.spz`, `…_ceramic_500k.spz`, `…_sand.spz`. */
+/**
+ * The tier a key in `spz_urls` names.
+ *
+ * Two vocabularies reach this map. Marble's own is `100k` / `500k` / `full_res`, and a world read
+ * straight off its CDN keeps it. But every world *we* copy — the backend worker (`spzName`,
+ * server/worker.ts) and `npx audora generate` (`spzAssetName`, server/localGenerate.ts) — folds
+ * `full_res` to **`full`** so the stored file can be called `spz-full.spz`. Without this alias that
+ * rung classified as `unknown`, and `withinCeiling` drops `unknown`: the full-resolution splat was
+ * downloaded, stored and served, and no device could ever load it.
+ */
+export function tierOfKey(key: string): SplatTier | null {
+  const k = key.trim().toLowerCase();
+  if (k === 'full' || k === 'fullres' || k === 'full-res') return 'full_res';
+  return TIER_ORDER.includes(k as SplatTier) && k !== 'unknown' ? (k as SplatTier) : null;
+}
+
+/**
+ * The tier a filename declares: Marble's `…_sand_100k.spz`, `…_ceramic_500k.spz`, `…_sand.spz`,
+ * and our own `spz-100k.spz` / `spz-full.spz` — hence `[_-]`, since our copies join with a hyphen.
+ */
 export function tierOfUrl(url: string): SplatTier {
   const name = url.split('?')[0].toLowerCase();
-  if (/_full[_-]?res\b/.test(name)) return 'full_res';
-  if (/_1m\.spz$|_1m\b/.test(name)) return '1m';
-  if (/_500k\b/.test(name)) return '500k';
-  if (/_150k\b/.test(name)) return '150k';
-  if (/_100k\b/.test(name)) return '100k';
+  if (/[_-]full(?:[_-]?res)?\b/.test(name)) return 'full_res';
+  if (/[_-]1m\b/.test(name)) return '1m';
+  if (/[_-]500k\b/.test(name)) return '500k';
+  if (/[_-]150k\b/.test(name)) return '150k';
+  if (/[_-]100k\b/.test(name)) return '100k';
   return 'unknown';
 }
 
@@ -86,7 +105,7 @@ export function spzTiers(world: Pick<RoomWorld, 'spzUrl' | 'spzUrls' | 'worldId'
     out.push(a);
   };
   const map = world.spzUrls;
-  if (map) for (const [key, url] of Object.entries(map)) if (url) add({ tier: TIER_ORDER.includes(key as SplatTier) ? (key as SplatTier) : tierOfUrl(url), url });
+  if (map) for (const [key, url] of Object.entries(map)) if (url) add({ tier: tierOfKey(key) ?? tierOfUrl(url), url });
   for (const known of KNOWN_SPZ_TIERS[world.worldId ?? ''] ?? []) add(known);
   if (world.spzUrl) add({ tier: tierOfUrl(world.spzUrl), url: world.spzUrl });
   return out.sort((a, b) => tierRank(a.tier) - tierRank(b.tier));

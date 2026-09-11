@@ -35,6 +35,31 @@ describe('spz tiers', () => {
     const world = { worldId: 'later', spzUrl: 'https://cdn/x/a_500k.spz', spzUrls: { '100k': 'https://cdn/x/a_100k.spz', full_res: 'https://cdn/x/a.spz' } };
     expect(spzTiers(world as never).map((a) => a.tier)).toEqual(['100k', '500k', 'full_res']);
   });
+
+  /**
+   * The ladder of a world *we* copied. `spzName` (server/worker.ts) and `spzAssetName`
+   * (server/localGenerate.ts) fold Marble's `full_res` key to `full` and store the object as
+   * `spz-full.spz`; that rung is the same 23 MB file and has to reach the renter who earned it.
+   */
+  it('climbs the ladder of a world we copied ourselves, whose top rung is keyed `full`', () => {
+    const base = 'https://db.audora.dev/storage/v1/object/public/worlds/w1';
+    const world = { worldId: 'copied', spzUrl: `${base}/spz-500k.spz`, spzUrls: { '100k': `${base}/spz-100k.spz`, '500k': `${base}/spz-500k.spz`, full: `${base}/spz-full.spz` } };
+    const ladder = spzTiers(world as never);
+    expect(ladder.map((a) => a.tier)).toEqual(['100k', '500k', 'full_res']);
+    // The renter still opens on the smallest file and climbs to 500k...
+    expect(planLadder(ladder, 'full_res').map((a) => a.tier)).toEqual(['100k', '500k']);
+    // ...and a desktop that earned the upgrade is offered the big one, where a phone is not.
+    expect(wantsUpgrade(ladder, '500k', 1500, 'full_res')?.url).toBe(`${base}/spz-full.spz`);
+    expect(wantsUpgrade(ladder, '500k', 1500, '500k')).toBeNull();
+  });
+
+  it('reads `spz-full.spz` as full res, and never "full" inside another word', () => {
+    expect(tierOfUrl('https://cdn/x/spz-full.spz')).toBe('full_res');
+    expect(tierOfUrl('https://cdn/x/abc_sand_full.spz')).toBe('full_res');
+    expect(tierOfUrl('https://cdn/x/spz-full.spz?token=abc')).toBe('full_res');
+    expect(tierOfUrl('https://cdn/x/spz-fullscreen.spz')).toBe('unknown');
+    expect(tierOfUrl('https://cdn/x/9be4full.spz')).toBe('unknown');
+  });
 });
 
 describe('what a device may load', () => {
@@ -185,5 +210,42 @@ describe('loading a splat file', () => {
   it('throws with the status when the CDN says no', async () => {
     const res = { ok: false, status: 404, statusText: 'Not Found', headers: new Headers() } as unknown as Response;
     await expect(loadSpz('https://cdn/x.spz', { fetchImpl: async () => res })).rejects.toThrow('404');
+  });
+
+  /**
+   * An uncompressed `.spz` whose header promises more points than the file can hold is a stub or a
+   * truncated download. Spark allocates for `numPoints` before it counts the bytes, so handing one
+   * over freezes the tab — the mock provider's 200-byte file reads as 4,029,657,789 splats, about
+   * 60 GB. `loadSpz` refuses it, which turns a hang into an error the splat layer recovers from
+   * with the measured room still on screen.
+   */
+  const spzBytes = (numPoints: number, total: number): Uint8Array => {
+    const b = new Uint8Array(Math.max(16, total));
+    b.set([0x4e, 0x47, 0x53, 0x50], 0); // 'NGSP'
+    new DataView(b.buffer).setUint32(4, 2, true); // version 2
+    new DataView(b.buffer).setUint32(8, numPoints, true);
+    return b;
+  };
+  const served = (body: Uint8Array) =>
+    ({ ok: true, headers: new Headers({ 'content-length': String(body.byteLength) }), arrayBuffer: async () => body.buffer }) as unknown as Response;
+
+  it('refuses an uncompressed spz whose header cannot fit in the file', async () => {
+    const stub = spzBytes(4_029_657_789, 200);
+    await expect(loadSpz('https://cdn/spz-100k.spz', { fetchImpl: async () => served(stub) })).rejects.toThrow(/spz-100k\.spz is not a usable splat file/);
+    await expect(loadSpz('https://cdn/spz-100k.spz', { fetchImpl: async () => served(stub) })).rejects.toThrow(/4,029,657,789 splats/);
+  });
+
+  it('accepts a small file whose header is honest about it', async () => {
+    // 4 points × 19 bytes + the 16-byte header = 92, so 128 bytes is comfortably enough.
+    const ok = spzBytes(4, 128);
+    const file = await loadSpz('https://cdn/tiny.spz', { fetchImpl: async () => served(ok) });
+    expect(file.bytes.byteLength).toBe(128);
+  });
+
+  it('leaves a gzipped file to Spark: the header is behind the deflate stream', async () => {
+    const gz = new Uint8Array(64);
+    gz.set([0x1f, 0x8b, 0x08, 0x00], 0);
+    const file = await loadSpz('https://cdn/real.spz', { fetchImpl: async () => served(gz) });
+    expect(file.bytes.byteLength).toBe(64);
   });
 });

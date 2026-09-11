@@ -473,13 +473,18 @@ export function roomFromFusion(raw: RawRoom, fusion: Pick<FusionResult, 'scale' 
     const row = fusion.residuals.find((r) => r.source === source && r.unit === 'm');
     if (!row) return { dimension, measured, text: `Model measures ${measured.toFixed(2)} m` };
     const delta = round(measured - row.expected, 3);
-    const sign = delta > 0 ? '+' : delta < 0 ? '−' : '±';
+    /* The line is printed in centimetres, so it takes its sign from the centimetres it prints. A
+       residual under half a centimetre reads "±0.00 m" — agreement to the precision shown — rather
+       than the "−0.00 m" a signed millimetre puts on a room whose model matches the drawing. `delta`
+       itself keeps the millimetre, because a caller grading the line is not reading the sign. */
+    const shown = Math.abs(round(delta, 2));
+    const sign = shown === 0 ? '±' : delta > 0 ? '+' : '−';
     return {
       dimension,
       measured,
       expected: row.expected,
       delta,
-      text: `${says} ${row.expected.toFixed(2)} m · model measures ${measured.toFixed(2)} m (${sign}${Math.abs(delta).toFixed(2)} m)`,
+      text: `${says} ${row.expected.toFixed(2)} m · model measures ${measured.toFixed(2)} m (${sign}${shown.toFixed(2)} m)`,
     };
   });
   return { ...dims, lines };

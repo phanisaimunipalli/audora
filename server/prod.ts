@@ -14,7 +14,9 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
-import { configureEnv, handleApi, startBackendWorker } from './api.js';
+import { configureEnv, configureLocalStore, handleApi, startBackendWorker } from './api.js';
+import { localPaths, localRoot } from './local.js';
+import { handleLocal, isLocalRoute } from './localRoutes.js';
 
 // `server/` and `shared/` are both compiled, so the emit keeps their directories: this file is
 // dist-server/server/prod.js and the repository root — where dist/ and .env live — is two up.
@@ -38,7 +40,15 @@ function loadDotEnv(file: string): Record<string, string> {
   }
   return out;
 }
-configureEnv({ ...loadDotEnv(path.join(ROOT, '.env')), ...(process.env as Record<string, string>) });
+const ENV: Record<string, string> = { ...loadDotEnv(path.join(ROOT, '.env')), ...(process.env as Record<string, string>) };
+configureEnv(ENV);
+// `npx audora generate` writes into the checkout's `.audora/local`, which sits beside dist/ — not
+// necessarily the directory `npm start` happened to be run from, so the CLI's store is resolved
+// from this file's root rather than the process's. `AUDORA_LOCAL_DIR` overrides it (server/local.ts).
+const LOCAL_STORE = localPaths(localRoot(ROOT, ENV));
+// Stated once, after configureEnv (which clears it), so this server and everything inside handleApi
+// resolve the same store — the two mounts cannot drift apart.
+configureLocalStore(LOCAL_STORE);
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -143,6 +153,21 @@ function text(res: ServerResponse, status: number, message: string) {
 const server = http.createServer((req, res) => {
   const method = req.method || 'GET';
   const url = new URL(req.url || '/', 'http://localhost');
+  // The CLI's read-only routes, before the API and before the static handler: `/local-assets/` is
+  // not an API path, and `/api/local/` has to be answered here rather than inside handleApi so it
+  // reads THIS server's root instead of whatever directory the process was started in.
+  if (isLocalRoute(url.pathname)) {
+    handleLocal(req, res, LOCAL_STORE)
+      .then((handled) => {
+        if (!handled && !res.headersSent) text(res, 404, 'not found');
+      })
+      .catch((err: unknown) => {
+        console.error('local route error', err);
+        if (!res.headersSent) text(res, 500, 'local route error');
+        else res.end();
+      });
+    return;
+  }
   if (url.pathname.startsWith('/api/')) {
     handleApi(req, res)
       .then((handled) => {

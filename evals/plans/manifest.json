@@ -455,7 +455,7 @@
           ]
         }
       ],
-      "note": "6 rooms. Feet and inches with the draughtsman's own metric restatement in brackets, which is the mixed form metresFromDimensions prefers. This is the plan the demo unit carries parsed in src/state/seed.ts, so the reader is measured on the sheet the product actually ships."
+      "note": "6 rooms. Feet and inches with the draughtsman's own metric restatement in brackets, which is the mixed form metresFromDimensions prefers, plus a stated ceiling height per room in the same form. Ceilings are not scored here (the ground truth above is width and depth), but they are what the sheet prints and what makes the demo's ceiling a measurement rather than an assumption. This is the plan the demo unit carries parsed in src/state/seed.ts, so the reader is measured on the sheet the product actually ships."
     },
     {
       "file": "townhouse-listing.jpg",

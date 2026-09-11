@@ -7,6 +7,7 @@ import { preparePhoto } from '@/lib/image';
 import { autoStage, makePiece } from '@/engine/autostage';
 import { mockRawGeometry, mockWorld } from '@/services/mockWorld';
 import { uid } from '@/lib/ids';
+import { FLOORPLAN_UNCERTAINTY_M } from '@/services/floorplan';
 import { defaultHeading, dominantWindowWall, facingToHeading } from '@/engine/siteSun';
 import { isOneRoom } from '@shared/collider';
 import { fuseScale, orientPlan, roomFromFusion, type RoomMeasurement, type ScaleConstraints } from '@shared/fusion';
@@ -385,6 +386,20 @@ export function ensureRealRoom(tourId: string) {
  * measures" shows a real residual — a centimetre or two on most rooms, a full 5 cm on the second
  * bedroom, which is the room a renter's bed does not fit in and the one worth arguing about.
  *
+ * `ceiling` is the same idea for the one dimension a photograph cannot recover. A drawing that
+ * prints a ceiling height states a measurement (±3 cm in `shared/fusion.ts`); a drawing that does
+ * not leaves the standard 2.44 m, which is a prior with a ±12 cm on it. The demo's rooms are 2.48 to
+ * 2.76 m, so fusing them against 2.44 m put a red "Ceiling stated 2.44 m · model measures 2.55 m"
+ * line on four rooms whose models were right and made the hub lead with "4 ceilings over 10 cm" —
+ * a defect in the *inputs*, not in the fit. The sheet prints the ceilings now, and the numbers below
+ * are what the simulated reconstructions actually measure, to the centimetre a drawing is printed
+ * to: `mockRawGeometry('demo:<name>', type).height × 2.03`, deterministic and recomputed by
+ * `tests/demo-plan.test.ts` so neither copy can drift.
+ *
+ * The corner room prints 2.44 m because it is a real Marble capture with no ground truth for its
+ * ceiling and 2.44 m is the storey's standard — and it is anchored on that very height, so
+ * `demoMeasurement` leaves it out of that room's fit rather than entering one assumption twice.
+ *
  * The hallway is on the sheet because `inferAdjacency` hangs every room off the storey's hallway,
  * so the graph is the one a renter would actually walk — living → hall → each bedroom — instead of
  * a chain in sheet order. It is photographed too (`ensureHallwayRoom` below): a corridor nobody
@@ -397,19 +412,23 @@ interface DemoPlanRoom {
   /** Metres, read off `text`. */
   width: number;
   depth: number;
+  /** Metres, read off `ceilingText`: the ceiling height the sheet prints for this room. */
+  ceiling: number;
   /** Exactly what the sheet prints beside the room. */
   text: string;
+  /** Exactly what the sheet prints for the ceiling, on its own line. */
+  ceilingText: string;
   windows: number;
   doors: number;
 }
 
 const DEMO_PLAN_ROOMS: DemoPlanRoom[] = [
-  { name: 'Living room', type: 'living', width: 5.3, depth: 5.78, text: `17'-5" × 19'-0" (5.30 × 5.78 m)`, windows: 2, doors: 2 },
-  { name: 'Dining room', type: 'dining', width: 3.3, depth: 4.1, text: `10'-10" × 13'-5" (3.30 × 4.10 m)`, windows: 2, doors: 1 },
-  { name: 'Hallway', type: 'hallway', width: 7, depth: 1.2, text: `23'-0" × 3'-11" (7.00 × 1.20 m)`, windows: 0, doors: 5 },
-  { name: 'Primary bedroom', type: 'bedroom', width: 3.3, depth: 3.8, text: `10'-10" × 12'-6" (3.30 × 3.80 m)`, windows: 2, doors: 1 },
-  { name: 'Second bedroom', type: 'bedroom', width: 2.8, depth: 3, text: `9'-2" × 9'-10" (2.80 × 3.00 m)`, windows: 1, doors: 1 },
-  { name: 'Corner room', type: 'bedroom', width: 3, depth: 4.06, text: `9'-10" × 13'-4" (3.00 × 4.06 m)`, windows: 2, doors: 1 },
+  { name: 'Living room', type: 'living', width: 5.3, depth: 5.78, ceiling: 2.55, text: `17'-5" × 19'-0" (5.30 × 5.78 m)`, ceilingText: `CEILING 8'-4" (2.55 m)`, windows: 2, doors: 2 },
+  { name: 'Dining room', type: 'dining', width: 3.3, depth: 4.1, ceiling: 2.76, text: `10'-10" × 13'-5" (3.30 × 4.10 m)`, ceilingText: `CEILING 9'-1" (2.76 m)`, windows: 2, doors: 1 },
+  { name: 'Hallway', type: 'hallway', width: 7, depth: 1.2, ceiling: 2.6, text: `23'-0" × 3'-11" (7.00 × 1.20 m)`, ceilingText: `CEILING 8'-6" (2.60 m)`, windows: 0, doors: 5 },
+  { name: 'Primary bedroom', type: 'bedroom', width: 3.3, depth: 3.8, ceiling: 2.57, text: `10'-10" × 12'-6" (3.30 × 3.80 m)`, ceilingText: `CEILING 8'-5" (2.57 m)`, windows: 2, doors: 1 },
+  { name: 'Second bedroom', type: 'bedroom', width: 2.8, depth: 3, ceiling: 2.48, text: `9'-2" × 9'-10" (2.80 × 3.00 m)`, ceilingText: `CEILING 8'-2" (2.48 m)`, windows: 1, doors: 1 },
+  { name: 'Corner room', type: 'bedroom', width: 3, depth: 4.06, ceiling: 2.44, text: `9'-10" × 13'-4" (3.00 × 4.06 m)`, ceilingText: `CEILING 8'-0" (2.44 m)`, windows: 2, doors: 1 },
 ];
 
 const DEMO_PLAN_FLOOR = 'Third floor';
@@ -438,24 +457,63 @@ export const DEMO_PLAN_FILE = 'floorplan-oak-unit3.png';
 const DEMO_HALLWAY_NAME = 'Hallway';
 const DEMO_HALLWAY_METRES = { width: 6.97, depth: 1.21 };
 
-/** Give the demo unit its corridor, once. Idempotent: it runs on every load, like the real rooms. */
+/**
+ * True when the corridor the tour holds is the one the sheet draws, inside the ±5 cm a drawing is
+ * worth. Either way round, because a rectangle does not state which of its sides the plan called
+ * the width (`orientPlan`).
+ */
+function corridorMatchesPlan(g: RoomGeometry, plan: DemoPlanRoom): boolean {
+  const near = (a: number, b: number) => Math.abs(a - b) <= FLOORPLAN_UNCERTAINTY_M;
+  return (near(g.width, plan.width) && near(g.depth, plan.depth)) || (near(g.width, plan.depth) && near(g.depth, plan.width));
+}
+
+/**
+ * Give the demo unit its corridor, and keep it the corridor the sheet draws. Idempotent: it runs on
+ * every load, like the real rooms above.
+ *
+ * The repair branch matters because a corridor drawn from `mockRawGeometry`'s own hallway range —
+ * 1.3–2.0 m by 3.0–5.0 m, a hall and not a passage — is nothing like the 7.00 × 1.20 m the plan
+ * prints, and a browser that seeded one before the `metres` override existed keeps it for good:
+ * every later pass only fills in what is missing. The renter then walks out of the living room into
+ * a room whose "plan says / model measures" panel is red in both dimensions. So a Hallway that is
+ * outside the plan's ±5 cm is re-simulated from the same seed and re-measured, and one that is
+ * inside it is left exactly as it is.
+ */
 function ensureHallwayRoom(tourId: string) {
   const s = useAudora.getState();
   const tour = s.tours[tourId];
-  if (!tour || tour.roomIds.some((id) => s.rooms[id]?.name === DEMO_HALLWAY_NAME)) return;
+  if (!tour) return;
+  const plan = DEMO_PLAN_ROOMS.find((r) => r.name === DEMO_HALLWAY_NAME) as DemoPlanRoom;
+  const existing = tour.roomIds.map((id) => s.rooms[id]).find((r) => r?.name === DEMO_HALLWAY_NAME);
+  if (existing && corridorMatchesPlan(existing.geometry, plan)) return;
   const raw = mockRawGeometry(`demo:${DEMO_HALLWAY_NAME}`, 'hallway', DEMO_HALLWAY_METRES);
   // The same anchor the demo's other simulated rooms carry: a tapped interior door, ±4 cm.
   const anchor = anchorFromDoor(raw, 0.42, [{ x: 0.18, y: 0.28 }, { x: 0.18, y: 0.71 }]);
-  const room = s.addRoom(tourId, { name: DEMO_HALLWAY_NAME, type: 'hallway', raw, anchor });
-  const fresh = useAudora.getState().rooms[room.id];
+  const roomId = existing?.id ?? s.addRoom(tourId, { name: DEMO_HALLWAY_NAME, type: 'hallway', raw, anchor }).id;
+  if (existing) {
+    // Re-simulate in place, and drop the measurement taken of the room it used to be: `applyDemoPlan`
+    // writes a fresh one against the corridor it is now, on this same pass.
+    useAudora.getState().setRaw(roomId, raw);
+    useAudora.getState().setAnchor(roomId, anchor);
+    useAudora.getState().updateRoom(roomId, { measurement: undefined });
+  }
+  const fresh = useAudora.getState().rooms[roomId];
   // Generated with the rest of the unit, three days ago — the model date every demo room shows.
-  useAudora.getState().attachWorld(room.id, { ...mockWorld(fresh, 'draft', 24), createdAt: Date.now() - 3 * 86400e3 });
-  const staged = useAudora.getState().rooms[room.id];
-  useAudora.getState().setStaging(room.id, autoStage(staged.geometry, staged.type, 'warm'), 'warm');
+  useAudora.getState().attachWorld(roomId, { ...mockWorld(fresh, 'draft', 24), createdAt: Date.now() - 3 * 86400e3 });
+  const staged = useAudora.getState().rooms[roomId];
+  useAudora.getState().setStaging(roomId, autoStage(staged.geometry, staged.type, 'warm'), 'warm');
 }
 
-/** What goes on a room: the plan's metres, its printed string, and which sheet it came off. */
-const planDimsOf = (r: DemoPlanRoom): PlanDimensions => ({ width: r.width, depth: r.depth, text: r.text, planRoomName: r.name, floor: DEMO_PLAN_FLOOR });
+/** What goes on a room: the plan's metres, its printed strings, and which sheet it came off. */
+const planDimsOf = (r: DemoPlanRoom): PlanDimensions => ({
+  width: r.width,
+  depth: r.depth,
+  height: r.ceiling,
+  text: r.text,
+  ceilingText: r.ceilingText,
+  planRoomName: r.name,
+  floor: DEMO_PLAN_FLOOR,
+});
 
 /** The parsed plan the demo tour carries. Fixed, so the demo is the same unit in every browser. */
 export function demoFloorPlan(): TourFloorPlan {
@@ -471,6 +529,8 @@ export function demoFloorPlan(): TourFloorPlan {
           depth: r.depth,
           dimensionsText: r.text,
           dimensionsFrom: 'text',
+          height: r.ceiling,
+          ceilingText: r.ceilingText,
           windows: r.windows,
           doors: r.doors,
         })),
@@ -510,8 +570,33 @@ export function demoFloorPlan(): TourFloorPlan {
  *   nothing that feeds or stamps a measurement reads `Date.now()` here.
  */
 
-/** Anchors that already ARE the assumed ceiling; adding a ceiling constraint beside one counts it twice. */
+/** Anchors that already ARE the room's ceiling; adding a ceiling constraint beside one counts it twice. */
 const CEILING_ANCHORS: ReadonlySet<string> = new Set(['ceiling', 'assumed']);
+
+/**
+ * The ceiling constraint for one demo room — the judgement `scaleConstraintsFor` (server/pipeline)
+ * makes, from the same field (`planDims.height`).
+ *
+ * A height the drawing **printed** is a measurement of this room: ±3 cm, and it corroborates the
+ * plan's width and depth rather than sitting beside them as an assumption. A height nobody printed
+ * leaves the standard 2.44 m, which is still a real prior at ±12 cm — but only when the room's
+ * anchor is not itself a ceiling anchor, because then the two are one assertion entered twice and
+ * the fit would report a confidence it has not earned.
+ *
+ * One deliberate difference from the server: the ceiling-anchor guard here applies to a **printed**
+ * height as well, not only to the standard one. The corner room is why. It is anchored on the
+ * assumed 2.44 m, and the sheet prints that same 2.44 m because it is a real capture whose ceiling
+ * nobody has measured — so entering it as a ±3 cm reading beside the anchor derived from it would
+ * turn one assumption into two agreeing sources and report a tautology as corroboration. It gets no
+ * ceiling constraint, and its height line says "no source", which is the truth about that room. The
+ * server would take the printed height there; closing that gap means re-deriving the anchor from
+ * the printed height rather than adding a constraint beside it, which is a change to `anchor.ts`.
+ */
+function ceilingConstraintFor(anchorMethod: string, printedM: number | undefined): ScaleConstraints['ceiling'] {
+  if (CEILING_ANCHORS.has(anchorMethod)) return undefined;
+  if (typeof printedM === 'number' && printedM > 0) return { heightM: printedM, printed: true };
+  return { heightM: CEILING_HEIGHT_M, printed: false };
+}
 
 function demoMeasurement(room: Pick<Room, 'raw' | 'anchor' | 'planDims' | 'draft' | 'full'>): RoomMeasurement | undefined {
   const plan = room.planDims;
@@ -527,11 +612,12 @@ function demoMeasurement(room: Pick<Room, 'raw' | 'anchor' | 'planDims' | 'draft
   // The wall fit's rotation is only defined modulo 90°, so orient the printed pair onto the model's
   // axes before pairing them — the same rule the server uses, from the same module.
   const oriented = orientPlan(raw, { width: plan.width, depth: plan.depth });
+  const ceiling = ceilingConstraintFor(room.anchor.method, plan.height);
   const constraints: ScaleConstraints = {
     raw,
     plan: { width: oriented.width, depth: oriented.depth },
     anchor: { metresPerUnit: room.anchor.metresPerUnit, uncertaintyM: room.anchor.uncertaintyM, referenceMetres: room.anchor.referenceMetres },
-    ...(CEILING_ANCHORS.has(room.anchor.method) ? {} : { ceiling: { heightM: CEILING_HEIGHT_M, printed: false } }),
+    ...(ceiling ? { ceiling } : {}),
   };
   const fusion = fuseScale(constraints);
   const fused = roomFromFusion(raw, fusion);
@@ -612,6 +698,12 @@ function ensureDemoPlan(tourId: string) {
  * Seeds before {@link SEED_VERSION} 10 carried a five-room plan with no drawing behind it, no
  * hallway and no Corner room, and no room carried a measurement. This replaces all three and
  * touches nothing else on the tour or its rooms.
+ *
+ * Seeds before 12 carried a plan that printed no ceiling, so every simulated room was fused against
+ * the standard 2.44 m and four of them reported a ceiling 11 to 31 cm out on a model that was
+ * right. The sheet prints each room's ceiling now, so this pass rewrites `planDims` — the printed
+ * height included — and re-measures against it. It still only touches rooms whose dimensions are
+ * still the demo's own (`ownsDims`), so a leasing team's own numbers survive it.
  */
 export function migrateDemoPlan(tourId: string) {
   applyDemoPlan(tourId, true);
@@ -634,7 +726,7 @@ export const DEMO_UNIT = {
 };
 
 /** Bump when the staging engine, the demo rooms or the demo unit's own copy change; existing browsers re-seed on next load. */
-export const SEED_VERSION = 11;
+export const SEED_VERSION = 12;
 
 /** Re-run the current stager over the demo rooms (keeps rooms, anchors, worlds and analytics). */
 export function restageDemo(tourId: string) {

@@ -143,8 +143,19 @@ export interface PlanDimensions {
   /** Metres. */
   width: number;
   depth: number;
+  /**
+   * The ceiling height the plan **printed**, metres. Optional, and its absence is the point: a
+   * printed height is a measurement of this room (±3 cm, `CEILING_PRINTED_SIGMA_M`), where the
+   * standard 2.44 m is only our own prior (±12 cm, and flagged as an assumption when it disagrees).
+   * This is the field `scaleConstraintsFor` on the server and `demoMeasurement` in the seed both
+   * read to decide which of the two a room's ceiling is fused with; it mirrors the server's
+   * `rooms.plan_dims.height`.
+   */
+  height?: number;
   /** Exactly what the plan printed. */
   text?: string;
+  /** Exactly what the plan printed for the ceiling, when it printed one. */
+  ceilingText?: string;
   /** The plan's own name for the room, and the floor it put it on. */
   planRoomName?: string;
   floor?: string;
@@ -319,6 +330,14 @@ export interface Tour {
   notify: { browser: boolean; email: string };
   agent: { name: string; brandColor: string };
   copy?: string;
+  /**
+   * Set only on a tour imported from a unit the CLI generated on this machine
+   * (`npx audora generate`, docs/CLI.md): the unit id — which is also this tour's `shareId` — and a
+   * hash of the unit file as it was imported. The hash is what makes re-opening `/t/<id>` cheap and
+   * idempotent: `openLocalUnit` (src/services/localUnit.ts) re-imports only when the bytes on disk
+   * have changed. Its presence is also what puts the "local" badge on the renter's frame.
+   */
+  localUnit?: { id: string; hash: string };
 }
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed';

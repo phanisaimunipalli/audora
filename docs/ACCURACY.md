@@ -129,8 +129,24 @@ The demo unit carries it end to end: `public/demo/floorplan-oak-unit3.png` print
 dimensions in feet and inches with the draughtsman's metric restatement, the seed re-reads that
 printed string with `metresFromDimensions` and measures every room against it with the same
 `shared/fusion` functions the worker calls, and the hub leads with *6 of 7 rooms measured · median
-0.5% against the plan* (the seventh is the furnished flat, a showcase world from another building
+0.3% against the plan* (the seventh is the furnished flat, a showcase world from another building
 with no sheet to compare against). The viewer's measured panel carries the same lines per room.
+
+**And the sheet states its ceilings** (2026-09-08). It did not, so every simulated room was fused
+against the standard 2.44 m — a *prior*, ±12 cm — and four rooms that are 2.55 to 2.76 m high showed
+a red "Ceiling stated 2.44 m · model measures 2.76 m" line while the hub led with *4 ceilings over
+10 cm*. Nothing was wrong with the fit: the room the model built was the room the seed drew, and the
+only thing out by 31 cm was our own assumption about a building we had not asked. The drawing prints
+a ceiling per room now (`CEILING 9'-1" (2.76 m)`, the same mixed form as the dimensions), the seed
+stores it as `planDims.height` — the field `scaleConstraintsFor` on the server already read — and
+fusion weights it at `CEILING_PRINTED_SIGMA_M` (±3 cm) as a *measurement*, so it corroborates the
+plan instead of contradicting it. The printed heights are the heights the simulated worlds actually
+have, recomputed from `mockRawGeometry`'s deterministic draw by `tests/demo-plan.test.ts`, so the
+sheet cannot drift from the rooms. Every simulated room now measures its ceiling inside a centimetre,
+with three independent sources instead of two and confidence 0.91 to 0.97. The corner room is the
+one room that states no ceiling to the fit: it is a real capture with no ground truth for its height
+and it is anchored on the standard 2.44 m, so entering the sheet's 2.44 m beside that anchor would
+count one assumption twice, and its height line says "no source" instead.
 
 **And it is walkable** (2026-09-08). The demo's corridor is photographed like every other room —
 `ensureHallwayRoom` in `src/state/seed.ts`, simulated from the same `mockRawGeometry` at the size

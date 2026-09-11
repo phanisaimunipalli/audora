@@ -225,6 +225,16 @@ export function SplatWorld({ world, visible = true, onStatus, opacity = 1, trans
           drop(mesh);
           return;
         }
+        /* A file that parsed but holds no splats is a FAILED load, not a finished one. Reporting
+           `ready` for it takes the measured shell away (TourViewer: `shell = !photoOnly && !splat`)
+           and leaves the renter standing in an empty white frame with no way back. It is how a
+           truncated download and a stubbed file both arrive — the mock provider's 200-byte `.spz`
+           is exactly this — so it falls through to the catch below like any other load failure,
+           which keeps whatever tier is already on screen and otherwise says so. */
+        if (!(mesh.packedSplats?.numSplats ?? 0)) {
+          drop(mesh);
+          throw new Error(`the splat file ${rung.url.split('/').pop()} holds no splats`);
+        }
         mesh.visible = visibleRef.current;
         await crossFade(current, mesh);
         if (cancelled) return;

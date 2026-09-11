@@ -628,3 +628,70 @@ leaves a doomed job in a leasing team's queue), `worlds.credits` / `worlds.usd` 
 not read back on completion), and `src/services/backend.ts`, the §8 adapter that would switch the
 store over when `/api/status` reports `backend: true`. `ProviderStatus.backend` is already the flag
 it will read, and `server/routes.ts` is the contract it will read it against.
+
+## The CLI: photos in, a localhost URL out (2026-09-10, integrator)
+
+**`docs/CLI.md` is the contract.** `npx audora generate ./photos --open` takes a folder of
+photographs to a walkable, measured room in one command — no browser wizard, no Supabase, no
+account. It is the demo path: the happy path is one URL that works, and the plan / address / vision
+extras are optional and must never block it.
+
+It reuses the pipeline rather than reimplementing it: the same canonicalisation
+(`server/photos.ts`), the same recipe and seed (`server/recipe.ts`), the same provider port
+(`selectProvider` in `server/worker.ts`, so `marbleProvider`'s field handling is the one already
+proven against the live API), and the same measurement (`shared/collider.ts` + `shared/fusion.ts`).
+What is new is where the result goes: a folder of plain JSON instead of Postgres and a bucket.
+
+### Module map
+
+```
+server/local.ts        the store's shape and nothing else: localRoot/localPaths (AUDORA_LOCAL_DIR),
+                       unitIdFor (sha256 over the sorted recipe hashes, first 8 hex), localAssetUrl,
+                       the LocalUnit/LocalRoom/LocalWorld documents, the world cache, isSafeSegment.
+                       No network, no provider, no clock.
+server/localGenerate.ts steps 1-7 of docs/CLI.md: scan the folder → canonicalise → recipe → look in
+                       the world cache → cost + confirmation → submit with seed + disable_recaption →
+                       poll → wait for the panorama → download every asset → measure the collider →
+                       write the unit. Logs every provider response shape on failure.
+server/localRoutes.ts  read-only: GET /api/local/units, GET /api/local/units/:id (the file byte for
+                       byte, content-hash ETag), /local-assets/<worldId>/<file> (immutable, correct
+                       content types). Every segment is percent-decoded then checked, then the
+                       resolved path is re-checked to be inside the store.
+server/cli.ts          the terminal and nothing else: parseArgs, the cost question, one progress line
+                       per room, the URL last, the browser opener and the server probe.
+scripts/link-bin.mjs   postbuild: links node_modules/.bin/audora → dist-server/server/cli.js, because
+                       npm does not link a package's own bin and that directory is where npx looks.
+src/services/localUnit.ts  the reader: fetch /api/local/units/:id, build the world through
+                       worldFromMarble (the live-API field names, so one code path reads them),
+                       addRoom → attachWorld → updateRoom exactly as src/state/seed.ts does, and
+                       re-import only when the file's content hash changed.
+src/routes/PublicTour.tsx  a share id the browser store does not have asks the local server before
+                       the link is called dead; a small "local" badge says where the model came from.
+```
+
+### Conventions
+
+- **One store, resolved once.** `localPaths(localRoot(root, env))` is the only way anything finds
+  `.audora/local`, and `AUDORA_LOCAL_DIR` overrides it for writer and reader together. Each entry
+  point states its own root once — `server/prod.ts` from the directory above `dist/`, the Vite
+  plugin from Vite's project root — and hands it to `configureLocalStore` in `server/api.ts`, so no
+  request ever resolves the store from whatever directory the process happened to start in. The CLI
+  owns every write; nothing under `/api/local` writes.
+- **The id is a hash, never a clock.** Same photos and options → same recipe hashes → same unit id →
+  same URL, on every machine, every run. A room whose recipe already has a cached world is reused,
+  so the second run of a folder spends nothing. `createdAt` is recorded in the document and kept
+  across re-runs, because "created" should not move when the id cannot.
+- **Because the plan dimensions and the ceiling are *in* the recipe** (docs/BACKEND.md §2), adding
+  `--dims` or `--ceiling` after a run is a new recipe and therefore a new, paid generation. Pass
+  them on the first run.
+- **`spz_urls` keys.** Marble's top rung is `full_res`; every copy we own — the backend worker's
+  `spzName` and the CLI's `spzAssetName` — folds it to `full` so the stored file can be called
+  `spz-full.spz`. `tierOfKey` (src/three/splat/tiers.ts) maps that back, and `tierOfUrl` reads our
+  hyphenated names as well as Marble's underscored ones. Without it the rung classified as
+  `unknown`, `withinCeiling` dropped it, and the full-resolution splat was downloaded, stored,
+  served and unreachable — for the backend as much as for the CLI.
+- **A splat file is checked before Spark is handed it.** `SplatMesh` allocates for the header's
+  `numPoints` before it counts the bytes, so an uncompressed `.spz` whose header promises more
+  points than the file can hold freezes the tab rather than failing. `loadSpz` refuses it, which
+  turns a hang into an error the layer reports with the measured room still on screen. Real Marble
+  files are gzipped and are left to Spark, which fails them in its own inflater.

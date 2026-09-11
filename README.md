@@ -28,6 +28,54 @@ npm run build       # production bundle in dist/
 npm run preview     # serves dist/ with the same /api proxy
 ```
 
+## CLI: photos in, a localhost URL out
+
+The shortest path from a folder of photographs to a walkable room, with no browser wizard and no
+Supabase. Full contract in **[docs/CLI.md](docs/CLI.md)**.
+
+```bash
+npm install && npm run build          # emits dist-server/ and puts `audora` on npx's path
+npm run dev                           # in another terminal: the viewer, on 5173
+
+npx audora generate ./photos --open   # from the repository root: one URL, and it opens
+```
+
+Run it **from the repository root** — that is where `npx` finds this checkout's own `audora`
+(`node_modules/.bin/audora`, linked by `npm run build`); from anywhere else it would go looking on
+the public registry instead.
+
+A flat folder is one room. Subfolders are the rooms of one unit — the folder name becomes the room
+name, so `photos/living/*.jpg` and `photos/bedroom/*.jpg` make a two-room unit you can walk between.
+The tool canonicalises and hashes every photo, builds the same recipe the backend builds, generates
+with World Labs Marble, downloads every asset into `.audora/local/`, measures the collider, and
+prints `http://localhost:<port>/t/<unit-id>`. Opening it lands you in the room: walk, dollhouse,
+measure, layers, and the unit map, with a small **local** badge saying where the model came from.
+
+```bash
+npx audora generate ./photos --dims living=5.3x5.8 --ceiling 2.6   # printed plan numbers, for scale
+npx audora list                                                     # the units made so far, with URLs
+npx audora open <id> --open                                         # print (and open) one again
+npx audora serve                                                    # start the production server if nothing answers
+```
+
+**It never spends twice for the same photographs.** The unit id is a hash of the recipes, so the same
+photos and options give the same URL every run, and a room whose recipe already has a world is
+reused rather than regenerated — the second run of the same folder generates nothing. Before it does
+spend anything it prints the cost and asks; `--yes` skips the question, and `MARBLE_MAX_GENERATIONS`
+still caps it.
+
+**Try it without spending a credit:**
+
+```bash
+MARBLE_MOCK=1 npx audora generate ./photos --yes
+```
+
+Everything runs — canonicalisation, recipe, seed, polling, asset download, collider measurement,
+fusion — against a simulated provider, and nothing on the network is touched: not Marble, and not
+the vision model either (`--ai`, which is off unless you ask for it). The room you walk is the
+measured shell rather than a capture, because the simulated splat file is a stub rather than real
+Gaussian splats.
+
 ## Deploy (Render, or any Node host)
 
 `npm run build` produces `dist/` (the app) and `dist-server/` (the production server, compiled from

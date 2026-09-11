@@ -330,6 +330,14 @@ export interface Tour {
   notify: { browser: boolean; email: string };
   agent: { name: string; brandColor: string };
   copy?: string;
+  /**
+   * Set only on a tour imported from a unit the CLI generated on this machine
+   * (`npx audora generate`, docs/CLI.md): the unit id — which is also this tour's `shareId` — and a
+   * hash of the unit file as it was imported. The hash is what makes re-opening `/t/<id>` cheap and
+   * idempotent: `openLocalUnit` (src/services/localUnit.ts) re-imports only when the bytes on disk
+   * have changed. Its presence is also what puts the "local" badge on the renter's frame.
+   */
+  localUnit?: { id: string; hash: string };
 }
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed';

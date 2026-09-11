@@ -1,6 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { selectTourByShare, useAudora, useTourJobs, useTourRooms } from '@/state/store';
+import type { Tour } from '@/state/types';
+import { openLocalUnit } from '@/services/localUnit';
 import { TourViewer } from '@/screens/TourViewer';
 import { Progress, Spinner, pillClass } from '@/components/ui';
 import { Wordmark } from '@/screens/viewer/hud';
@@ -12,11 +14,16 @@ import { SourceLabel } from '@/components/marketing/SourceLabel';
  * The renter's link: /t/:shareId[/:roomId]. No app chrome. They land standing in the unit at eye
  * height. While the model is still generating they see a public-safe progress page (no provider or
  * cost detail).
+ *
+ * A share id the browser store has never seen may still be a unit this machine generated with
+ * `npx audora generate` (docs/CLI.md), so the page asks the local server for it before it decides
+ * the link is dead — that is the CLI's whole happy path, one URL that works.
  */
 export default function PublicTour() {
   const { shareId, roomId } = useParams();
   const navigate = useNavigate();
   const tour = useAudora(selectTourByShare(shareId));
+  const local = useLocalUnit(shareId, tour);
   const rooms = useTourRooms(tour?.id);
   const jobs = useTourJobs(tour?.id);
   /* Once the renter is inside the unit they stay inside it. Swapping back to the progress page
@@ -38,7 +45,9 @@ export default function PublicTour() {
     };
   }, [tour]);
 
-  if (!tour) return <NotFound />;
+  // Nothing in the store yet: the local server is still being asked, so the link is not dead until
+  // it has answered. `NotFound` is the answer to "no such unit anywhere", never to "not yet".
+  if (!tour) return local === 'missing' || local === 'failed' ? <NotFound /> : <Opening />;
 
   const ready = rooms.filter((r) => r.status === 'ready');
   if (ready.length) opened.current = true;
@@ -46,6 +55,7 @@ export default function PublicTour() {
     return <Building title={tour.title} address={tour.address} rooms={rooms.map((r) => ({ id: r.id, name: r.name, status: r.status, progress: jobs.filter((j) => j.roomId === r.id).pop()?.progress ?? 0 }))} />;
 
   const wanted = roomId && rooms.some((r) => r.id === roomId) ? roomId : undefined;
+  const badges = Boolean(tour.localUnit) || !tour.published;
   return (
     <div className="relative h-dvh w-full bg-bg">
       <TourViewer
@@ -55,15 +65,73 @@ export default function PublicTour() {
         onRoomChange={(id) => navigate(`/t/${tour.shareId}/${id}`, { replace: true })}
         className="h-full w-full"
       />
-      {!tour.published ? (
-        <div className="pointer-events-none absolute left-1/2 top-[92px] z-40 -translate-x-1/2 sm:top-[56px]" title="Clear of the top bar, which wraps to two rows on a phone.">
-          <span className="chip border-gold/40 bg-gold/8 text-gold backdrop-blur-md">
-            <span className="h-1.5 w-1.5 rounded-full bg-gold" /> Unpublished preview
-          </span>
+      {badges ? (
+        <div className="pointer-events-none absolute left-1/2 top-[92px] z-40 flex -translate-x-1/2 items-center gap-2 sm:top-[56px]" title="Clear of the top bar, which wraps to two rows on a phone.">
+          {tour.localUnit ? (
+            <span className="chip bg-bg/85 backdrop-blur-md" title={`Generated on this machine · .audora/local/units/${tour.localUnit.id}.json`}>
+              <span className="h-1.5 w-1.5 rounded-full bg-dim" /> local
+            </span>
+          ) : null}
+          {!tour.published ? (
+            <span className="chip border-gold/40 bg-gold/8 text-gold backdrop-blur-md">
+              <span className="h-1.5 w-1.5 rounded-full bg-gold" /> Unpublished preview
+            </span>
+          ) : null}
         </div>
       ) : null}
     </div>
   );
+}
+
+/* ------------------------------------------------------------------ the local unit */
+
+/**
+ * Where the local import has got to. `idle` and `opening` both mean "still asking", which is why
+ * the page shows {@link Opening} for either: the very first render happens before the effect runs,
+ * and flashing "we could not find that unit" for one frame is the one thing this must not do.
+ */
+type LocalState = 'idle' | 'opening' | 'done' | 'missing' | 'failed';
+
+/**
+ * Ask the local server for this share id — `/api/local/units/:id`, imported into the store by
+ * `openLocalUnit` (src/services/localUnit.ts).
+ *
+ * Two cases, one request. A share id the store does not have gets fetched, and so does one it has
+ * **as a local unit**, because re-opening the link is how a regenerated unit reaches the viewer;
+ * `openLocalUnit` compares the file's hash with the one the tour was imported at and does nothing
+ * at all when they match. A tour the leasing team made in the app is never asked about.
+ */
+function useLocalUnit(shareId: string | undefined, tour: Tour | undefined): LocalState {
+  const [state, setState] = useState<LocalState>('idle');
+  // The id this mount has already asked about. The effect re-runs when the import lands (`tour`
+  // becomes an object), and asking twice for the same file would import it twice.
+  const asked = useRef<string | undefined>(undefined);
+  const isLocal = Boolean(tour?.localUnit);
+  useEffect(() => {
+    if (!shareId || (tour && !isLocal) || asked.current === shareId) return;
+    asked.current = shareId;
+    if (!tour) setState('opening');
+    /* The answer is kept if this ref still names the id it was asked for, and NOT if a cleanup has
+       run. StrictMode mounts, cleans up and mounts again on the same component instance: a cleanup
+       flag would be false by the time the one request in flight resolved, while the guard above
+       makes the second run start nothing — so a dead link sat on "Opening local unit…" for ever on
+       the dev server, which is the one place this has to be honest. The ref is the guard and the
+       cancel, so they cannot disagree; a request for a share id nobody is looking at any more is
+       dropped because `asked.current` has moved on, and a `setState` after a real unmount is a
+       no-op in React 18+. */
+    const keep = (next: LocalState) => {
+      if (asked.current === shareId) setState(next);
+    };
+    void openLocalUnit(shareId)
+      .then((outcome) => keep(outcome === 'not-found' ? 'missing' : 'done'))
+      .catch((e) => {
+        // The dev server may simply not be the one serving `/api/local` (a static preview, another
+        // port). Say so in the console; the renter gets the not-found page, which is the truth.
+        console.warn('[audora] could not open the local unit', e);
+        keep('failed');
+      });
+  }, [shareId, tour, isLocal]);
+  return state;
 }
 
 function Frame({ children }: { children: React.ReactNode }) {
@@ -78,6 +146,21 @@ function Frame({ children }: { children: React.ReactNode }) {
         </Link>
       </div>
     </div>
+  );
+}
+
+/** The moment between the link and the unit, while the local file is read off this machine. */
+function Opening() {
+  return (
+    <Frame>
+      <div className="micro flex items-center gap-2">
+        <Spinner size={12} /> Unit link
+      </div>
+      <h1 className="display mt-2 text-3xl leading-[1.08] text-ink">Opening local unit…</h1>
+      <p className="mt-3 text-sm text-dim">
+        Reading the model on this machine. Units made with <span className="mono">npx audora generate</span> live in <span className="mono">.audora/local</span> and open straight from disk.
+      </p>
+    </Frame>
   );
 }
 

@@ -217,10 +217,28 @@ function fakeBytes(name: string, length: number, magic?: Buffer): Buffer {
   return out;
 }
 
-/** A JPEG's first and last markers with a JFIF header between them: enough to be recognisably one. */
+/**
+ * A 16×16 grey JPEG, everything after its SOI marker. Small, but a *real* one: a recognisable
+ * header with random bytes behind it decodes nowhere, and the broken-image glyph it leaves in the
+ * room strip is the first thing anyone sees when they try the tool without credits.
+ */
+const MOCK_JPEG_BODY = Buffer.from(
+  '/9sAQwAUDg8SDw0UEhASFxUUGB4yIR4cHB49LC4kMklATEtHQEZFUFpzYlBVbVZFRmSIZW13e4GCgU5gjZeMfZZzfoF8/9sAQwEVFxceGh47IS' +
+    'E7fFNGU3x8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8/8AAEQgAEAAQAwEiAAIRAQMRAf/EABUAAQEA' +
+    'AAAAAAAAAAAAAAAAAAAF/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/EABQBAQAAAAAAAAAAAAAAAAAAAAD/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9' +
+    'oADAMBAAIRAxEAPwCyAD//2Q==',
+  'base64',
+);
+
+/**
+ * A decodable JPEG that is still different for every asset. The per-name bytes ride in a comment
+ * segment (`FFFE`), which every decoder skips, so `pano.jpg` and `thumb.jpg` are never the same
+ * bytes — the store, the ETags and the tests can tell them apart — and both still open as pictures.
+ */
 function fakeJpeg(name: string): Buffer {
-  const head = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00]);
-  return Buffer.concat([head, fakeBytes(name, 64), Buffer.from([0xff, 0xd9])]);
+  const mark = fakeBytes(name, 64);
+  const comment = Buffer.concat([Buffer.from([0xff, 0xfe, 0x00, mark.length + 2]), mark]);
+  return Buffer.concat([Buffer.from([0xff, 0xd8]), comment, MOCK_JPEG_BODY]);
 }
 
 /**

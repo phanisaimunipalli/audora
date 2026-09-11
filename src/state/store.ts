@@ -29,6 +29,13 @@ export interface CreateTourInput {
 }
 
 export interface AddRoomInput {
+  /**
+   * The room's store id, for a caller that owns it. Only the local-unit import passes one
+   * (`localRoomId` in src/services/localUnit.ts): a unit the CLI generated has to give the same
+   * room the same `/t/:shareId/:roomId` link every time it is imported, which a random id cannot.
+   * Everything else leaves it unset and gets a fresh `uid('room')`.
+   */
+  id?: string;
   name: string;
   type: RoomType;
   photo?: PhotoRecord;
@@ -393,7 +400,7 @@ export const useAudora = create<AudoraState>()(
         const raw = input.raw ?? mockRawGeometry(`${tourId}:${input.name}:${input.photo?.dataUrl.slice(0, 2000) ?? ''}`, input.type);
         const anchor = input.anchor ?? anchorAssumed(raw);
         const room: Room = {
-          id: uid('room'),
+          id: input.id ?? uid('room'),
           tourId,
           name: input.name,
           type: input.type,

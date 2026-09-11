@@ -13,11 +13,14 @@
  *   GET  /api/marble/worlds/:id            → fetch a finished world
  *   GET  /api/fetch-image?url=             → fetch one https image for the seller (listing photo URLs)
  *   ANY  /api/v1/*                         → the Supabase backend (server/routes.ts, docs/BACKEND.md §6)
+ *   GET  /api/local/*, /local-assets/*     → what the CLI wrote (server/localRoutes.ts, docs/CLI.md)
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { appendFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { Plugin } from 'vite';
+import { localPaths, localRoot, type LocalPaths } from './local.js';
+import { handleLocal, isLocalRoute } from './localRoutes.js';
 import { marbleGenerateRequest } from './marbleRequest.js';
 import { DEFAULT_DRAFT_MODEL, DEFAULT_FULL_MODEL } from '../shared/modelPolicy.js';
 import { dbFromEnv, type Db } from './db.js';
@@ -32,6 +35,28 @@ let ENV: Env = {};
 export function configureEnv(env: Env) {
   ENV = { ...env };
   backendState = null;
+  // A new environment may name a different `AUDORA_LOCAL_DIR`, so the lazily derived store is
+  // dropped with it. An entry point that wants a specific one calls `configureLocalStore` *after*.
+  LOCAL_STORE = null;
+}
+
+/* ---------- the CLI's store (docs/CLI.md, server/local.ts) ----------
+ * `npx audora generate` writes units and assets into `.audora/local` inside the checkout, and both
+ * servers read them back. Which checkout that is cannot be guessed from `process.cwd()` — the dev
+ * server knows it as Vite's project root, the production server as the directory above dist/ — so
+ * each entry point states it once, here, and every request then resolves the store the same way.
+ * `AUDORA_LOCAL_DIR` still overrides it, because `localRoot` is what both of them call. */
+
+let LOCAL_STORE: LocalPaths | null = null;
+
+/** Point the local routes at a store. Call after {@link configureEnv}, which clears this. */
+export function configureLocalStore(paths: LocalPaths) {
+  LOCAL_STORE = paths;
+}
+
+/** The configured store, or — for a caller that never configured one — the process's directory. */
+function localStore(): LocalPaths {
+  return (LOCAL_STORE ??= localPaths(localRoot(process.cwd(), ENV)));
 }
 
 /* ---------- the Supabase backend (docs/BACKEND.md §6) ----------
@@ -436,6 +461,11 @@ async function marble(pathname: string, init: RequestInit, res: ServerResponse) 
 export async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const url = new URL(req.url || '/', 'http://localhost');
   const p = url.pathname;
+  /* The CLI's read-only routes come first, and they are tested for BEFORE the /api/ guard below,
+     because one of the two prefixes they own is `/local-assets/` — the URL a unit file carries for a
+     splat or a collider, which is deliberately not an API path. `handleLocal` answers false for
+     anything that is not one of theirs, so nothing else moves. */
+  if (isLocalRoute(p)) return await handleLocal(req, res, localStore());
   if (!p.startsWith('/api/')) return false;
   try {
     // The v1 backend owns everything under /api/v1/, including its own 404s and its 503 when
@@ -541,7 +571,11 @@ export function audoraApi(): Plugin {
       const { loadEnv } = await import('vite');
       // Through configureEnv rather than assigning ENV, so the Supabase clients built from it are
       // discarded too and a .env edit does not leave a stale one behind.
-      configureEnv({ ...loadEnv(config.mode, config.root, ''), ...(process.env as Env) });
+      const env: Env = { ...loadEnv(config.mode, config.root, ''), ...(process.env as Env) };
+      configureEnv(env);
+      // Vite's project root is the checkout, whatever directory `npx vite` was started in, so this
+      // is the answer to "which `.audora/local`" for the dev and preview servers.
+      configureLocalStore(localPaths(localRoot(config.root, env)));
     },
     configureServer(server) {
       server.watcher.unwatch(LOG_DIR);
